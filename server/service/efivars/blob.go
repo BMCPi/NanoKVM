@@ -138,7 +138,7 @@ func Encode(vars []Variable) []byte {
 
 	b := make([]byte, size)
 	binary.LittleEndian.PutUint64(b[8:16], Magic)
-	binary.LittleEndian.PutUint32(b[16:20], uint32(size)) //nolint:gosec // size is bounded by store capacity
+	binary.LittleEndian.PutUint32(b[16:20], uint32(size))
 
 	off := headerSize
 	for i := range vars {

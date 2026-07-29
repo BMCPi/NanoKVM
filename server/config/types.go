@@ -25,7 +25,53 @@ type Config struct {
 	Telemetry  Telemetry  `yaml:"telemetry"`
 	AutoUpdate AutoUpdate `yaml:"autoUpdate"`
 	MDNS       MDNS       `yaml:"mdns"`
+	Network    Network    `yaml:"network"`
 	Hardware   Hardware   `yaml:"-"`
+}
+
+// Network configures the host-facing interfaces the BMC brings up directly via
+// netlink (server/service/network), replacing the shell ip/udhcpc/ifupdown
+// setup. Modeled on jetkvm-community/kvm's split: a full static-or-DHCP wired
+// uplink (eth0) and a static link-local USB Redfish-Host-Interface link (usb0).
+type Network struct {
+	// Enabled gates the whole subsystem. When false the server configures no
+	// interfaces (e.g. when addressing is still owned by init scripts).
+	Enabled bool `yaml:"enabled"`
+	// Eth0 is the primary wired uplink.
+	Eth0 InterfaceConfig `yaml:"eth0"`
+	// RHI is the USB host-facing management link (the ecm/ncm gadget's usb0), a
+	// point-to-point IPv4 link-local segment in the Redfish Host Interface
+	// (DSP0270) style: no gateway and no DHCP server, so it can never affect BMC
+	// routing and the attached host self-assigns an APIPA address in the same
+	// /16. Matches JetKVM's usb0 handling.
+	RHI RHIConfig `yaml:"rhi"`
+}
+
+// InterfaceConfig is the addressing policy for a wired interface.
+type InterfaceConfig struct {
+	// Name is the kernel interface name (e.g. "eth0").
+	Name string `yaml:"name"`
+	// Mode is "dhcp" (default) or "static".
+	Mode string `yaml:"mode"`
+	// MAC optionally overrides the link's hardware address so the DHCP
+	// lease/identity is stable across reboots. Empty keeps the kernel MAC.
+	MAC string `yaml:"mac"`
+	// Address is the static CIDR (e.g. "192.168.1.50/24"), used only when
+	// Mode == "static".
+	Address string `yaml:"address"`
+	// Gateway is the static default-route next hop. Empty adds no default route.
+	Gateway string `yaml:"gateway"`
+	// DNS are the nameservers written to /etc/resolv.conf in static mode.
+	DNS []string `yaml:"dns"`
+}
+
+// RHIConfig is the static link-local addressing for the USB host interface.
+type RHIConfig struct {
+	// Interface is the gadget netdev name (the ecm/ncm function registers usb0).
+	Interface string `yaml:"interface"`
+	// Address is the BMC-side CIDR on the link (default 169.254.10.1/16, per
+	// RFC 3927 link-local so the host stays reachable even on an IPv4LL host).
+	Address string `yaml:"address"`
 }
 
 // MDNS configures the built-in multicast-DNS responder that advertises the
@@ -203,11 +249,12 @@ type Firmware struct {
 }
 
 // UsbGadget configures the USB device gadget (g0) that the BMC presents to the
-// managed host. The Go server is the sole owner of the gadget's configfs tree
-// (/sys/kernel/config/usb_gadget/g0): it builds the gadget at startup and
-// mutates it at runtime. This replaced the packaging/etc/init.d/S03usbdev shell
-// script and the ad-hoc /boot flag files that used to drive it; see the
-// server/service/usbgadget package.
+// managed host, and is the sole source of truth for which functions it exposes.
+// The Go server owns the gadget's configfs tree (/sys/kernel/config/usb_gadget/
+// g0): it builds the gadget from this config at startup and reconciles it when
+// these fields change. This replaced the packaging/etc/init.d/S03usbdev shell
+// script, the ad-hoc /boot flag files, and the separate runtime state file that
+// used to drive it; see the server/service/usbgadget package.
 type UsbGadget struct {
 	// Enabled gates the whole subsystem. When false the server does not touch
 	// the gadget configfs at all (e.g. boards without a device-mode UDC).
@@ -226,6 +273,18 @@ type UsbGadget struct {
 	// units as configfs expects (120).
 	MaxPower     int    `yaml:"maxPower"`
 	BmAttributes string `yaml:"bmAttributes"`
+
+	// Ethernet selects the USB network function exposed to the host: "off",
+	// "ecm" (CDC-ECM) or "ncm" (CDC-NCM). Toggled at runtime via the virtual-
+	// device API, which persists the change back here. Formerly the
+	// /boot/usb.ecm0 and /boot/usb.ncm flags plus the runtime state file.
+	Ethernet string `yaml:"ethernet"`
+	// Disk controls whether the mass-storage disk (mass_storage.disk0) is linked
+	// into configs/c.1 and so visible to the host. The function and its LUNs
+	// always exist — the firmware boot image lives on lun.0 — this only gates the
+	// symlink. Toggled at runtime like Ethernet. Formerly the state file's disk
+	// toggle.
+	Disk bool `yaml:"disk"`
 
 	// HID enables the keyboard/mouse/touchpad functions (hid.GS0/1/2). The HID
 	// report streams are consumed by a separate component; the gadget only has
@@ -250,11 +309,6 @@ type UsbGadget struct {
 	// PHYDevice is the platform device name rebound on RebindPHY() recovery
 	// (dwc2 driver unbind/bind).
 	PHYDevice string `yaml:"phyDevice"`
-
-	// StatePath persists the runtime function toggles (ethernet mode, disk)
-	// across reboots on the /data partition. Its absence is also the first-run
-	// sentinel that triggers the one-time migration from the legacy /boot flags.
-	StatePath string `yaml:"statePath"`
 }
 
 // EfiVars configures access to the UEFI variable store that U-Boot on the

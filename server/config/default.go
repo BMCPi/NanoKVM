@@ -72,6 +72,8 @@ var defaultConfig = &Config{
 		Product:       "NanoKVM",
 		MaxPower:      120,
 		BmAttributes:  "0xE0",
+		Ethernet:      "ecm", // "off"|"ecm"|"ncm"; matches usbgadget.EthernetECM
+		Disk:          true,
 		HID:           true,
 		BIOSMode:      false,
 		WakeupOnWrite: true,
@@ -79,7 +81,6 @@ var defaultConfig = &Config{
 		UDCName:       "", // auto-detect (this board: 4340000.usb)
 		OTGRolePath:   "/proc/cviusb/otg_role",
 		PHYDevice:     "4340000.usb",
-		StatePath:     "/data/usbgadget/state.json",
 	},
 	MDNS: MDNS{
 		Enabled:   true,
@@ -87,6 +88,17 @@ var defaultConfig = &Config{
 		IPv4:      true,
 		IPv6:      true,
 		Hostname:  "",
+	},
+	Network: Network{
+		Enabled: true,
+		Eth0: InterfaceConfig{
+			Name: "eth0",
+			Mode: "dhcp",
+		},
+		RHI: RHIConfig{
+			Interface: "usb0",
+			Address:   "169.254.10.1/16",
+		},
 	},
 	EfiVars: EfiVars{
 		Enabled: true,
@@ -232,10 +244,11 @@ func checkDefaultValue() {
 	}
 
 	// Apply USB gadget identity/path defaults when not present in the config
-	// file. The boolean toggles (Enabled/HID/WakeupOnWrite/BindUDC) are seeded
-	// authoritatively by the usbgadget package's one-time migration on first
-	// run, not here, because a default-true bool is indistinguishable from an
-	// explicit false at the zero value.
+	// file. The gadget config is now the sole source of truth for which USB
+	// functions are exposed (it replaced the /boot flags and the runtime state
+	// file), so the default-true toggles are seeded here, gated on viper.IsSet
+	// so an explicit false is distinguishable from an unset key — a plain
+	// zero-value check cannot tell them apart.
 	if instance.UsbGadget.VendorID == "" {
 		instance.UsbGadget.VendorID = defaultConfig.UsbGadget.VendorID
 	}
@@ -263,8 +276,31 @@ func checkDefaultValue() {
 	if instance.UsbGadget.PHYDevice == "" {
 		instance.UsbGadget.PHYDevice = defaultConfig.UsbGadget.PHYDevice
 	}
-	if instance.UsbGadget.StatePath == "" {
-		instance.UsbGadget.StatePath = defaultConfig.UsbGadget.StatePath
+
+	// Function toggles. Each default-true bool is seeded only when its key is
+	// absent, so an operator's explicit false is preserved. Ethernet is a
+	// three-valued string ("off"/"ecm"/"ncm"); anything else (empty or invalid)
+	// falls back to the default.
+	if !viper.IsSet("usbgadget.enabled") {
+		instance.UsbGadget.Enabled = defaultConfig.UsbGadget.Enabled
+	}
+	if !viper.IsSet("usbgadget.hid") {
+		instance.UsbGadget.HID = defaultConfig.UsbGadget.HID
+	}
+	if !viper.IsSet("usbgadget.wakeupOnWrite") {
+		instance.UsbGadget.WakeupOnWrite = defaultConfig.UsbGadget.WakeupOnWrite
+	}
+	if !viper.IsSet("usbgadget.bindUDC") {
+		instance.UsbGadget.BindUDC = defaultConfig.UsbGadget.BindUDC
+	}
+	if !viper.IsSet("usbgadget.disk") {
+		instance.UsbGadget.Disk = defaultConfig.UsbGadget.Disk
+	}
+	switch instance.UsbGadget.Ethernet {
+	case "off", "ecm", "ncm":
+		// keep the operator's value
+	default:
+		instance.UsbGadget.Ethernet = defaultConfig.UsbGadget.Ethernet
 	}
 
 	normalizeEEPROMRegions()
@@ -288,6 +324,29 @@ func checkDefaultValue() {
 		instance.MDNS = defaultConfig.MDNS
 	} else if instance.MDNS.Interface == "" && !viper.IsSet("mdns.interface") {
 		instance.MDNS.Interface = defaultConfig.MDNS.Interface
+	}
+
+	// Network: same absent-section handling as mDNS (Enabled defaults true). When
+	// present, backfill the identity/mode fields so a partial section still has a
+	// usable interface name, mode and RHI address.
+	if !viper.IsSet("network") {
+		instance.Network = defaultConfig.Network
+	} else {
+		if !viper.IsSet("network.enabled") {
+			instance.Network.Enabled = defaultConfig.Network.Enabled
+		}
+		if instance.Network.Eth0.Name == "" {
+			instance.Network.Eth0.Name = defaultConfig.Network.Eth0.Name
+		}
+		if instance.Network.Eth0.Mode == "" {
+			instance.Network.Eth0.Mode = defaultConfig.Network.Eth0.Mode
+		}
+		if instance.Network.RHI.Interface == "" {
+			instance.Network.RHI.Interface = defaultConfig.Network.RHI.Interface
+		}
+		if instance.Network.RHI.Address == "" {
+			instance.Network.RHI.Address = defaultConfig.Network.RHI.Address
+		}
 	}
 
 	instance.Hardware = getHardware()

@@ -36,8 +36,8 @@ func Init() {
 	logrus.SetLevel(level)
 
 	file := conf.Logger.File
-	switch {
-	case file == "" || file == "console" || file == "stdout":
+	switch file {
+	case "", "console", "stdout":
 		output = os.Stdout
 	default:
 		w, err := newFileWriter(file)

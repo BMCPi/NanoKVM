@@ -30,8 +30,13 @@ import (
 var (
 	configFSPath  = "/sys/kernel/config"
 	gadgetRoot    = "/sys/kernel/config/usb_gadget"
-	bootDir       = "/boot"
 	sysfsRootPath = "/sys"
+
+	// legacyStatePath is the pre-config runtime toggle file (ethernet/disk).
+	// The gadget config is authoritative now; on first run under this build the
+	// file, if present, is folded into config once and then removed. Package var
+	// so tests can point it at a temp file.
+	legacyStatePath = "/data/usbgadget/state.json"
 )
 
 const gadgetName = "g0"
@@ -48,10 +53,9 @@ const (
 // of its /sys reads and writes go through fs, an os.Root-scoped sysfs service,
 // so no configfs symlink can steer an operation outside /sys.
 type Gadget struct {
-	mu    sync.Mutex
-	cfg   config.UsbGadget
-	state State
-	fs    *sysfs
+	mu  sync.Mutex
+	cfg config.UsbGadget
+	fs  *sysfs
 }
 
 var (
@@ -79,21 +83,14 @@ func (g *Gadget) Init() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	// One-time migration from the legacy /boot flag files. Seeds config +
-	// runtime state on first run only (gated on the absence of the state file).
-	if err := g.migrateFromBoot(); err != nil {
-		log.Warnf("usbgadget: migration from /boot flags failed: %v", err)
-	}
+	// One-time fold-in of the legacy runtime state file (ethernet/disk) into
+	// config, for devices upgrading from the state-file build. Fresh devices
+	// have no such file and use the config defaults. Runs before the config
+	// snapshot below so its changes are picked up.
+	migrateLegacyState()
 
-	// Refresh the config snapshot: migration may have persisted changes.
+	// The config is the source of truth for the whole gadget topology.
 	g.cfg = config.GetInstance().UsbGadget
-
-	// Load persisted runtime toggles (ethernet mode / disk).
-	if st, ok := loadState(g.cfg.StatePath); ok {
-		g.state = st
-	} else {
-		g.state = defaultState()
-	}
 
 	if !g.cfg.Enabled {
 		log.Info("usbgadget: disabled by config; leaving gadget untouched")
@@ -108,15 +105,15 @@ func (g *Gadget) Init() error {
 	}
 
 	log.Infof("usbgadget: g0 ready (vid=%s pid=%s hid=%v ethernet=%s disk=%v udc-bound=%v)",
-		g.cfg.VendorID, g.cfg.ProductID, g.cfg.HID, g.state.Ethernet, g.state.Disk, g.udcBound())
+		g.cfg.VendorID, g.cfg.ProductID, g.cfg.HID, g.cfg.Ethernet, g.cfg.Disk, g.udcBound())
 	return nil
 }
 
-// State returns a thread-safe snapshot of the runtime function toggles.
+// State returns a thread-safe snapshot of the function toggles from config.
 func (g *Gadget) State() State {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return g.state
+	return State{Ethernet: g.cfg.Ethernet, Disk: g.cfg.Disk}
 }
 
 // ---- configfs path helpers -------------------------------------------------

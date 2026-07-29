@@ -2,6 +2,7 @@ package ubootenv
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -191,10 +192,10 @@ func TestStoreUnconfigured(t *testing.T) {
 	if s.Available() {
 		t.Error("nil store reports Available")
 	}
-	if _, err := s.Load(); err != ErrNotConfigured {
+	if _, err := s.Load(); !errors.Is(err, ErrNotConfigured) {
 		t.Errorf("Load on nil store = %v, want ErrNotConfigured", err)
 	}
-	if err := s.Update(func(*Env) {}); err != ErrNotConfigured {
+	if err := s.Update(func(*Env) {}); !errors.Is(err, ErrNotConfigured) {
 		t.Errorf("Update on nil store = %v, want ErrNotConfigured", err)
 	}
 }

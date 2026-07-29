@@ -50,8 +50,8 @@ func (g *Gadget) build() error {
 			return err
 		}
 	}
-	if g.state.Ethernet != EthernetOff {
-		if err := g.ensureEthernetFunc(g.state.Ethernet); err != nil {
+	if g.cfg.Ethernet != EthernetOff {
+		if err := g.ensureEthernetFunc(g.cfg.Ethernet); err != nil {
 			return err
 		}
 	}
@@ -205,10 +205,10 @@ func (g *Gadget) ensureBindState() error {
 // be preserved: mass_storage → ethernet → keyboard → mouse → touchpad.
 func (g *Gadget) desiredFunctions() []string {
 	var out []string
-	if g.state.Disk {
+	if g.cfg.Disk {
 		out = append(out, "mass_storage.disk0")
 	}
-	if name := ethernetFuncName(g.state.Ethernet); name != "" {
+	if name := ethernetFuncName(g.cfg.Ethernet); name != "" {
 		out = append(out, name)
 	}
 	if g.cfg.HID {

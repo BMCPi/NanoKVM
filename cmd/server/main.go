@@ -19,6 +19,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/server/service/firmware"
 	"github.com/pi-bmc/nanokvm-app/server/service/ipmi"
 	"github.com/pi-bmc/nanokvm-app/server/service/mdns"
+	"github.com/pi-bmc/nanokvm-app/server/service/network"
 	"github.com/pi-bmc/nanokvm-app/server/service/usbgadget"
 	"github.com/pi-bmc/nanokvm-app/server/telemetry"
 	"github.com/pi-bmc/nanokvm-app/server/utils"
@@ -37,6 +38,7 @@ var (
 var (
 	ipmiServer    *ipmi.Server
 	mdnsResponder *mdns.Responder
+	netManager    *network.Manager
 )
 
 func main() {
@@ -78,6 +80,17 @@ func initialize() {
 	// a bound UDC come up independent of firmware image availability.
 	if err := usbgadget.Get().Init(); err != nil {
 		log.Printf("USB gadget init: %v", err)
+	}
+
+	// Configure the host-facing interfaces via netlink: eth0 (static or an
+	// in-process DHCP client) and the USB Redfish Host Interface (usb0, static
+	// link-local). Started after the gadget so usb0 will register; runs in the
+	// background, so it does not block boot while waiting on a lease. Replaces
+	// the S30eth udhcpc script and the build's ifupdown usb0 stanza.
+	if m, err := network.Start(); err != nil {
+		log.Printf("network start: %v", err)
+	} else {
+		netManager = m
 	}
 
 	// Initialize firmware controller (mount image if available).
@@ -163,6 +176,9 @@ func run() {
 
 func dispose() {
 	autoupdate.Stop()
+	if netManager != nil {
+		netManager.Stop()
+	}
 	if mdnsResponder != nil {
 		mdnsResponder.Stop()
 	}

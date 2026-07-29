@@ -24,8 +24,8 @@ import (
 //
 // It is a typed service rather than a set of package-level helpers so the root
 // is owned, lazily opened once, and mockable in tests via sysfsRootPath — the
-// same override discipline the other path roots (gadgetRoot, configFSPath,
-// bootDir) already use.
+// same override discipline the other path roots (gadgetRoot, configFSPath)
+// already use.
 type sysfs struct {
 	rootPath string
 

@@ -1,6 +1,7 @@
 package power
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -251,7 +252,7 @@ func TestWatchRejectsLegacyMode(t *testing.T) {
 	cfg.Power.LegacyMode = true
 	t.Cleanup(func() { cfg.Power.LegacyMode = false })
 
-	if _, _, err := c.Watch(); err != ErrNoEdgeEvents {
+	if _, _, err := c.Watch(); !errors.Is(err, ErrNoEdgeEvents) {
 		t.Fatalf("Watch in legacy mode = %v, want ErrNoEdgeEvents", err)
 	}
 }
