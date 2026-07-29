@@ -45,24 +45,24 @@ func (g *Gadget) ensureMassStorageFunc() error {
 	lun1 := g.lun1Path()
 	linked := g.isLinked("mass_storage.disk0")
 
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := g.fs.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create mass_storage.disk0: %w", err)
 	}
 
-	if _, err := os.Stat(lun1); os.IsNotExist(err) {
+	if _, err := g.fs.Stat(lun1); os.IsNotExist(err) {
 		if linked && g.udcBound() {
 			_ = g.unbindUDCLocked()
 			// Release lun.0's backing file so f_mass_storage lets go.
-			_ = writeAttr(filepath.Join(g.lun0Path(), "file"), "\n")
+			_ = g.fs.writeAttr(filepath.Join(g.lun0Path(), "file"), "\n")
 			time.Sleep(50 * time.Millisecond)
 		}
-		if err := os.Mkdir(lun1, 0o755); err != nil {
+		if err := g.fs.Mkdir(lun1, 0o755); err != nil {
 			return fmt.Errorf("create lun.1: %w", err)
 		}
-		_ = writeAttr(filepath.Join(lun1, "cdrom"), "0")
-		_ = writeAttr(filepath.Join(lun1, "ro"), "1")
-		_ = writeAttr(filepath.Join(lun1, "removable"), "1")
-		_ = writeAttr(filepath.Join(lun1, "inquiry_string"), lun1Inquiry)
+		_ = g.fs.writeAttr(filepath.Join(lun1, "cdrom"), "0")
+		_ = g.fs.writeAttr(filepath.Join(lun1, "ro"), "1")
+		_ = g.fs.writeAttr(filepath.Join(lun1, "removable"), "1")
+		_ = g.fs.writeAttr(filepath.Join(lun1, "inquiry_string"), lun1Inquiry)
 	}
 
 	// lun.0 (boot firmware image). Leave file empty — firmware.Controller fills
@@ -70,8 +70,8 @@ func (g *Gadget) ensureMassStorageFunc() error {
 	// diff-guarded so re-running on an already-bound gadget (server restart)
 	// doesn't poke the LUN.
 	lun0 := g.lun0Path()
-	_ = writeAttrIfDifferent(filepath.Join(lun0, "removable"), "1")
-	_ = writeAttrIfDifferent(filepath.Join(lun0, "inquiry_string"), lun0Inquiry)
+	_ = g.fs.writeAttrIfDifferent(filepath.Join(lun0, "removable"), "1")
+	_ = g.fs.writeAttrIfDifferent(filepath.Join(lun0, "inquiry_string"), lun0Inquiry)
 	return nil
 }
 
@@ -79,21 +79,21 @@ func (g *Gadget) ensureMassStorageFunc() error {
 // Caller holds g.mu.
 func (g *Gadget) ensureLUN1Locked() error {
 	lun1 := g.lun1Path()
-	if _, err := os.Stat(lun1); err == nil {
+	if _, err := g.fs.Stat(lun1); err == nil {
 		return nil
 	}
 	if g.udcBound() {
 		_ = g.unbindUDCLocked()
-		_ = writeAttr(filepath.Join(g.lun0Path(), "file"), "\n")
+		_ = g.fs.writeAttr(filepath.Join(g.lun0Path(), "file"), "\n")
 		time.Sleep(50 * time.Millisecond)
 	}
-	if err := os.Mkdir(lun1, 0o755); err != nil {
+	if err := g.fs.Mkdir(lun1, 0o755); err != nil {
 		return fmt.Errorf("create lun.1: %w", err)
 	}
-	_ = writeAttr(filepath.Join(lun1, "cdrom"), "0")
-	_ = writeAttr(filepath.Join(lun1, "ro"), "1")
-	_ = writeAttr(filepath.Join(lun1, "removable"), "1")
-	_ = writeAttr(filepath.Join(lun1, "inquiry_string"), lun1Inquiry)
+	_ = g.fs.writeAttr(filepath.Join(lun1, "cdrom"), "0")
+	_ = g.fs.writeAttr(filepath.Join(lun1, "ro"), "1")
+	_ = g.fs.writeAttr(filepath.Join(lun1, "removable"), "1")
+	_ = g.fs.writeAttr(filepath.Join(lun1, "inquiry_string"), lun1Inquiry)
 	return g.ensureBindState()
 }
 
@@ -112,17 +112,17 @@ func (g *Gadget) PresentImage(path string) error {
 	if isISO && !isHybridISO(path) {
 		cdromVal = "1"
 	}
-	_ = writeAttr(filepath.Join(lun0, "cdrom"), cdromVal)
-	_ = writeAttr(filepath.Join(lun0, "ro"), "0")
-	_ = writeAttr(filepath.Join(lun0, "inquiry_string"), fmt.Sprintf("%-8s%-16s%04x", "NanoKVM", "Firmware", 0x0100))
+	_ = g.fs.writeAttr(filepath.Join(lun0, "cdrom"), cdromVal)
+	_ = g.fs.writeAttr(filepath.Join(lun0, "ro"), "0")
+	_ = g.fs.writeAttr(filepath.Join(lun0, "inquiry_string"), fmt.Sprintf("%-8s%-16s%04x", "NanoKVM", "Firmware", 0x0100))
 
 	// Clear first, then set to the image path. Retry on EBUSY because a
 	// just-detached loop device or in-flight gadget I/O can briefly hold it.
 	filePath := filepath.Join(lun0, "file")
-	_ = writeAttr(filePath, "\n")
+	_ = g.fs.writeAttr(filePath, "\n")
 	var lastErr error
 	for i := 0; i < 10; i++ {
-		if err := os.WriteFile(filePath, []byte(path), 0o666); err == nil {
+		if err := g.fs.WriteFile(filePath, []byte(path), 0o666); err == nil {
 			lastErr = nil
 			break
 		} else {
@@ -150,7 +150,7 @@ func (g *Gadget) UnpresentImage() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	if err := os.WriteFile(filepath.Join(g.lun0Path(), "file"), []byte("\n"), 0o666); err != nil {
+	if err := g.fs.WriteFile(filepath.Join(g.lun0Path(), "file"), []byte("\n"), 0o666); err != nil {
 		return fmt.Errorf("clear lun.0 file: %w", err)
 	}
 	// Give the kernel a moment to drop its hold on the backing file.
@@ -174,10 +174,10 @@ func (g *Gadget) InsertMedia(path string) error {
 		cdromVal = "1"
 	}
 	lun1 := g.lun1Path()
-	_ = writeAttr(filepath.Join(lun1, "cdrom"), cdromVal)
-	_ = writeAttr(filepath.Join(lun1, "ro"), "1")
-	_ = writeAttr(filepath.Join(lun1, "removable"), "1")
-	if err := os.WriteFile(filepath.Join(lun1, "file"), []byte(path), 0o666); err != nil {
+	_ = g.fs.writeAttr(filepath.Join(lun1, "cdrom"), cdromVal)
+	_ = g.fs.writeAttr(filepath.Join(lun1, "ro"), "1")
+	_ = g.fs.writeAttr(filepath.Join(lun1, "removable"), "1")
+	if err := g.fs.WriteFile(filepath.Join(lun1, "file"), []byte(path), 0o666); err != nil {
 		return fmt.Errorf("set lun.1 file: %w", err)
 	}
 	log.Infof("usbgadget: virtual media lun.1 → %s", path)
@@ -189,10 +189,10 @@ func (g *Gadget) EjectMedia() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	if _, err := os.Stat(g.lun1Path()); err != nil {
+	if _, err := g.fs.Stat(g.lun1Path()); err != nil {
 		return nil // lun.1 doesn't exist; nothing to clear
 	}
-	if err := os.WriteFile(filepath.Join(g.lun1Path(), "file"), []byte("\n"), 0o666); err != nil {
+	if err := g.fs.WriteFile(filepath.Join(g.lun1Path(), "file"), []byte("\n"), 0o666); err != nil {
 		return fmt.Errorf("clear lun.1 file: %w", err)
 	}
 	log.Info("usbgadget: virtual media lun.1 cleared")
@@ -205,7 +205,7 @@ func (g *Gadget) LUN1File() (string, bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	data, err := os.ReadFile(filepath.Join(g.lun1Path(), "file"))
+	data, err := g.fs.ReadFile(filepath.Join(g.lun1Path(), "file"))
 	if err != nil {
 		return "", false
 	}

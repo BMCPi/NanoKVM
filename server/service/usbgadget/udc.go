@@ -24,7 +24,7 @@ func (g *Gadget) udcName() (string, error) {
 	if g.cfg.UDCName != "" {
 		return g.cfg.UDCName, nil
 	}
-	entries, err := os.ReadDir(udcClassPath)
+	entries, err := g.fs.ReadDir(udcClassPath)
 	if err != nil {
 		return "", fmt.Errorf("list %s: %w", udcClassPath, err)
 	}
@@ -47,7 +47,7 @@ func (g *Gadget) UDCBound() bool {
 }
 
 func (g *Gadget) udcBound() bool {
-	data, err := os.ReadFile(g.udcPath())
+	data, err := g.fs.ReadFile(g.udcPath())
 	if err != nil {
 		return false
 	}
@@ -60,7 +60,7 @@ func (g *Gadget) bindUDCLocked() error {
 	if err != nil {
 		return err
 	}
-	if err := writeAttr(g.udcPath(), udc); err != nil {
+	if err := g.fs.writeAttr(g.udcPath(), udc); err != nil {
 		return fmt.Errorf("bind UDC %s: %w", udc, err)
 	}
 	return nil
@@ -73,7 +73,7 @@ func (g *Gadget) unbindUDCLocked() error {
 	if !g.udcBound() {
 		return nil
 	}
-	if err := writeAttr(g.udcPath(), "\n"); err != nil {
+	if err := g.fs.writeAttr(g.udcPath(), "\n"); err != nil {
 		return fmt.Errorf("clear UDC: %w", err)
 	}
 	for i := 0; i < 20; i++ {
@@ -112,7 +112,10 @@ func (g *Gadget) setOTGRoleLocked(role string) error {
 	if g.cfg.OTGRolePath == "" {
 		return nil
 	}
-	if err := writeAttr(g.cfg.OTGRolePath, role); err != nil {
+	// OTGRolePath is the CVITEK OTG switch under /proc (default
+	// /proc/cviusb/otg_role), not /sys, so it is written with plain os rather
+	// than the sysfs-root service.
+	if err := os.WriteFile(g.cfg.OTGRolePath, []byte(role), 0o644); err != nil {
 		return fmt.Errorf("set otg role %s: %w", role, err)
 	}
 	return nil
@@ -128,11 +131,11 @@ func (g *Gadget) RebindPHY() error {
 	if dev == "" {
 		return fmt.Errorf("phy device not configured")
 	}
-	if err := writeAttr(dwc2UnbindPath, dev); err != nil {
+	if err := g.fs.writeAttr(dwc2UnbindPath, dev); err != nil {
 		return fmt.Errorf("dwc2 unbind %s: %w", dev, err)
 	}
 	time.Sleep(1 * time.Second)
-	if err := writeAttr(dwc2BindPath, dev); err != nil {
+	if err := g.fs.writeAttr(dwc2BindPath, dev); err != nil {
 		return fmt.Errorf("dwc2 bind %s: %w", dev, err)
 	}
 	log.Infof("usbgadget: rebound dwc2 PHY %s", dev)

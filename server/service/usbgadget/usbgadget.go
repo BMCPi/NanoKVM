@@ -24,11 +24,14 @@ import (
 )
 
 // configfs locations. These are package vars (not consts) so tests can point
-// them at a temporary tree.
+// them at a temporary tree. sysfsRootPath is the os.Root every /sys operation is
+// confined to (see the sysfs service); a test that exercises the configfs tree
+// overrides it to a temp prefix that contains the overridden gadgetRoot.
 var (
-	configFSPath = "/sys/kernel/config"
-	gadgetRoot   = "/sys/kernel/config/usb_gadget"
-	bootDir      = "/boot"
+	configFSPath  = "/sys/kernel/config"
+	gadgetRoot    = "/sys/kernel/config/usb_gadget"
+	bootDir       = "/boot"
+	sysfsRootPath = "/sys"
 )
 
 const gadgetName = "g0"
@@ -41,11 +44,14 @@ const (
 )
 
 // Gadget owns the g0 configfs tree. A single mutex serializes every configfs
-// mutation, the same discipline firmware.Controller uses for its own state.
+// mutation, the same discipline firmware.Controller uses for its own state. All
+// of its /sys reads and writes go through fs, an os.Root-scoped sysfs service,
+// so no configfs symlink can steer an operation outside /sys.
 type Gadget struct {
 	mu    sync.Mutex
 	cfg   config.UsbGadget
 	state State
+	fs    *sysfs
 }
 
 var (
@@ -56,7 +62,10 @@ var (
 // Get returns the singleton Gadget.
 func Get() *Gadget {
 	once.Do(func() {
-		instance = &Gadget{cfg: config.GetInstance().UsbGadget}
+		instance = &Gadget{
+			cfg: config.GetInstance().UsbGadget,
+			fs:  newSysfs(sysfsRootPath),
+		}
 	})
 	return instance
 }

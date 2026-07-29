@@ -15,13 +15,13 @@ import (
 // mounts it at boot; this is a self-sufficiency fallback so the gadget works
 // even if the init script did not run. Caller holds g.mu.
 func (g *Gadget) ensureConfigFS() error {
-	if _, err := os.Stat(gadgetRoot); err == nil {
+	if _, err := g.fs.Stat(gadgetRoot); err == nil {
 		return nil // usb_gadget dir present ⇒ configfs mounted and libcomposite loaded
 	}
 	if isMountPoint(configFSPath) {
 		return nil
 	}
-	if err := os.MkdirAll(configFSPath, 0o755); err != nil {
+	if err := g.fs.MkdirAll(configFSPath, 0o755); err != nil {
 		return err
 	}
 	out, err := exec.Command("mount", "-t", "configfs", "configfs", configFSPath).CombinedOutput()
@@ -63,32 +63,32 @@ func (g *Gadget) build() error {
 // a bound gadget does not EBUSY. Caller holds g.mu.
 func (g *Gadget) ensureGadgetBase() error {
 	gp := g.gadgetPath()
-	if err := os.MkdirAll(gp, 0o755); err != nil {
+	if err := g.fs.MkdirAll(gp, 0o755); err != nil {
 		return fmt.Errorf("create gadget dir: %w", err)
 	}
-	_ = writeAttrIfDifferent(filepath.Join(gp, "idVendor"), g.cfg.VendorID)
-	_ = writeAttrIfDifferent(filepath.Join(gp, "idProduct"), g.cfg.ProductID)
+	_ = g.fs.writeAttrIfDifferent(filepath.Join(gp, "idVendor"), g.cfg.VendorID)
+	_ = g.fs.writeAttrIfDifferent(filepath.Join(gp, "idProduct"), g.cfg.ProductID)
 
 	strDir := filepath.Join(gp, "strings", "0x409")
-	if err := os.MkdirAll(strDir, 0o755); err != nil {
+	if err := g.fs.MkdirAll(strDir, 0o755); err != nil {
 		return fmt.Errorf("create strings dir: %w", err)
 	}
-	_ = writeAttrIfDifferent(filepath.Join(strDir, "serialnumber"), g.cfg.SerialNumber)
-	_ = writeAttrIfDifferent(filepath.Join(strDir, "manufacturer"), g.cfg.Manufacturer)
-	_ = writeAttrIfDifferent(filepath.Join(strDir, "product"), g.cfg.Product)
+	_ = g.fs.writeAttrIfDifferent(filepath.Join(strDir, "serialnumber"), g.cfg.SerialNumber)
+	_ = g.fs.writeAttrIfDifferent(filepath.Join(strDir, "manufacturer"), g.cfg.Manufacturer)
+	_ = g.fs.writeAttrIfDifferent(filepath.Join(strDir, "product"), g.cfg.Product)
 
 	cp := g.configPath()
-	if err := os.MkdirAll(cp, 0o755); err != nil {
+	if err := g.fs.MkdirAll(cp, 0o755); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
-	_ = writeAttrIfDifferent(filepath.Join(cp, "bmAttributes"), g.cfg.BmAttributes)
-	_ = writeAttrIfDifferent(filepath.Join(cp, "MaxPower"), strconv.Itoa(g.cfg.MaxPower))
+	_ = g.fs.writeAttrIfDifferent(filepath.Join(cp, "bmAttributes"), g.cfg.BmAttributes)
+	_ = g.fs.writeAttrIfDifferent(filepath.Join(cp, "MaxPower"), strconv.Itoa(g.cfg.MaxPower))
 
 	cStrDir := filepath.Join(cp, "strings", "0x409")
-	if err := os.MkdirAll(cStrDir, 0o755); err != nil {
+	if err := g.fs.MkdirAll(cStrDir, 0o755); err != nil {
 		return fmt.Errorf("create config strings dir: %w", err)
 	}
-	_ = writeAttrIfDifferent(filepath.Join(cStrDir, "configuration"), g.cfg.Product)
+	_ = g.fs.writeAttrIfDifferent(filepath.Join(cStrDir, "configuration"), g.cfg.Product)
 	return nil
 }
 
@@ -99,23 +99,23 @@ func (g *Gadget) ensureGadgetBase() error {
 func (g *Gadget) ensureHIDFuncs() error {
 	for _, h := range hidSpecs() {
 		dir := filepath.Join(g.functionsPath(), h.name)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := g.fs.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("create %s: %w", h.name, err)
 		}
 		// Already configured by a previous run — leave it alone (writing
 		// report_desc on a bound function would EBUSY).
-		if cur, err := os.ReadFile(filepath.Join(dir, "report_desc")); err == nil && len(cur) > 0 {
+		if cur, err := g.fs.ReadFile(filepath.Join(dir, "report_desc")); err == nil && len(cur) > 0 {
 			continue
 		}
 		if g.cfg.BIOSMode {
-			_ = writeAttr(filepath.Join(dir, "subclass"), "1")
+			_ = g.fs.writeAttr(filepath.Join(dir, "subclass"), "1")
 		}
 		if g.cfg.WakeupOnWrite {
-			_ = writeAttr(filepath.Join(dir, "wakeup_on_write"), "1")
+			_ = g.fs.writeAttr(filepath.Join(dir, "wakeup_on_write"), "1")
 		}
-		_ = writeAttr(filepath.Join(dir, "protocol"), strconv.Itoa(h.protocol))
-		_ = writeAttr(filepath.Join(dir, "report_length"), strconv.Itoa(h.reportLength))
-		if err := writeReportDesc(filepath.Join(dir, "report_desc"), h.reportDesc); err != nil {
+		_ = g.fs.writeAttr(filepath.Join(dir, "protocol"), strconv.Itoa(h.protocol))
+		_ = g.fs.writeAttr(filepath.Join(dir, "report_length"), strconv.Itoa(h.reportLength))
+		if err := g.fs.writeReportDesc(filepath.Join(dir, "report_desc"), h.reportDesc); err != nil {
 			return fmt.Errorf("write %s report_desc: %w", h.name, err)
 		}
 	}
@@ -130,7 +130,7 @@ func (g *Gadget) ensureEthernetFunc(mode string) error {
 		return nil
 	}
 	dir := filepath.Join(g.functionsPath(), name)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := g.fs.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create %s: %w", name, err)
 	}
 	return nil
@@ -169,12 +169,12 @@ func (g *Gadget) reconcileLinks() error {
 	// Remove every existing function symlink, then recreate the desired set in
 	// canonical order — interface numbering follows symlink creation order.
 	for name := range current {
-		_ = os.Remove(filepath.Join(g.configPath(), name))
+		_ = g.fs.Remove(filepath.Join(g.configPath(), name))
 	}
 	for _, name := range desired {
 		target := filepath.Join(g.functionsPath(), name)
 		link := filepath.Join(g.configPath(), name)
-		if err := os.Symlink(target, link); err != nil && !os.IsExist(err) {
+		if err := g.fs.Symlink(target, link); err != nil && !os.IsExist(err) {
 			return fmt.Errorf("link %s: %w", name, err)
 		}
 	}
@@ -221,12 +221,12 @@ func (g *Gadget) desiredFunctions() []string {
 // (excluding the non-function entries: strings, bmAttributes, MaxPower).
 func (g *Gadget) linkedFunctions() map[string]bool {
 	set := map[string]bool{}
-	entries, err := os.ReadDir(g.configPath())
+	entries, err := g.fs.ReadDir(g.configPath())
 	if err != nil {
 		return set
 	}
 	for _, e := range entries {
-		info, err := os.Lstat(filepath.Join(g.configPath(), e.Name()))
+		info, err := g.fs.Lstat(filepath.Join(g.configPath(), e.Name()))
 		if err != nil || info.Mode()&os.ModeSymlink == 0 {
 			continue
 		}
@@ -237,7 +237,7 @@ func (g *Gadget) linkedFunctions() map[string]bool {
 
 // isLinked reports whether name is currently symlinked into configs/c.1.
 func (g *Gadget) isLinked(name string) bool {
-	info, err := os.Lstat(filepath.Join(g.configPath(), name))
+	info, err := g.fs.Lstat(filepath.Join(g.configPath(), name))
 	return err == nil && info.Mode()&os.ModeSymlink != 0
 }
 
