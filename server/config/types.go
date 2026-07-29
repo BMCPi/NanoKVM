@@ -36,42 +36,42 @@ type Config struct {
 type Network struct {
 	// Enabled gates the whole subsystem. When false the server configures no
 	// interfaces (e.g. when addressing is still owned by init scripts).
-	Enabled bool `yaml:"enabled"`
+	Enabled bool `yaml:"enabled" json:"enabled"`
 	// Eth0 is the primary wired uplink.
-	Eth0 InterfaceConfig `yaml:"eth0"`
+	Eth0 InterfaceConfig `yaml:"eth0" json:"eth0"`
 	// RHI is the USB host-facing management link (the ecm/ncm gadget's usb0), a
 	// point-to-point IPv4 link-local segment in the Redfish Host Interface
 	// (DSP0270) style: no gateway and no DHCP server, so it can never affect BMC
 	// routing and the attached host self-assigns an APIPA address in the same
 	// /16. Matches JetKVM's usb0 handling.
-	RHI RHIConfig `yaml:"rhi"`
+	RHI RHIConfig `yaml:"rhi" json:"rhi"`
 }
 
 // InterfaceConfig is the addressing policy for a wired interface.
 type InterfaceConfig struct {
 	// Name is the kernel interface name (e.g. "eth0").
-	Name string `yaml:"name"`
+	Name string `yaml:"name" json:"name"`
 	// Mode is "dhcp" (default) or "static".
-	Mode string `yaml:"mode"`
+	Mode string `yaml:"mode" json:"mode"`
 	// MAC optionally overrides the link's hardware address so the DHCP
 	// lease/identity is stable across reboots. Empty keeps the kernel MAC.
-	MAC string `yaml:"mac"`
+	MAC string `yaml:"mac" json:"mac"`
 	// Address is the static CIDR (e.g. "192.168.1.50/24"), used only when
 	// Mode == "static".
-	Address string `yaml:"address"`
+	Address string `yaml:"address" json:"address"`
 	// Gateway is the static default-route next hop. Empty adds no default route.
-	Gateway string `yaml:"gateway"`
+	Gateway string `yaml:"gateway" json:"gateway"`
 	// DNS are the nameservers written to /etc/resolv.conf in static mode.
-	DNS []string `yaml:"dns"`
+	DNS []string `yaml:"dns" json:"dns"`
 }
 
 // RHIConfig is the static link-local addressing for the USB host interface.
 type RHIConfig struct {
 	// Interface is the gadget netdev name (the ecm/ncm function registers usb0).
-	Interface string `yaml:"interface"`
+	Interface string `yaml:"interface" json:"interface"`
 	// Address is the BMC-side CIDR on the link (default 169.254.10.1/16, per
 	// RFC 3927 link-local so the host stays reachable even on an IPv4LL host).
-	Address string `yaml:"address"`
+	Address string `yaml:"address" json:"address"`
 }
 
 // MDNS configures the built-in multicast-DNS responder that advertises the

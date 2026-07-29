@@ -7,6 +7,11 @@
 //   - usb0, the USB Redfish-Host-Interface link the gadget exposes: a static
 //     IPv4 link-local address (169.254.10.1/16), re-asserted whenever the netdev
 //     reappears after a USB re-enumeration.
+//
+// The package supervises both links for their whole lifetime: a netlink link
+// monitor plus a periodic reconcile re-applies configuration whenever an
+// interface breaks (netdev recreated, admin-down, address lost), and Restart
+// re-reads config so settings changed through the app take effect immediately.
 package network
 
 import (
@@ -22,80 +27,232 @@ import (
 	"github.com/pi-bmc/nanokvm-app/server/config"
 )
 
+const (
+	// ModeDHCP/ModeStatic are the two eth0 addressing modes.
+	ModeDHCP   = "dhcp"
+	ModeStatic = "static"
+
+	// reconcileInterval is the fallback cadence at which both interfaces are
+	// re-verified even when no link event arrives (covers a missed or
+	// unavailable netlink subscription).
+	reconcileInterval = 30 * time.Second
+	// supRetryFloor/supRetryCap bound the backoff between failed eth0 bring-up
+	// attempts (link never appearing, LinkSetUp errors, static apply errors).
+	supRetryFloor = 5 * time.Second
+	supRetryCap   = 60 * time.Second
+)
+
 // Manager owns the lifecycle of the interface-configuration goroutines. Stop
-// closes the shared done channel, unwinding the DHCP loop, the RHI supervisor
-// and the link monitor.
+// closes the shared done channel, unwinding the DHCP loop, the supervisors and
+// the link monitor, and waits for them to exit so a Restart never races a
+// previous incarnation.
 type Manager struct {
 	cfg config.Network
 
 	mu   sync.Mutex
 	done chan struct{}
+	wg   sync.WaitGroup
+
+	// eth0Ready/rhiReady close once the first configuration attempt for that
+	// link has completed — successfully or not. WaitReady gates server startup
+	// on the attempt, not on the network being healthy, so an unplugged cable
+	// or absent DHCP server can never wedge boot.
+	eth0Ready chan struct{}
+	eth0Once  sync.Once
+	rhiReady  chan struct{}
+	rhiOnce   sync.Once
+
+	// dhcpKick wakes the DHCP runner to re-verify its lease is still
+	// programmed (fed by link events and the reconcile ticker).
+	dhcpKick chan struct{}
 }
+
+var (
+	activeMu sync.Mutex
+	active   *Manager
+)
 
 // Start reads config and, when enabled, begins configuring eth0 and the RHI
 // link in the background. It returns immediately; interface bring-up (which may
-// wait for a netdev to appear) happens in goroutines. Returns (nil, nil) when
-// disabled in config. Follows the repo's Start()-returning-a-handle pattern
-// (mdns.Start, ipmi.Start).
-func Start() (*Manager, error) {
+// wait for a netdev to appear) happens in goroutines. Callers that need the
+// initial configuration applied first should follow with WaitReady.
+func Start() {
+	activeMu.Lock()
+	defer activeMu.Unlock()
+	startLocked()
+}
+
+// Stop tears down the active manager and waits for its goroutines. Idempotent.
+func Stop() {
+	activeMu.Lock()
+	m := active
+	active = nil
+	activeMu.Unlock()
+	if m != nil {
+		m.stop()
+	}
+}
+
+// Restart tears down the active manager (if any) and starts a fresh one from
+// the current config. Called by the settings handlers after a network config
+// change so the new addressing is applied without a process restart.
+func Restart() {
+	activeMu.Lock()
+	defer activeMu.Unlock()
+	if active != nil {
+		active.stop()
+		active = nil
+	}
+	startLocked()
+}
+
+// WaitReady blocks until the active manager's initial configuration pass has
+// completed for every supervised link, or the timeout elapses. A no-op when
+// networking is disabled.
+func WaitReady(timeout time.Duration) {
+	activeMu.Lock()
+	m := active
+	activeMu.Unlock()
+	if m != nil {
+		m.waitReady(timeout)
+	}
+}
+
+func startLocked() {
 	cfg := config.GetInstance().Network
 	if !cfg.Enabled {
 		log.Info("network: disabled by config; leaving interface setup to init scripts")
-		return nil, nil
+		return
 	}
 
-	m := &Manager{cfg: cfg, done: make(chan struct{})}
-	done := m.done
+	m := &Manager{
+		cfg:       cfg,
+		done:      make(chan struct{}),
+		eth0Ready: make(chan struct{}),
+		rhiReady:  make(chan struct{}),
+		dhcpKick:  make(chan struct{}, 1),
+	}
 
 	if cfg.Eth0.Name != "" {
-		go m.configureEth0(done)
+		m.wg.Add(1)
+		go m.superviseEth0(m.done)
+	} else {
+		m.signalEth0Ready()
 	}
 	if cfg.RHI.Interface != "" && cfg.RHI.Address != "" {
-		go m.superviseRHI(done)
+		m.wg.Add(1)
+		go m.superviseRHI(m.done)
+	} else {
+		m.signalRHIReady()
 	}
-	return m, nil
+	m.wg.Add(1)
+	go m.monitorLinks(m.done)
+
+	active = m
 }
 
-// Stop tears down the background goroutines. Idempotent.
-func (m *Manager) Stop() {
+func (m *Manager) stop() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.done != nil {
 		close(m.done)
 		m.done = nil
 	}
+	m.mu.Unlock()
+	m.wg.Wait()
+}
+
+func (m *Manager) signalEth0Ready() { m.eth0Once.Do(func() { close(m.eth0Ready) }) }
+func (m *Manager) signalRHIReady()  { m.rhiOnce.Do(func() { close(m.rhiReady) }) }
+
+func (m *Manager) waitReady(timeout time.Duration) {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	for _, w := range []struct {
+		name  string
+		ready <-chan struct{}
+	}{
+		{"eth0", m.eth0Ready},
+		{"rhi", m.rhiReady},
+	} {
+		select {
+		case <-w.ready:
+		case <-timer.C:
+			log.Warnf("network: timed out waiting for initial %s configuration; continuing startup", w.name)
+			return
+		}
+	}
+	log.Info("network: initial interface configuration complete")
 }
 
 // ---- eth0 ------------------------------------------------------------------
 
-func (m *Manager) configureEth0(done <-chan struct{}) {
+// superviseEth0 brings the uplink up, retrying with backoff instead of giving
+// up: a missing netdev, a failed LinkSetUp or a failed static apply are all
+// transient on this hardware. Once configured, ongoing health is owned by the
+// DHCP runner (dhcp mode) or the link monitor's reconcile (static mode).
+func (m *Manager) superviseEth0(done <-chan struct{}) {
+	defer m.wg.Done()
 	ic := m.cfg.Eth0
+	backoff := supRetryFloor
 
-	link, err := waitForLink(ic.Name, 20, 500*time.Millisecond, done)
-	if err != nil {
-		log.Errorf("network: eth0: %v", err)
-		return
-	}
-
-	if ic.MAC != "" {
-		// A hardware address can only be set while the link is down.
-		_ = netlink.LinkSetDown(link)
-		if err := setMAC(link, ic.MAC); err != nil {
-			log.Warnf("network: eth0: %v", err)
+	for {
+		link, err := waitForLink(ic.Name, 20, 500*time.Millisecond, done)
+		if err != nil {
+			log.Errorf("network: eth0: %v (retry in %s)", err, backoff)
+			m.signalEth0Ready()
+			if sleepOrDone(done, backoff) {
+				return
+			}
+			backoff = growBackoff(backoff)
+			continue
 		}
-	}
-	if err := ensureUp(link); err != nil {
-		log.Errorf("network: eth0: %v", err)
-		return
-	}
 
-	switch strings.ToLower(ic.Mode) {
-	case "static":
-		if err := m.applyStatic(link, ic); err != nil {
-			log.Errorf("network: eth0 static config: %v", err)
+		if ic.MAC != "" {
+			// A hardware address can only be set while the link is down. Only
+			// attempted here, not on reconcile, so a re-assert never flaps a
+			// healthy link.
+			_ = netlink.LinkSetDown(link)
+			if err := setMAC(link, ic.MAC); err != nil {
+				log.Warnf("network: eth0: %v", err)
+			}
 		}
-	default: // "dhcp" or unset
-		(&dhcpRunner{iface: ic.Name, done: done}).run()
+		if err := ensureUp(link); err != nil {
+			log.Errorf("network: eth0: %v (retry in %s)", err, backoff)
+			m.signalEth0Ready()
+			if sleepOrDone(done, backoff) {
+				return
+			}
+			backoff = growBackoff(backoff)
+			continue
+		}
+
+		switch strings.ToLower(ic.Mode) {
+		case ModeStatic:
+			if err := m.applyStatic(link, ic); err != nil {
+				log.Errorf("network: eth0 static config: %v (retry in %s)", err, backoff)
+				m.signalEth0Ready()
+				if sleepOrDone(done, backoff) {
+					return
+				}
+				backoff = growBackoff(backoff)
+				continue
+			}
+			m.signalEth0Ready()
+			// The link monitor re-applies the static config if the address or
+			// link state is later lost; nothing more to do here.
+			return
+		default: // "dhcp" or unset
+			// The runner is self-healing (retries acquisition, re-applies a
+			// lost lease on kicks, reacquires on failure) and only returns on
+			// shutdown.
+			(&dhcpRunner{
+				iface:     ic.Name,
+				done:      done,
+				kick:      m.dhcpKick,
+				onAttempt: m.signalEth0Ready,
+			}).run()
+			return
+		}
 	}
 }
 
@@ -123,6 +280,34 @@ func (m *Manager) applyStatic(link netlink.Link, ic config.InterfaceConfig) erro
 	return nil
 }
 
+// reconcileEth0Static re-applies the static config when the link is down or
+// the address has gone missing (netdev recreated, address flushed). Checks
+// health first so the periodic tick is silent on a healthy link.
+func (m *Manager) reconcileEth0Static() {
+	ic := m.cfg.Eth0
+	link, err := netlink.LinkByName(ic.Name)
+	if err != nil {
+		// Netdev currently absent; the NEWLINK event on reappearance (or the
+		// next tick) retries.
+		return
+	}
+	addr, err := netlink.ParseAddr(ic.Address)
+	if err != nil {
+		return // already logged by the initial apply
+	}
+	if isAdminUp(link) && hasAddr(link, addr) {
+		return
+	}
+	log.Warnf("network: eth0 static config lost; re-applying")
+	if err := ensureUp(link); err != nil {
+		log.Warnf("network: eth0: %v", err)
+		return
+	}
+	if err := m.applyStatic(link, ic); err != nil {
+		log.Warnf("network: eth0 static re-apply: %v", err)
+	}
+}
+
 func parseDNS(list []string) []net.IP {
 	out := make([]net.IP, 0, len(list))
 	for _, s := range list {
@@ -138,16 +323,16 @@ func parseDNS(list []string) []net.IP {
 // ---- usb0 / RHI ------------------------------------------------------------
 
 func (m *Manager) superviseRHI(done <-chan struct{}) {
+	defer m.wg.Done()
 	// The usb0 netdev registers asynchronously after the gadget binds its UDC,
-	// so wait for it (JetKVM's usb.go retries the same way).
+	// so wait for it (JetKVM's usb.go retries the same way). Ongoing
+	// re-assertion after USB re-enumeration is owned by the link monitor.
 	if link, err := waitForLink(m.cfg.RHI.Interface, 40, 500*time.Millisecond, done); err != nil {
 		log.Warnf("network: RHI: %v", err)
 	} else {
 		m.configureRHI(link)
 	}
-	// Then re-assert the address whenever usb0 reappears (USB re-enumeration
-	// after a UDC rebind recreates the netdev).
-	m.monitorRHI(done)
+	m.signalRHIReady()
 }
 
 func (m *Manager) configureRHI(link netlink.Link) {
@@ -169,26 +354,93 @@ func (m *Manager) configureRHI(link netlink.Link) {
 	log.Infof("network: RHI %s = %s", m.cfg.RHI.Interface, m.cfg.RHI.Address)
 }
 
-func (m *Manager) monitorRHI(done <-chan struct{}) {
-	ch := make(chan netlink.LinkUpdate)
-	if err := netlink.LinkSubscribe(ch, done); err != nil {
-		log.Warnf("network: link monitor unavailable; RHI will not auto-reassert: %v", err)
+// reconcileRHI re-asserts the RHI address when the link is down or the address
+// is missing (USB re-enumeration recreates the netdev). Health-checked first
+// so the periodic tick does not spam the log.
+func (m *Manager) reconcileRHI() {
+	link, err := netlink.LinkByName(m.cfg.RHI.Interface)
+	if err != nil {
+		return // gadget NIC currently absent (e.g. ethernet function off)
+	}
+	addr, err := netlink.ParseAddr(m.cfg.RHI.Address)
+	if err != nil {
+		return // already logged by the initial configure
+	}
+	if isAdminUp(link) && hasAddr(link, addr) {
 		return
 	}
+	m.configureRHI(link)
+}
+
+// ---- link monitor / reconcile ----------------------------------------------
+
+// monitorLinks watches netlink link events and runs a periodic reconcile,
+// re-configuring whichever supervised interface has drifted (netdev recreated,
+// admin-down, address lost). The ticker also covers the case where the event
+// subscription is unavailable or an event is missed.
+func (m *Manager) monitorLinks(done <-chan struct{}) {
+	defer m.wg.Done()
+
+	events := make(chan netlink.LinkUpdate, 16)
+	if err := netlink.LinkSubscribe(events, done); err != nil {
+		log.Warnf("network: link monitor unavailable (%v); relying on periodic reconcile", err)
+		events = nil
+	}
+
+	ticker := time.NewTicker(reconcileInterval)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-done:
 			return
-		case u, ok := <-ch:
+		case u, ok := <-events:
 			if !ok {
-				return
-			}
-			if u.Link == nil || u.Link.Attrs() == nil || u.Link.Attrs().Name != m.cfg.RHI.Interface {
+				events = nil // nil channel: select never picks this case again
 				continue
 			}
-			if link, err := netlink.LinkByName(m.cfg.RHI.Interface); err == nil {
-				m.configureRHI(link)
+			if u.Link == nil || u.Attrs() == nil {
+				continue
 			}
+			m.handleLinkEvent(u.Attrs().Name)
+		case <-ticker.C:
+			m.reconcile()
 		}
 	}
+}
+
+func (m *Manager) handleLinkEvent(name string) {
+	if name == m.cfg.RHI.Interface {
+		m.reconcileRHI()
+	}
+	if name == m.cfg.Eth0.Name {
+		m.reconcileEth0()
+	}
+}
+
+func (m *Manager) reconcile() {
+	if m.cfg.RHI.Interface != "" && m.cfg.RHI.Address != "" {
+		m.reconcileRHI()
+	}
+	if m.cfg.Eth0.Name != "" {
+		m.reconcileEth0()
+	}
+}
+
+func (m *Manager) reconcileEth0() {
+	switch strings.ToLower(m.cfg.Eth0.Mode) {
+	case ModeStatic:
+		m.reconcileEth0Static()
+	default:
+		// The DHCP runner owns the interface; wake it to verify its lease is
+		// still programmed and re-apply/reacquire if not.
+		select {
+		case m.dhcpKick <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func growBackoff(d time.Duration) time.Duration {
+	return min(d*2, supRetryCap)
 }

@@ -38,8 +38,13 @@ var (
 var (
 	ipmiServer    *ipmi.Server
 	mdnsResponder *mdns.Responder
-	netManager    *network.Manager
 )
+
+// networkReadyTimeout caps how long startup waits for the first interface
+// configuration pass. It covers a full first DHCP attempt (link wait +
+// DISCOVER/REQUEST, ~40s worst case); on timeout the server starts anyway and
+// the network manager keeps retrying in the background.
+const networkReadyTimeout = 60 * time.Second
 
 func main() {
 	initialize()
@@ -84,14 +89,11 @@ func initialize() {
 
 	// Configure the host-facing interfaces via netlink: eth0 (static or an
 	// in-process DHCP client) and the USB Redfish Host Interface (usb0, static
-	// link-local). Started after the gadget so usb0 will register; runs in the
-	// background, so it does not block boot while waiting on a lease. Replaces
-	// the S30eth udhcpc script and the build's ifupdown usb0 stanza.
-	if m, err := network.Start(); err != nil {
-		log.Printf("network start: %v", err)
-	} else {
-		netManager = m
-	}
+	// link-local). Started after the gadget so usb0 will register; bring-up
+	// runs in goroutines and run() waits on it (bounded) before opening the
+	// HTTP listeners. Replaces the S30eth udhcpc script and the build's
+	// ifupdown usb0 stanza.
+	network.Start()
 
 	// Initialize firmware controller (mount image if available).
 	if err := firmware.GetController().Init(); err != nil {
@@ -125,6 +127,12 @@ func initialize() {
 }
 
 func run() {
+	// Hold the HTTP/HTTPS listeners until the initial interface configuration
+	// pass has been applied (eth0 addressing attempted, RHI address asserted).
+	// Bounded so a dead uplink can never wedge boot — on timeout the manager
+	// keeps reconfiguring in the background and the server starts regardless.
+	network.WaitReady(networkReadyTimeout)
+
 	conf := config.GetInstance()
 
 	gin.SetMode(gin.ReleaseMode)
@@ -176,9 +184,7 @@ func run() {
 
 func dispose() {
 	autoupdate.Stop()
-	if netManager != nil {
-		netManager.Stop()
-	}
+	network.Stop()
 	if mdnsResponder != nil {
 		mdnsResponder.Stop()
 	}

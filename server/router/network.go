@@ -16,4 +16,7 @@ func networkRouter(r *gin.Engine) {
 	api.GET("/network/wol/mac", service.GetMac)           // get mac list
 	api.DELETE("/network/wol/mac", service.DeleteMac)     // delete mac
 	api.POST("/network/wol/mac/name", service.SetMacName) // set mac name
+
+	api.GET("/network/settings", service.GetSettings)      // get interface config
+	api.PATCH("/network/settings", service.UpdateSettings) // patch config + re-apply
 }

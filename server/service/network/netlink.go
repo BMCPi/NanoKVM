@@ -42,6 +42,38 @@ func ensureUp(link netlink.Link) error {
 	return nil
 }
 
+// ensureLinkUp looks a link up by name and sets it administratively up.
+func ensureLinkUp(name string) error {
+	link, err := netlink.LinkByName(name)
+	if err != nil {
+		return fmt.Errorf("link %s: %w", name, err)
+	}
+	return ensureUp(link)
+}
+
+// isAdminUp reports whether the link is administratively up.
+func isAdminUp(link netlink.Link) bool {
+	return link.Attrs().Flags&net.FlagUp != 0
+}
+
+// hasAddr reports whether want is currently programmed on the link. Used by
+// the reconcilers to keep the periodic health check silent when nothing is
+// wrong.
+func hasAddr(link netlink.Link, want *netlink.Addr) bool {
+	addrs, err := netlink.AddrList(link, netlink.FAMILY_V4)
+	if err != nil {
+		return false
+	}
+	wantOnes, wantBits := want.Mask.Size()
+	for _, a := range addrs {
+		ones, bits := a.Mask.Size()
+		if a.IP.Equal(want.IP) && ones == wantOnes && bits == wantBits {
+			return true
+		}
+	}
+	return false
+}
+
 // setMAC pins the link's hardware address. Must be applied while the link is
 // down; callers set the MAC before ensureUp.
 func setMAC(link netlink.Link, mac string) error {
