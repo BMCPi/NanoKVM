@@ -18,7 +18,7 @@ import (
 // path — can never redirect a read or write to a file outside /sys.
 //
 // Only /sys paths belong here. The OTG role switch (/proc/cviusb/otg_role),
-// /proc/mounts, the persisted state file and boot flags on /data and /boot, and
+// /proc/mounts, the persisted state file and boot flags on the data partition and /boot, and
 // the ISO images the LUNs point at are all outside the root and stay on plain
 // os.* in their respective files.
 //

@@ -1,6 +1,6 @@
 package efivars
 
-// persist.go mirrors the variable store to a durable file on /data.
+// persist.go mirrors the variable store to a durable file on the data partition.
 //
 // The EEPROM the host writes is emulated by the kernel i2c-slave-eeprom
 // driver, whose backing buffer is volatile RAM: it is zeroed on every BMC

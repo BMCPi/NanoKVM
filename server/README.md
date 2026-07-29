@@ -63,13 +63,18 @@ Note: Use Linux operating system (x86-64), or any platform with Go cross-compila
     4. After compilation, an executable file named `NanoKVM-Server` will be generated.
 
 2. Deploy the Application
-    1. File uploads requires SSH. Please enable it in the Web Settings: `Settings > SSH`;
+    1. Enable SSH in the Web Settings if it is off: `Settings > SSH`. The BMC runs no sshd —
+       the app itself is the SSH server, authenticating with the BMC account or a key from
+       `Settings > Authorized Keys`. It serves shells and remote commands only: there is no
+       SFTP subsystem and no `scp` binary on the device, so copy files over the HTTP API
+       (`/api/firmware/file/:name`, `/api/firmware/media/upload`) or the web UI instead.
     2. Replace the original file in the NanoKVM `/kvmapp/server/` directory with the newly compiled `NanoKVM-Server`.
     3. Restart the service on NanoKVM by executing `/etc/init.d/S95nanokvm restart`.
 
 ## Manually Update
 
-> File uploads requires SSH. Please enable it in the Web Settings: `Settings > SSH`;
+> File transfers use the HTTP API or the web UI, not `scp`/`sftp` — the in-process SSH
+> server provides shells and remote commands only.
 
 1. Download the latest application from [GitHub](https://github.com/sipeed/NanoKVM/releases);
 2. Unzip the downloaded file and rename the unzipped folder to `kvmapp`;

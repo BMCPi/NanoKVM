@@ -76,7 +76,9 @@ func currentAppVersion() string {
 		return Version
 	}
 
-	versionFile := fmt.Sprintf("%s/version", AppDir)
+	// Read the version file of the install the init script launches (the
+	// self-update dir, its rollback, or the baked-in image copy).
+	versionFile := fmt.Sprintf("%s/version", ActiveAppDir())
 	if data, err := os.ReadFile(versionFile); err == nil {
 		v := strings.TrimSpace(string(data))
 		if v != "" {

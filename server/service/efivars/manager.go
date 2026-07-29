@@ -31,7 +31,7 @@ type Manager struct {
 	cache     []Variable
 	cacheTime time.Time
 
-	// snapshotPath is the durable /data mirror of the store; see persist.go.
+	// snapshotPath is the durable data-partition mirror of the store; see persist.go.
 	// Empty disables persistence. lastSnapshot is the blob most recently
 	// written there, so the watcher and save() skip redundant rewrites.
 	snapshotPath string

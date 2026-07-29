@@ -24,7 +24,7 @@ package ubootenv
 //
 // The EEPROM the host talks to is emulated by the kernel i2c-slave-eeprom
 // driver, whose buffer is volatile RAM wiped on every BMC boot. As in
-// efivars, a durable snapshot on /data is reconciled at startup and kept in
+// efivars, a durable snapshot on the data partition is reconciled at startup and kept in
 // sync with host-side (saveenv) writes so the environment survives BMC
 // reboots.
 
@@ -73,7 +73,7 @@ type Store struct {
 	cache     *Env
 	cacheTime time.Time
 
-	// snapshotPath is the durable /data mirror of the region; empty disables
+	// snapshotPath is the durable data-partition mirror of the region; empty disables
 	// persistence. lastSnapshot is the blob most recently written there, so
 	// the watcher and Save skip redundant rewrites.
 	snapshotPath string

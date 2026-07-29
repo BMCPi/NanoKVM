@@ -2,6 +2,7 @@ package config
 
 import (
 	"log"
+	"strings"
 
 	"github.com/spf13/viper"
 )
@@ -13,12 +14,17 @@ var defaultConfig = &Config{
 		Https: 443,
 	},
 	Cert: Cert{
-		Crt: "server.crt",
-		Key: "server.key",
+		// Under /etc/kvm, which is bind-mounted from the persistent data
+		// partition — the root overlay is volatile, so a relative/rootfs path
+		// would silently lose an uploaded certificate on reboot.
+		Crt: "/etc/kvm/server.crt",
+		Key: "/etc/kvm/server.key",
 	},
 	Logger: Logger{
 		Level: "info",
-		// Log to a rotating file on the persistent rootfs (see server/logger).
+		// Log to a rotating file (see server/logger). /var/log is tmpfs on
+		// the device, so logs are RAM-backed and reset each boot; point this
+		// at /var/lib/nanokvm to keep them across reboots instead.
 		// Set File to "console" to log to stdout instead.
 		File: "/var/log/NanoKVM-Server.log",
 	},
@@ -53,15 +59,28 @@ var defaultConfig = &Config{
 		StopBits:    1,
 		FlowControl: "none",
 	},
+	// The BMC ships no sshd; the app is the SSH server. Host key and
+	// authorized_keys live on the persistent data partition — the root
+	// overlay is volatile, so a host key under /etc would change every boot.
+	SSH: SSH{
+		Enabled:            true,
+		Port:               22,
+		HostKeyPath:        "/var/lib/nanokvm/ssh/ssh_host_ed25519_key",
+		AuthorizedKeysPath: "/var/lib/nanokvm/ssh/authorized_keys",
+		PasswordAuth:       true,
+	},
+	// All firmware/media state lives on the persistent data partition,
+	// mounted at /var/lib/nanokvm by the initramfs (the old /data mount is
+	// gone with the squashfs+overlay root).
 	Firmware: Firmware{
 		ImageURL:      "https://github.com/tinkerbell-community/uboot-raspberrypi/releases/download/v2026.04-rc4.1/uboot-raspberrypi-2026.04-rc4.1.img.xz",
-		ImagePath:     "/data/firmware/uboot-rpi.img",
-		FirmwareDir:   "/data/firmware/files",
-		MountPoint:    "/data/firmware/mnt",
-		MachineEnv:    "/data/firmware/files/machine.env",
-		PersistentEnv: "/data/firmware/files/persistent.env",
-		OnceEnv:       "/data/firmware/files/once.env",
-		MediaDir:      "/data/media",
+		ImagePath:     "/var/lib/nanokvm/firmware/uboot-rpi.img",
+		FirmwareDir:   "/var/lib/nanokvm/firmware/files",
+		MountPoint:    "/var/lib/nanokvm/firmware/mnt",
+		MachineEnv:    "/var/lib/nanokvm/firmware/files/machine.env",
+		PersistentEnv: "/var/lib/nanokvm/firmware/files/persistent.env",
+		OnceEnv:       "/var/lib/nanokvm/firmware/files/once.env",
+		MediaDir:      "/var/lib/nanokvm/media",
 	},
 	UsbGadget: UsbGadget{
 		Enabled:       true,
@@ -114,10 +133,10 @@ var defaultConfig = &Config{
 		I2CAddr:   0x50,
 		PageSize:  64,
 		StoreSize: 32768,
-		// Durable mirror on /data (survives BMC reboots, unlike the volatile
-		// i2c-slave-eeprom RAM buffer). Restored into the EEPROM at startup and
-		// kept in sync with host/BMC writes.
-		SnapshotPath: "/data/efivars/store.bin",
+		// Durable mirror on the data partition (survives BMC reboots, unlike
+		// the volatile i2c-slave-eeprom RAM buffer). Restored into the EEPROM
+		// at startup and kept in sync with host/BMC writes.
+		SnapshotPath: "/var/lib/nanokvm/efivars/store.bin",
 	},
 	UbootEnv: UbootEnv{
 		Enabled: true,
@@ -131,8 +150,8 @@ var defaultConfig = &Config{
 		PageSize: 64,
 		Offset:   0x4000, // host CONFIG_ENV_OFFSET
 		Size:     0x2000, // host CONFIG_ENV_SIZE
-		// Durable mirror on /data; see EfiVars.SnapshotPath.
-		SnapshotPath: "/data/ubootenv/env.bin",
+		// Durable mirror on the data partition; see EfiVars.SnapshotPath.
+		SnapshotPath: "/var/lib/nanokvm/ubootenv/env.bin",
 	},
 	SMBIOS: SMBIOS{
 		Enabled: true,
@@ -218,6 +237,32 @@ func checkDefaultValue() {
 		instance.Serial.FlowControl = defaultConfig.Serial.FlowControl
 	}
 
+	// Apply SSH defaults. Enabled and passwordAuth are default-true, so they
+	// go through viper.IsSet — a plain zero-value check cannot tell an
+	// operator's explicit false from an absent key. A config written before
+	// the in-process SSH server existed has no ssh section at all; seeding it
+	// keeps upgraded devices reachable over SSH exactly as they were when
+	// openssh was still in the image.
+	if !viper.IsSet("ssh") {
+		instance.SSH = defaultConfig.SSH
+	} else {
+		if !viper.IsSet("ssh.enabled") {
+			instance.SSH.Enabled = defaultConfig.SSH.Enabled
+		}
+		if !viper.IsSet("ssh.passwordAuth") {
+			instance.SSH.PasswordAuth = defaultConfig.SSH.PasswordAuth
+		}
+		if instance.SSH.Port == 0 {
+			instance.SSH.Port = defaultConfig.SSH.Port
+		}
+		if instance.SSH.HostKeyPath == "" {
+			instance.SSH.HostKeyPath = defaultConfig.SSH.HostKeyPath
+		}
+		if instance.SSH.AuthorizedKeysPath == "" {
+			instance.SSH.AuthorizedKeysPath = defaultConfig.SSH.AuthorizedKeysPath
+		}
+	}
+
 	// Apply firmware defaults when not present in the config file.
 	if instance.Firmware.ImageURL == "" {
 		instance.Firmware.ImageURL = defaultConfig.Firmware.ImageURL
@@ -242,6 +287,36 @@ func checkDefaultValue() {
 	}
 	if instance.Firmware.MediaDir == "" {
 		instance.Firmware.MediaDir = defaultConfig.Firmware.MediaDir
+	}
+
+	// Migrate pre-squashfs-layout paths. The /data partition no longer exists
+	// — every persistent path lives under /var/lib/nanokvm (the data
+	// partition the initramfs mounts) — so a config carried over from an old
+	// image or a restored backup would otherwise point the firmware image,
+	// media dir and EEPROM snapshots at a dead mount. Rewritten in place and
+	// persisted so the migration runs once.
+	migratedDataPath := false
+	for _, p := range []*string{
+		&instance.Firmware.ImagePath,
+		&instance.Firmware.FirmwareDir,
+		&instance.Firmware.MountPoint,
+		&instance.Firmware.MachineEnv,
+		&instance.Firmware.PersistentEnv,
+		&instance.Firmware.OnceEnv,
+		&instance.Firmware.MediaDir,
+		&instance.EfiVars.SnapshotPath,
+		&instance.UbootEnv.SnapshotPath,
+		&instance.SSH.HostKeyPath,
+		&instance.SSH.AuthorizedKeysPath,
+	} {
+		if rest, ok := strings.CutPrefix(*p, "/data/"); ok {
+			*p = "/var/lib/nanokvm/" + rest
+			migratedDataPath = true
+		}
+	}
+	if migratedDataPath {
+		log.Println("config: migrated legacy /data paths to /var/lib/nanokvm")
+		needsPersist = true
 	}
 
 	// Apply USB gadget identity/path defaults when not present in the config

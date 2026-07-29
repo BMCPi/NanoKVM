@@ -239,7 +239,7 @@ func decompressXZTo(src, dest string) error {
 // ---------------------------------------------------------------------------
 
 // versionedImagePath returns the on-disk path for a versioned u-boot image.
-// e.g. version "v2026.04" → "/data/firmware/uboot-v2026.04.img".
+// e.g. version "v2026.04" → "/var/lib/nanokvm/firmware/uboot-v2026.04.img".
 func (c *Controller) versionedImagePath(version string) string {
 	// Normalise: ensure leading "v", replace any path-unsafe characters.
 	v := version

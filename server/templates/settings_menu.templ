@@ -64,7 +64,10 @@ templ SettingsDialog() {
 	@settingsDialogScript()
 }
 
-// settingsNetworkCard groups network toggles (SSH).
+// settingsNetworkCard groups network toggles (SSH) and the SSH key editor.
+// The BMC runs no sshd — the app is the SSH server (server/service/ssh) — so
+// the toggle starts/stops an in-process listener and the textarea below is the
+// authorized_keys file it authenticates against.
 templ settingsNetworkCard() {
 	@card.Card() {
 		@card.Header() {
@@ -72,12 +75,40 @@ templ settingsNetworkCard() {
 				Network
 			}
 		}
-		@card.Content(card.ContentProps{Class: "pt-0"}) {
+		@card.Content(card.ContentProps{Class: "pt-0 space-y-2"}) {
 			<div class="flex items-center justify-between py-1">
 				@label.Label(label.Props{For: "ssh-switch"}) {
 					SSH
 				}
 				@switchcomp.Switch(switchcomp.Props{ID: "ssh-switch", Attributes: templ.Attributes{"onchange": "toggleSSH(this.checked)"}})
+			</div>
+			@separator.Separator()
+			<div class="space-y-1.5">
+				@label.Label(label.Props{For: "ssh-keys"}) {
+					Authorized Keys
+				}
+				<p class="text-xs text-muted-foreground">
+					One public key per line, OpenSSH format. Log in as
+					<code class="text-[0.6875rem]">root</code>.
+				</p>
+				<textarea
+					id="ssh-keys"
+					rows="4"
+					spellcheck="false"
+					autocomplete="off"
+					placeholder="ssh-ed25519 AAAA… user@host"
+					class="w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs shadow-xs focus:outline-none focus:ring-2 focus:ring-ring"
+				></textarea>
+				<div class="flex items-center justify-between gap-2">
+					<span id="ssh-keys-status" class="text-xs text-muted-foreground"></span>
+					@button.Button(button.Props{
+						Variant:    button.VariantOutline,
+						Size:       button.SizeSm,
+						Attributes: templ.Attributes{"onclick": "saveSSHKeys()"},
+					}) {
+						Save Keys
+					}
+				</div>
 			</div>
 		}
 	}
@@ -184,8 +215,42 @@ templ settingsSystemCard() {
 templ settingsDialogScript() {
 	<script>
 		async function toggleSSH(enable) {
-			try { await apiPost(enable ? '/api/vm/ssh/enable' : '/api/vm/ssh/disable'); }
-			catch(e) { console.error(e); }
+			const status = document.getElementById('ssh-keys-status');
+			try {
+				const r = await apiPost(enable ? '/api/vm/ssh/enable' : '/api/vm/ssh/disable');
+				// The server rolls its own state back on failure (e.g. the port
+				// is taken), so re-read rather than trusting the switch.
+				if (r && r.code !== 0) {
+					if (status) status.textContent = r.msg || 'Failed';
+					loadSSHState();
+				}
+			} catch(e) { console.error(e); loadSSHState(); }
+		}
+
+		async function loadSSHKeys() {
+			try {
+				const r = await apiGet('/api/vm/ssh/keys');
+				const el = document.getElementById('ssh-keys');
+				if (el) el.value = r.data?.sshKey ?? '';
+			} catch(e) {}
+		}
+
+		async function saveSSHKeys() {
+			const status = document.getElementById('ssh-keys-status');
+			status.textContent = 'Saving…';
+			try {
+				const r = await apiPost('/api/vm/ssh/keys', { sshKey: document.getElementById('ssh-keys').value });
+				status.textContent = (r && r.code === 0) ? 'Saved' : (r?.msg || 'Save failed');
+			} catch(e) { status.textContent = 'Error: ' + e.message; }
+			setTimeout(() => { status.textContent = ''; }, 4000);
+		}
+
+		async function loadSSHState() {
+			try {
+				const s = await apiGet('/api/vm/ssh');
+				const el = document.getElementById('ssh-switch');
+				if (el) el.checked = !!(s.data?.enabled);
+			} catch(e) {}
 		}
 		async function toggleTLS(enable) {
 			try { await apiPost('/api/vm/tls', { enabled: enable }); }
@@ -230,11 +295,8 @@ templ settingsDialogScript() {
 
 		// Load initial state on page load + every time the dialog opens.
 		(async function() {
-			try {
-				const s = await apiGet('/api/vm/ssh');
-				const el = document.getElementById('ssh-switch');
-				if (el) el.checked = !!(s.data?.enabled);
-			} catch(e) {}
+			loadSSHState();
+			loadSSHKeys();
 			const tls = document.getElementById('tls-switch');
 			if (tls) tls.checked = window.location.protocol === 'https:';
 			loadAutoUpdate();

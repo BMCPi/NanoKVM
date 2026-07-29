@@ -10,6 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/server/proto"
+	"github.com/pi-bmc/nanokvm-app/server/service/application"
 	"github.com/pi-bmc/nanokvm-app/server/service/mdns"
 )
 
@@ -85,7 +86,10 @@ func getImageVersion() string {
 }
 
 func getApplicationVersion() string {
-	content, err := os.ReadFile("/kvmapp/version")
+	// Read the version file of whichever install is actually running (the
+	// self-update dir on the data partition, its rollback, or the baked-in
+	// squashfs copy).
+	content, err := os.ReadFile(application.ActiveAppDir() + "/version")
 	if err != nil {
 		return "1.0.0"
 	}

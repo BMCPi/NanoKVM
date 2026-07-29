@@ -46,6 +46,17 @@ type GetSSHStateRsp struct {
 	Enabled bool `json:"enabled"`
 }
 
+// GetSSHKeysRsp carries the authorized_keys content, empty when no client keys
+// are configured.
+type GetSSHKeysRsp struct {
+	SSHKey string `json:"sshKey"`
+}
+
+// SetSSHKeysReq replaces authorized_keys wholesale. An empty value clears it.
+type SetSSHKeysReq struct {
+	SSHKey string `json:"sshKey" validate:"omitempty"`
+}
+
 type SetTlsReq struct {
 	Enabled bool `validate:"omitempty"`
 }

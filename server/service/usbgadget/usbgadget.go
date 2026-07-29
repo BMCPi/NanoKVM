@@ -31,12 +31,6 @@ var (
 	configFSPath  = "/sys/kernel/config"
 	gadgetRoot    = "/sys/kernel/config/usb_gadget"
 	sysfsRootPath = "/sys"
-
-	// legacyStatePath is the pre-config runtime toggle file (ethernet/disk).
-	// The gadget config is authoritative now; on first run under this build the
-	// file, if present, is folded into config once and then removed. Package var
-	// so tests can point it at a temp file.
-	legacyStatePath = "/data/usbgadget/state.json"
 )
 
 const gadgetName = "g0"
@@ -83,13 +77,9 @@ func (g *Gadget) Init() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	// One-time fold-in of the legacy runtime state file (ethernet/disk) into
-	// config, for devices upgrading from the state-file build. Fresh devices
-	// have no such file and use the config defaults. Runs before the config
-	// snapshot below so its changes are picked up.
-	migrateLegacyState()
-
-	// The config is the source of truth for the whole gadget topology.
+	// The config is the source of truth for the whole gadget topology. (The
+	// old /data/usbgadget/state.json fold-in is gone: /data no longer exists
+	// on the squashfs+overlay layout, so that migration could never fire.)
 	g.cfg = config.GetInstance().UsbGadget
 
 	if !g.cfg.Enabled {

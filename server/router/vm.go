@@ -28,6 +28,8 @@ func vmRouter(r *gin.Engine) {
 	api.GET("/vm/ssh", service.GetSSHState)         // get SSH state
 	api.POST("/vm/ssh/enable", service.EnableSSH)   // enable SSH
 	api.POST("/vm/ssh/disable", service.DisableSSH) // disable SSH
+	api.GET("/vm/ssh/keys", service.GetSSHKeys)     // get authorized_keys
+	api.POST("/vm/ssh/keys", service.SetSSHKeys)    // set authorized_keys
 
 	api.POST("/vm/tls", service.SetTls) // enable/disable TLS
 

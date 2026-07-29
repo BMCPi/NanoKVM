@@ -20,6 +20,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/server/service/ipmi"
 	"github.com/pi-bmc/nanokvm-app/server/service/mdns"
 	"github.com/pi-bmc/nanokvm-app/server/service/network"
+	sshd "github.com/pi-bmc/nanokvm-app/server/service/ssh"
 	"github.com/pi-bmc/nanokvm-app/server/service/usbgadget"
 	"github.com/pi-bmc/nanokvm-app/server/telemetry"
 	"github.com/pi-bmc/nanokvm-app/server/utils"
@@ -107,6 +108,14 @@ func initialize() {
 	// Start the auto-update ticker (no-op when AutoUpdate.Enabled is false).
 	autoupdate.Start()
 
+	// Start the SSH server. The image ships no sshd — this is the BMC's only
+	// SSH listener, authenticating against the same account as the web UI plus
+	// the configured authorized_keys, and running sessions on the shared PTY
+	// plumbing the web terminal uses. No-op when ssh.enabled is false.
+	if err := sshd.Start(); err != nil {
+		log.Printf("SSH server start: %v", err)
+	}
+
 	// Start the mDNS responder (advertises <hostname>.local). Replaces
 	// avahi-daemon; its watcher brings it up once eth0 has an address.
 	if r, err := mdns.Start(); err != nil {
@@ -184,6 +193,7 @@ func run() {
 
 func dispose() {
 	autoupdate.Stop()
+	sshd.Stop()
 	network.Stop()
 	if mdnsResponder != nil {
 		mdnsResponder.Stop()

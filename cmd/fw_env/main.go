@@ -35,8 +35,8 @@ import (
 )
 
 const (
-	defaultMachineEnv    = "/data/firmware/files/machine.env"
-	defaultPersistentEnv = "/data/firmware/files/persistent.env"
+	defaultMachineEnv    = "/var/lib/nanokvm/firmware/files/machine.env"
+	defaultPersistentEnv = "/var/lib/nanokvm/firmware/files/persistent.env"
 )
 
 func main() {

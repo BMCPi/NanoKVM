@@ -99,7 +99,7 @@ func (c *Controller) invalidateReaderCacheLocked() {
 }
 
 // fatRelPath converts a host-side path under c.firmwareDir to its FAT
-// root-relative form (e.g. "/data/firmware/files/machine.env" → "/machine.env").
+// root-relative form (e.g. "/var/lib/nanokvm/firmware/files/machine.env" → "/machine.env").
 // c.firmwareDir is the authoritative prefix for env file host paths; if it is
 // empty we fall back to c.mountPoint for backward-compatibility.
 func (c *Controller) fatRelPath(hostPath string) string {

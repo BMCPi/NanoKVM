@@ -15,6 +15,7 @@ type Config struct {
 	IPMI           IPMI      `yaml:"ipmi"`
 	Redfish        Redfish   `yaml:"redfish"`
 	Serial         Serial    `yaml:"serial"`
+	SSH            SSH       `yaml:"ssh"`
 	Firmware       Firmware  `yaml:"firmware"`
 	UsbGadget      UsbGadget `yaml:"usbGadget"`
 	EfiVars        EfiVars   `yaml:"efiVars"`
@@ -230,6 +231,34 @@ type Serial struct {
 	DataBits    int    `yaml:"dataBits"`
 	StopBits    int    `yaml:"stopBits"`
 	FlowControl string `yaml:"flowControl"`
+}
+
+// SSH configures the in-process SSH server (server/service/ssh). The BMC
+// ships no sshd — the server implements the transport itself with
+// golang.org/x/crypto/ssh and runs sessions on the shared PTY plumbing
+// (server/service/shell), the same code the web terminal drawer uses.
+//
+// Enabled is what the Settings dialog's SSH switch writes, so it is persisted
+// to /etc/kvm/server.yaml (a bind mount onto the data partition) rather than
+// tracked by a flag file.
+type SSH struct {
+	// Enabled gates the listener. Toggling it starts/stops the server without
+	// a restart.
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// Port to listen on. 22 by default.
+	Port int `yaml:"port" json:"port"`
+	// HostKeyPath is the server's private host key. Generated (ed25519) on
+	// first start if missing. It must live on the persistent data partition:
+	// the root overlay is volatile, so a key under /etc would be regenerated
+	// every boot and every reconnecting client would see a host-key change.
+	HostKeyPath string `yaml:"hostKeyPath" json:"-"`
+	// AuthorizedKeysPath holds the client public keys allowed to log in, in
+	// OpenSSH authorized_keys format. Managed through /api/vm/ssh/keys.
+	AuthorizedKeysPath string `yaml:"authorizedKeysPath" json:"-"`
+	// PasswordAuth additionally accepts the BMC web credentials (the same
+	// account Redfish/IPMI/Basic-Auth use) as an SSH password. Public-key auth
+	// is always available; set this false to require keys.
+	PasswordAuth bool `yaml:"passwordAuth" json:"passwordAuth"`
 }
 
 type Firmware struct {
