@@ -41,9 +41,11 @@ type Network struct {
 	Eth0 InterfaceConfig `yaml:"eth0" json:"eth0"`
 	// RHI is the USB host-facing management link (the ecm/ncm gadget's usb0), a
 	// point-to-point IPv4 link-local segment in the Redfish Host Interface
-	// (DSP0270) style: no gateway and no DHCP server, so it can never affect BMC
-	// routing and the attached host self-assigns an APIPA address in the same
-	// /16. Matches JetKVM's usb0 handling.
+	// (DSP0270) style: no gateway, and only a single-lease DHCP server that
+	// hands the host a peer address with no router/DNS options — so the link
+	// can never affect BMC (or host) routing. A host without a DHCP client
+	// still works by self-assigning an APIPA address in the same /16. Matches
+	// JetKVM's usb0 handling.
 	RHI RHIConfig `yaml:"rhi" json:"rhi"`
 }
 
@@ -72,6 +74,11 @@ type RHIConfig struct {
 	// Address is the BMC-side CIDR on the link (default 169.254.10.1/16, per
 	// RFC 3927 link-local so the host stays reachable even on an IPv4LL host).
 	Address string `yaml:"address" json:"address"`
+	// Lease is the single fixed address (default 169.254.10.2) the in-process
+	// DHCP server offers the host — with subnet/lease options only, never a
+	// router or DNS, so the host cannot route through the BMC. Empty disables
+	// the server; hosts then rely on IPv4LL self-assignment.
+	Lease string `yaml:"lease" json:"lease"`
 }
 
 // MDNS configures the built-in multicast-DNS responder that advertises the

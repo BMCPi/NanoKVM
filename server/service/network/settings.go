@@ -35,6 +35,7 @@ func (s *Service) UpdateSettings(c *gin.Context) {
 		} `json:"eth0"`
 		RHI *struct {
 			Address *string `json:"address"`
+			Lease   *string `json:"lease"`
 		} `json:"rhi"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -66,8 +67,13 @@ func (s *Service) UpdateSettings(c *gin.Context) {
 			next.Eth0.DNS = *req.Eth0.DNS
 		}
 	}
-	if req.RHI != nil && req.RHI.Address != nil {
-		next.RHI.Address = *req.RHI.Address
+	if req.RHI != nil {
+		if req.RHI.Address != nil {
+			next.RHI.Address = *req.RHI.Address
+		}
+		if req.RHI.Lease != nil {
+			next.RHI.Lease = *req.RHI.Lease
+		}
 	}
 
 	if err := validateNetwork(&next); err != nil {
@@ -117,6 +123,21 @@ func validateNetwork(n *config.Network) error {
 	if n.RHI.Address != "" {
 		if _, _, err := net.ParseCIDR(n.RHI.Address); err != nil {
 			return fmt.Errorf("invalid rhi address %q (want CIDR, e.g. 169.254.10.1/16)", n.RHI.Address)
+		}
+	}
+	if n.RHI.Lease != "" {
+		lease := net.ParseIP(n.RHI.Lease)
+		if lease == nil {
+			return fmt.Errorf("invalid rhi lease %q", n.RHI.Lease)
+		}
+		if n.RHI.Address != "" {
+			ip, ipnet, _ := net.ParseCIDR(n.RHI.Address)
+			if !ipnet.Contains(lease) {
+				return fmt.Errorf("rhi lease %s is outside the rhi subnet %s", lease, ipnet)
+			}
+			if lease.Equal(ip) {
+				return fmt.Errorf("rhi lease %s collides with the BMC's own address", lease)
+			}
 		}
 	}
 	return nil

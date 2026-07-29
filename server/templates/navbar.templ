@@ -25,6 +25,21 @@ templ Navbar(onDocsPage bool) {
 				@icon.MonitorSpeaker()
 				<span class="hidden sm:inline">Server Overview</span>
 			</button>
+			if !onDocsPage {
+				// Toggles the slide-up BMC shell drawer (BMCTerminalPanel).
+				// Docs pages don't render the drawer, so the button is omitted there.
+				<button
+					id="btn-bmc-terminal"
+					class="nav-item"
+					onclick="toggleBmcTerminal()"
+					aria-label="BMC Terminal"
+					aria-expanded="false"
+					title="Shell on the BMC"
+				>
+					@icon.SquareTerminal()
+					<span class="hidden sm:inline">BMC Terminal</span>
+				</button>
+			}
 		</div>
 		// Right cluster
 		<div class="flex items-center gap-0.5 shrink-0">

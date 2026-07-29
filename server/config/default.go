@@ -98,6 +98,7 @@ var defaultConfig = &Config{
 		RHI: RHIConfig{
 			Interface: "usb0",
 			Address:   "169.254.10.1/16",
+			Lease:     "169.254.10.2",
 		},
 	},
 	EfiVars: EfiVars{
@@ -346,6 +347,11 @@ func checkDefaultValue() {
 		}
 		if instance.Network.RHI.Address == "" {
 			instance.Network.RHI.Address = defaultConfig.Network.RHI.Address
+		}
+		// An explicit empty lease disables the RHI DHCP server; only backfill
+		// when the key is absent entirely.
+		if instance.Network.RHI.Lease == "" && !viper.IsSet("network.rhi.lease") {
+			instance.Network.RHI.Lease = defaultConfig.Network.RHI.Lease
 		}
 	}
 

@@ -65,6 +65,11 @@ type Manager struct {
 	// dhcpKick wakes the DHCP runner to re-verify its lease is still
 	// programmed (fed by link events and the reconcile ticker).
 	dhcpKick chan struct{}
+
+	// rhiDHCP is the single-lease DHCP server for the USB host link; restarted
+	// on every RHI (re)configure so it survives netdev re-creation. Guarded by
+	// mu.
+	rhiDHCP *rhiDHCPServer
 }
 
 var (
@@ -159,6 +164,13 @@ func (m *Manager) stop() {
 	}
 	m.mu.Unlock()
 	m.wg.Wait()
+
+	m.mu.Lock()
+	if m.rhiDHCP != nil {
+		m.rhiDHCP.stop()
+		m.rhiDHCP = nil
+	}
+	m.mu.Unlock()
 }
 
 func (m *Manager) signalEth0Ready() { m.eth0Once.Do(func() { close(m.eth0Ready) }) }
@@ -207,12 +219,20 @@ func (m *Manager) superviseEth0(done <-chan struct{}) {
 			continue
 		}
 
-		if ic.MAC != "" {
+		// Config MAC wins; otherwise honor the operator override file on the
+		// boot partition (the job the old if-pre-up.d/nanokvm-mac hook did).
+		// The default stable MAC needs neither: U-Boot derives it from the
+		// eFUSE and writes it into the device tree, which stmmac consumes.
+		mac := ic.MAC
+		if mac == "" {
+			mac = bootMACOverride()
+		}
+		if mac != "" {
 			// A hardware address can only be set while the link is down. Only
 			// attempted here, not on reconcile, so a re-assert never flaps a
 			// healthy link.
 			_ = netlink.LinkSetDown(link)
-			if err := setMAC(link, ic.MAC); err != nil {
+			if err := setMAC(link, mac); err != nil {
 				log.Warnf("network: eth0: %v", err)
 			}
 		}
@@ -352,6 +372,41 @@ func (m *Manager) configureRHI(link netlink.Link) {
 		return
 	}
 	log.Infof("network: RHI %s = %s", m.cfg.RHI.Interface, m.cfg.RHI.Address)
+
+	// The rest of the RHI contract, formerly the build's ifupdown hooks:
+	// isolation knobs + nft guard, and the single-lease DHCP server for the
+	// host side. Both are idempotent and re-applied on every (re)configure —
+	// a recreated netdev arrives with default sysctls and no listener.
+	applyRHIIsolation(m.cfg.RHI.Interface)
+	m.ensureRHIDHCP(addr)
+}
+
+// ensureRHIDHCP (re)starts the single-lease DHCP server on the RHI link. The
+// old server is always torn down first: after a netdev re-creation its socket
+// is bound to a dead interface index.
+func (m *Manager) ensureRHIDHCP(addr *netlink.Addr) {
+	lease := m.cfg.RHI.Lease
+	if lease == "" {
+		return
+	}
+	leaseIP := net.ParseIP(lease)
+	if leaseIP == nil {
+		log.Errorf("network: RHI lease %q: not an IP address", lease)
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.rhiDHCP != nil {
+		m.rhiDHCP.stop()
+		m.rhiDHCP = nil
+	}
+	srv, err := startRHIDHCP(m.cfg.RHI.Interface, addr.IP, leaseIP, addr.Mask)
+	if err != nil {
+		log.Warnf("network: RHI dhcp server: %v", err)
+		return
+	}
+	m.rhiDHCP = srv
 }
 
 // reconcileRHI re-asserts the RHI address when the link is down or the address

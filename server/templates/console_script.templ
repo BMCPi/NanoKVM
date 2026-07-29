@@ -229,6 +229,9 @@ templ consoleScript() {
 		});
 
 		document.addEventListener('keydown', (e) => {
+			// The BMC terminal drawer owns its own keys while focused - don't
+			// steal Ctrl+F / Escape from a shell the user is typing into.
+			if (document.activeElement && document.activeElement.closest('#bmc-terminal-panel')) return;
 			if (e.ctrlKey && e.key === 'f') { e.preventDefault(); openSearch(); return; }
 			if (e.key === 'Escape') {
 				if (_searchOpen) { closeSearch(); if (term) term.focus(); return; }

@@ -74,6 +74,24 @@ func hasAddr(link netlink.Link, want *netlink.Addr) bool {
 	return false
 }
 
+// bootMACOverride reads the operator MAC override from /boot/eth.mac (the job
+// of the old if-pre-up.d/nanokvm-mac hook). Returns "" when the file is absent
+// or does not hold a valid MAC. U-Boot writes the default eFUSE-derived
+// address into the device tree unconditionally; this file is the only way for
+// an operator to pin a different one.
+func bootMACOverride() string {
+	data, err := os.ReadFile("/boot/eth.mac")
+	if err != nil {
+		return ""
+	}
+	line, _, _ := strings.Cut(string(data), "\n")
+	mac := strings.TrimSpace(strings.ReplaceAll(line, "\r", ""))
+	if _, err := net.ParseMAC(mac); err != nil {
+		return ""
+	}
+	return mac
+}
+
 // setMAC pins the link's hardware address. Must be applied while the link is
 // down; callers set the MAC before ensureUp.
 func setMAC(link netlink.Link, mac string) error {
