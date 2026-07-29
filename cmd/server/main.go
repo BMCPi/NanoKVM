@@ -22,6 +22,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/server/service/network"
 	"github.com/pi-bmc/nanokvm-app/server/service/serial"
 	sshd "github.com/pi-bmc/nanokvm-app/server/service/ssh"
+	"github.com/pi-bmc/nanokvm-app/server/service/timesync"
 	"github.com/pi-bmc/nanokvm-app/server/service/usbgadget"
 	"github.com/pi-bmc/nanokvm-app/server/telemetry"
 	"github.com/pi-bmc/nanokvm-app/server/utils"
@@ -123,6 +124,10 @@ func initialize() {
 		log.Printf("SSH server start: %v", err)
 	}
 
+	// Start the clock synchronizer (SNTP + HTTP fallback, RTC mirror).
+	// Replaces busybox ntpd; retries with backoff until the network is up.
+	timesync.Start()
+
 	// Start the mDNS responder (advertises <hostname>.local). Replaces
 	// avahi-daemon; its watcher brings it up once eth0 has an address.
 	if r, err := mdns.Start(); err != nil {
@@ -202,6 +207,7 @@ func dispose() {
 	autoupdate.Stop()
 	serial.StopCapture()
 	sshd.Stop()
+	timesync.Stop()
 	network.Stop()
 	if mdnsResponder != nil {
 		mdnsResponder.Stop()

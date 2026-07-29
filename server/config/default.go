@@ -113,6 +113,10 @@ var defaultConfig = &Config{
 		IPv6:      true,
 		Hostname:  "",
 	},
+	TimeSync: TimeSync{
+		Enabled:         true,
+		IntervalMinutes: 60,
+	},
 	Network: Network{
 		Enabled: true,
 		Eth0: InterfaceConfig{
@@ -415,6 +419,14 @@ func checkDefaultValue() {
 		instance.MDNS = defaultConfig.MDNS
 	} else if instance.MDNS.Interface == "" && !viper.IsSet("mdns.interface") {
 		instance.MDNS.Interface = defaultConfig.MDNS.Interface
+	}
+
+	// TimeSync: same absent-section handling (Enabled defaults true). When
+	// present, clamp the interval so a zero/negative value can't spin the loop.
+	if !viper.IsSet("timesync") {
+		instance.TimeSync = defaultConfig.TimeSync
+	} else if instance.TimeSync.IntervalMinutes <= 0 {
+		instance.TimeSync.IntervalMinutes = defaultConfig.TimeSync.IntervalMinutes
 	}
 
 	// Network: same absent-section handling as mDNS (Enabled defaults true). When

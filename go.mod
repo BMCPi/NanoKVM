@@ -4,6 +4,7 @@ go 1.26.3
 
 require (
 	github.com/a-h/templ v0.3.1001
+	github.com/beevik/ntp v1.5.0
 	github.com/diskfs/go-diskfs v1.9.2
 	github.com/gin-contrib/cors v1.7.7
 	github.com/gin-gonic/gin v1.12.0

@@ -27,7 +27,24 @@ type Config struct {
 	AutoUpdate AutoUpdate `yaml:"autoUpdate"`
 	MDNS       MDNS       `yaml:"mdns"`
 	Network    Network    `yaml:"network"`
+	TimeSync   TimeSync   `yaml:"timeSync"`
 	Hardware   Hardware   `yaml:"-"`
+}
+
+// TimeSync configures the built-in SNTP client (server/service/timesync) that
+// replaces busybox ntpd on the image. Sources are tried in a fixed order:
+// Servers below, NTP servers from the eth0 DHCP lease, well-known fallback
+// IPs/hostnames, and finally HTTP Date headers (for networks blocking
+// UDP/123).
+type TimeSync struct {
+	// Enabled gates the whole subsystem; when false the clock is never touched.
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// Servers are operator-provided NTP servers (IP or hostname), tried before
+	// every other source.
+	Servers []string `yaml:"servers" json:"servers"`
+	// IntervalMinutes between periodic re-syncs after the first success.
+	// Failed attempts retry on a 5s..5m backoff regardless of this value.
+	IntervalMinutes int `yaml:"intervalMinutes" json:"intervalMinutes"`
 }
 
 // Network configures the host-facing interfaces the BMC brings up directly via

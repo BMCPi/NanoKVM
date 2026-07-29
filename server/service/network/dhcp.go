@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"slices"
+	"sync"
 	"time"
 
 	"github.com/insomniacslk/dhcp/dhcpv4"
@@ -202,6 +204,34 @@ func renewAfter(lease *nclient4.Lease) time.Duration {
 	return max(lease.ACK.IPAddressLeaseTime(dhcpFallbackLease)/2, dhcpMinRenew)
 }
 
+// dhcpNTP holds the NTP servers (option 42) from the most recent lease, kept
+// for the timesync service. The last known set survives a lease loss — stale
+// servers are still better than none while the link recovers.
+var dhcpNTP struct {
+	mu      sync.Mutex
+	servers []string
+}
+
+// DHCPNTPServers returns the NTP servers announced in the most recent DHCP
+// lease, or nil when the server offered none (or eth0 is static).
+func DHCPNTPServers() []string {
+	dhcpNTP.mu.Lock()
+	defer dhcpNTP.mu.Unlock()
+	return slices.Clone(dhcpNTP.servers)
+}
+
+func recordNTPServers(ips []net.IP) {
+	servers := make([]string, 0, len(ips))
+	for _, ip := range ips {
+		servers = append(servers, ip.String())
+	}
+	dhcpNTP.mu.Lock()
+	if len(servers) > 0 {
+		dhcpNTP.servers = servers
+	}
+	dhcpNTP.mu.Unlock()
+}
+
 // applyLease programs the interface from a DHCP ACK: link up, address, default
 // route and resolv.conf, all via netlink.
 func applyLease(iface string, lease *nclient4.Lease) error {
@@ -209,6 +239,7 @@ func applyLease(iface string, lease *nclient4.Lease) error {
 	if err != nil {
 		return err
 	}
+	recordNTPServers(lease.ACK.NTPServers())
 	link, err := netlink.LinkByName(iface)
 	if err != nil {
 		return fmt.Errorf("link %s: %w", iface, err)
