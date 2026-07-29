@@ -58,6 +58,11 @@ var defaultConfig = &Config{
 		DataBits:    8,
 		StopBits:    1,
 		FlowControl: "none",
+		Capture: SerialCapture{
+			Enabled:   true,
+			File:      "/var/lib/nanokvm/log/serial-console.log",
+			MaxSizeKB: 1024,
+		},
 	},
 	// The BMC ships no sshd; the app is the SSH server. Host key and
 	// authorized_keys live on the persistent data partition — the root
@@ -235,6 +240,16 @@ func checkDefaultValue() {
 	}
 	if instance.Serial.FlowControl == "" {
 		instance.Serial.FlowControl = defaultConfig.Serial.FlowControl
+	}
+	// Capture defaults: enabled unless explicitly switched off.
+	if !viper.IsSet("serial.capture.enabled") {
+		instance.Serial.Capture.Enabled = defaultConfig.Serial.Capture.Enabled
+	}
+	if instance.Serial.Capture.File == "" {
+		instance.Serial.Capture.File = defaultConfig.Serial.Capture.File
+	}
+	if instance.Serial.Capture.MaxSizeKB <= 0 {
+		instance.Serial.Capture.MaxSizeKB = defaultConfig.Serial.Capture.MaxSizeKB
 	}
 
 	// Apply SSH defaults. Enabled and passwordAuth are default-true, so they

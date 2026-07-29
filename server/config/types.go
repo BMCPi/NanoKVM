@@ -231,6 +231,23 @@ type Serial struct {
 	DataBits    int    `yaml:"dataBits"`
 	StopBits    int    `yaml:"stopBits"`
 	FlowControl string `yaml:"flowControl"`
+	// Capture continuously records the host's serial output to a bounded
+	// file, so its boot logs are retained even when no console session is
+	// watching. While enabled the port is held open for the whole server
+	// lifetime (the capture registers as a permanent broker session).
+	Capture SerialCapture `yaml:"capture"`
+}
+
+// SerialCapture bounds the always-on host-console capture.
+type SerialCapture struct {
+	// Enabled gates the capture (default true).
+	Enabled bool `yaml:"enabled"`
+	// File is the capture path — on the persistent data partition so the
+	// managed host's boot/crash logs survive a BMC reboot.
+	File string `yaml:"file"`
+	// MaxSizeKB caps the file; on overflow it rotates once to File+".1",
+	// so at most twice this is ever retained.
+	MaxSizeKB int `yaml:"maxSizeKB"`
 }
 
 // SSH configures the in-process SSH server (server/service/ssh). The BMC

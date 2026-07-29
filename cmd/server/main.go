@@ -20,6 +20,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/server/service/ipmi"
 	"github.com/pi-bmc/nanokvm-app/server/service/mdns"
 	"github.com/pi-bmc/nanokvm-app/server/service/network"
+	"github.com/pi-bmc/nanokvm-app/server/service/serial"
 	sshd "github.com/pi-bmc/nanokvm-app/server/service/ssh"
 	"github.com/pi-bmc/nanokvm-app/server/service/usbgadget"
 	"github.com/pi-bmc/nanokvm-app/server/telemetry"
@@ -104,6 +105,12 @@ func initialize() {
 	// Mirror the UEFI variable store to durable storage: restore it into the
 	// volatile i2c-slave-eeprom at boot and keep it in sync with host writes.
 	efivars.GetManager().StartPersistence()
+
+	// Begin the always-on capture of the host's serial console to a bounded
+	// file on the data partition, so its boot/crash logs are retained even
+	// when no terminal or SOL session is watching. Holds the port open for
+	// the server's lifetime; no-op when serial.capture.enabled is false.
+	serial.StartCapture()
 
 	// Start the auto-update ticker (no-op when AutoUpdate.Enabled is false).
 	autoupdate.Start()
@@ -193,6 +200,7 @@ func run() {
 
 func dispose() {
 	autoupdate.Stop()
+	serial.StopCapture()
 	sshd.Stop()
 	network.Stop()
 	if mdnsResponder != nil {

@@ -3,7 +3,9 @@ package vm
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -102,5 +104,27 @@ func (s *Service) Terminal(c *gin.Context) {
 			log.Errorf("serial write failed: %s", err)
 			return
 		}
+	}
+}
+
+// TerminalCapture serves the persisted host serial capture (rotated
+// generation first, then current) as plain text — the managed host's boot
+// and crash logs, recorded by the always-on capture even when no live
+// console session was attached.
+func (s *Service) TerminalCapture(c *gin.Context) {
+	files := serial.CaptureFiles()
+	if len(files) == 0 {
+		c.String(http.StatusNotFound, "no serial capture available")
+		return
+	}
+	c.Header("Content-Type", "text/plain; charset=utf-8")
+	c.Status(http.StatusOK)
+	for _, p := range files {
+		f, err := os.Open(p)
+		if err != nil {
+			continue
+		}
+		_, _ = io.Copy(c.Writer, f)
+		_ = f.Close()
 	}
 }

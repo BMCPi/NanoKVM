@@ -7,6 +7,7 @@ import (
 	"io"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	goserial "go.bug.st/serial"
@@ -276,7 +277,12 @@ func (b *Broker) readLoop() {
 			select {
 			case <-b.stopCh:
 			default:
-				log.Debugf("serial: read error: %s", err)
+				// Unexpected death (EIO, device glitch). Reopen while
+				// consumers remain — with the always-on capture session
+				// registered, a one-off read error must not silently end
+				// capture for the rest of the server's lifetime.
+				log.Warnf("serial: read error: %s; reopening", err)
+				go b.reopen()
 			}
 			return
 		}
@@ -288,6 +294,33 @@ func (b *Broker) readLoop() {
 			b.appendScrollback(mapped)
 			_, _ = b.mw.Write(mapped)
 		}
+	}
+}
+
+// reopen tears down a port whose read loop died and reopens it while any
+// consumer remains registered (with the always-on capture session that is the
+// norm). Paced retries cover a device that needs a moment to come back.
+func (b *Broker) reopen() {
+	b.mu.Lock()
+	b.stopLocked()
+	b.mu.Unlock()
+
+	for {
+		if b.SessionCount() == 0 {
+			return // last consumer left; nothing to reopen for
+		}
+		b.mu.Lock()
+		if b.active {
+			b.mu.Unlock()
+			return // somebody else (a new Connect) already reopened it
+		}
+		err := b.startLocked()
+		b.mu.Unlock()
+		if err == nil {
+			log.Info("serial: reopened after read error")
+			return
+		}
+		time.Sleep(captureRetryInterval)
 	}
 }
 
