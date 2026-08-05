@@ -95,6 +95,19 @@ const (
 	systemResetPath = systemPath + "/Actions/ComputerSystem.Reset"
 	biosPath        = systemPath + "/Bios"
 
+	memoryPath     = systemPath + "/Memory"
+	processorsPath = systemPath + "/Processors"
+	processorPath  = processorsPath + "/" + processorID
+
+	storageRootPath = systemPath + "/Storage"
+	storagePath     = storageRootPath + "/1"
+	drivesPath      = storagePath + "/Drives"
+
+	ethernetInterfacesPath = systemPath + "/EthernetInterfaces"
+	ethernetInterfacePath  = ethernetInterfacesPath + "/" + ethernetInterfaceID
+
+	chassisItemPath = chassisPath + "/1"
+
 	trustedComponentsPath   = systemPath + "/TrustedComponents"
 	bootloaderComponentPath = trustedComponentsPath + "/Bootloader"
 	// The bootloader's firmware is nested under its trusted component.

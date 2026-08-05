@@ -13,6 +13,7 @@ import (
 	"github.com/stmcginnis/gofish/schemas"
 
 	"github.com/pi-bmc/nanokvm-app/server/service/firmware"
+	"github.com/pi-bmc/nanokvm-app/server/service/smbios"
 )
 
 // GetUpdateService returns the UpdateService root.
@@ -73,6 +74,13 @@ func (s *Service) GetFirmwareInventoryUBoot(c *gin.Context) {
 		Version:    current,
 		Updateable: true,
 		Status:     &Status{State: schemas.EnabledState, Health: schemas.OKHealth},
+	}
+	// SMBIOS type 0 carries the firmware vendor and build date — the
+	// standard SoftwareInventory members for what used to sit under
+	// Oem.NanoKVM as BIOSVendor/BIOSDate on the ComputerSystem.
+	if info2, err := smbios.GetStore().Load(); err == nil && info2 != nil {
+		resp.Manufacturer = info2.BIOSVendor
+		resp.ReleaseDate = info2.BIOSDate
 	}
 	if info.Latest != "" {
 		resp.Oem = Oem{

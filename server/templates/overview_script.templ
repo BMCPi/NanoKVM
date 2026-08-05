@@ -133,10 +133,12 @@ templ overviewDataScript() {
 			// SMBIOS type-1 Version / the env's board_revision both land in
 			// SubModel — Redfish has no ComputerSystem.Version.
 			setRow('info-board-rev', sys.SubModel);
-			setRow('info-board-mac', oem.MACAddress);
+			// MAC + memory type moved to their standard resources
+			// (EthernetInterfaces / the Memory collection) — loadDeviceDetail
+			// fills those parts in after this rewrite.
 
 			const gib = sys.MemorySummary && sys.MemorySummary.TotalSystemMemoryGiB;
-			setRow('info-memory', gib ? [gib + ' GiB', oem.MemoryType].filter(Boolean).join(' ') : '');
+			setRow('info-memory', gib ? gib + ' GiB' : '');
 			setRow('info-inventory-source', oem.InventorySource === 'SMBIOS' ? 'SMBIOS tables' : 'U-Boot machine.env');
 
 			setRow('info-fdtfile', oem.DeviceTree);
@@ -186,8 +188,31 @@ templ overviewDataScript() {
 			}
 		}
 
+		// ── Standard per-device resources → MAC + memory type ──────────────
+		// These left Oem.NanoKVM for their DSP2046 homes: the MAC lives on
+		// /Systems/1/EthernetInterfaces/eth0, the module type on the Memory
+		// collection's members. Best-effort enrichment of rows
+		// loadSystemInfo has already (re)written.
+		async function loadDeviceDetail() {
+			try {
+				const nic = await redfishGet('/redfish/v1/Systems/1/EthernetInterfaces/eth0');
+				setRow('info-board-mac', nic.MACAddress);
+			} catch(e) {}
+			try {
+				const col = await redfishGet('/redfish/v1/Systems/1/Memory');
+				const first = col.Members && col.Members[0];
+				if (!first) return;
+				const mod = await redfishGet(first['@odata.id']);
+				const el = document.getElementById('info-memory');
+				const type = (mod.MemoryDeviceType || '').replace('_SDRAM', '');
+				if (el && type && el.textContent && el.textContent !== '—')
+					el.textContent += ' ' + type;
+			} catch(e) {}
+		}
+
 		async function loadFirmwareInfo() {
 			await Promise.all([loadSystemInfo(), loadFirmwareState()]);
+			await loadDeviceDetail();
 		}
 		window.loadFirmwareInfo = loadFirmwareInfo;
 

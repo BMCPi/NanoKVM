@@ -304,6 +304,98 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SoftwareInventory" }
 
+  /redfish/v1/Systems/1/Memory:
+    get:
+      tags: [Systems]
+      summary: |
+        Memory module collection — one member per installed module from the
+        host's SMBIOS type-17 tables (empty until the host first boots).
+      responses:
+        "200": { description: MemoryCollection resource. }
+  /redfish/v1/Systems/1/Memory/{module}:
+    get:
+      tags: [Systems]
+      summary: |
+        One memory module: capacity, device type, speed, part/serial
+        numbers and the array's ECC mode.
+      parameters:
+        - { name: module, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Memory resource. }
+        "404": { description: No such module. }
+  /redfish/v1/Systems/1/Processors:
+    get:
+      tags: [Systems]
+      summary: Processor collection (the host's single-socket CPU).
+      responses:
+        "200": { description: ProcessorCollection resource. }
+  /redfish/v1/Systems/1/Processors/{processor}:
+    get:
+      tags: [Systems]
+      summary: |
+        The host CPU: manufacturer, model, part number, max speed and
+        core/thread counts from SMBIOS type 4 (env fallback pre-first-boot).
+      parameters:
+        - { name: processor, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Processor resource. }
+        "404": { description: No processor inventory available. }
+  /redfish/v1/Systems/1/EthernetInterfaces:
+    get:
+      tags: [Systems]
+      summary: Host NIC collection (the onboard interface the env describes).
+      responses:
+        "200": { description: EthernetInterfaceCollection resource. }
+  /redfish/v1/Systems/1/EthernetInterfaces/{nic}:
+    get:
+      tags: [Systems]
+      summary: The host's onboard NIC with its factory MAC address.
+      parameters:
+        - { name: nic, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: EthernetInterface resource. }
+        "404": { description: No NIC inventory available. }
+  /redfish/v1/Systems/1/Storage:
+    get:
+      tags: [Systems]
+      summary: Storage collection (the BMC's USB mass-storage gadget).
+      responses:
+        "200": { description: StorageCollection resource. }
+  /redfish/v1/Systems/1/Storage/{storage}:
+    get:
+      tags: [Systems]
+      summary: |
+        The gadget subsystem: one Drive per backed LUN (host boot image,
+        plus the virtual-media ISO while inserted).
+      parameters:
+        - { name: storage, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Storage resource. }
+        "404": { description: No such subsystem. }
+  /redfish/v1/Systems/1/Storage/{storage}/Drives/{drive}:
+    get:
+      tags: [Systems]
+      summary: One gadget-backed drive with its capacity and backing state.
+      parameters:
+        - { name: storage, in: path, required: true, schema: { type: string } }
+        - { name: drive, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Drive resource. }
+        "404": { description: No such drive. }
+  /redfish/v1/Chassis:
+    get:
+      tags: [Chassis]
+      summary: Chassis collection (the host baseboard).
+      responses:
+        "200": { description: ChassisCollection resource. }
+  /redfish/v1/Chassis/1:
+    get:
+      tags: [Chassis]
+      summary: |
+        The host baseboard (SMBIOS type 2): board manufacturer, product and
+        serial, linked to the system it carries and the manager.
+      responses:
+        "200": { description: Chassis resource. }
   /redfish/v1/Systems/1/Bios:
     get:
       tags: [Bios]

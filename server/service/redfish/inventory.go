@@ -135,14 +135,13 @@ func applyEnvInfo(sys *ComputerSystem, inv map[string]string) {
 	if cpu := inv["cpu"]; cpu != "" {
 		sys.ProcessorSummary = &ProcessorSummary{Model: cpu}
 	}
-	// Redfish models NICs as an EthernetInterfaces collection, which we do
-	// not expose; there is no ComputerSystem.MACAddress. Report it under Oem
-	// rather than inventing a top-level property.
+	// ethaddr is served through the standard EthernetInterfaces collection
+	// (ethernet_interfaces.go), not Oem.
 	oem := oemNanoKVM(sys)
 	for key, v := range map[string]string{
-		// Env-only values with no standard ComputerSystem property. The web
-		// overview reads these from here rather than /api/firmware/inventory.
-		"MACAddress":  inv["ethaddr"],
+		// Env-only values with no standard Redfish property anywhere. The
+		// web overview reads these from here rather than
+		// /api/firmware/inventory.
 		"SoC":         inv["soc"],
 		"DeviceTree":  inv["fdtfile"],
 		"BootMethods": inv["bootmeths"],
@@ -209,56 +208,42 @@ func applySMBIOSInfo(sys *ComputerSystem, info *smbios.Info) {
 		}
 	}
 
-	// Values SMBIOS carries that have no standard ComputerSystem property.
-	// ProcessorSummary in particular has no Manufacturer member — that lives
-	// on an individual Processor resource, which we do not expose; likewise
-	// MemorySummary has no member for the module type, speed or part numbers.
+	// Only values with NO standard Redfish home remain under Oem. The rest
+	// moved to their DSP2046 resources: per-module memory detail and ECC →
+	// the Memory collection (memory.go); processor manufacturer/part/max
+	// speed → the Processor resource (processors.go); board identity → the
+	// Chassis (chassis.go); BIOS vendor/date → the UpdateService's BIOS
+	// SoftwareInventory (update_service.go); the MAC → EthernetInterfaces.
 	oem := oemNanoKVM(sys)
 	oem["InventorySource"] = "SMBIOS"
 	for key, v := range map[string]string{
-		"Family":                info.Family,
-		"BIOSVendor":            info.BIOSVendor,
-		"BIOSDate":              info.BIOSDate,
-		"BoardManufacturer":     info.BoardManufacturer,
-		"BoardProduct":          info.BoardProduct,
-		"BoardSerial":           info.BoardSerial,
-		"ProcessorManufacturer": info.CPUManufacturer,
-		"ProcessorPartNumber":   info.CPUPartNumber,
-		"MemoryErrorCorrection": info.MemoryErrorCorrection,
-		"SMBIOSVersion":         info.SMBIOSVersion,
-		// The boot firmware (rpi-eeprom) is a separate component from the
-		// BIOS above: BiosVersion/BIOSDate describe U-Boot (SMBIOS type 0),
-		// this is the loader that runs before it (type 45). The full
-		// per-component detail follows in FirmwareInventory.
+		// SMBIOS type-1 Family and the spec version have no ComputerSystem
+		// property in any schema revision.
+		"Family":        info.Family,
+		"SMBIOSVersion": info.SMBIOSVersion,
+		// The boot firmware (rpi-eeprom) is a separate component from
+		// BiosVersion's U-Boot (SMBIOS type 0): this is the loader that
+		// runs before it (type 45). Its standard exposure is the
+		// TrustedComponent's SoftwareInventory (trusted_components.go);
+		// the version stays here too for the web overview's one-call read.
 		"BootFirmwareVersion": info.BootFirmwareVersion,
 	} {
 		if v != "" {
 			oem[key] = v
 		}
 	}
-	// SMBIOS type 45 — every firmware image the host reports. Redfish models
-	// the running loader as a TrustedComponent + SoftwareInventory (see
-	// trusted_components.go); this is the raw inventory behind it.
+	// SMBIOS type 45 — every firmware image the host reports, raw. The
+	// running loader's standard model is the TrustedComponent +
+	// SoftwareInventory; the full list has no per-component standard
+	// resource yet.
 	if len(info.FirmwareInventory) > 0 {
 		oem["FirmwareInventory"] = info.FirmwareInventory
 	}
-	if info.CPUMaxSpeedMHz > 0 {
-		oem["ProcessorMaxSpeedMHz"] = info.CPUMaxSpeedMHz
-	}
+	// Populated-slot count (type 16) and system slots (type 9): Redfish
+	// homes these under Chassis PCIeSlots/MemoryDomains, which this board
+	// (one soldered package, one FPC connector) does not warrant.
 	if info.MemorySlots > 0 {
 		oem["MemorySlots"] = info.MemorySlots
-	}
-	if len(info.Memory) > 0 {
-		// A DIMM/package summary alongside the full per-module detail. The
-		// first module's type and speed characterise the array on the RPi 5,
-		// which carries a single soldered package.
-		if t := info.Memory[0].Type; t != "" {
-			oem["MemoryType"] = t
-		}
-		if sp := info.Memory[0].SpeedMTs; sp > 0 {
-			oem["MemorySpeedMTs"] = sp
-		}
-		oem["MemoryDevices"] = info.Memory
 	}
 	if len(info.Slots) > 0 {
 		oem["Slots"] = info.Slots

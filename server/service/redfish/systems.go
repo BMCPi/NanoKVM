@@ -113,6 +113,10 @@ func buildSystemResource() ComputerSystem {
 	}
 
 	biosLink := Link(biosPath)
+	memoryLink := Link(memoryPath)
+	processorsLink := Link(processorsPath)
+	storageLink := Link(storageRootPath)
+	nicsLink := Link(ethernetInterfacesPath)
 	sys := ComputerSystem{
 		Resource: Resource{
 			ODataType:    "#ComputerSystem.v1_13_0.ComputerSystem",
@@ -128,6 +132,13 @@ func buildSystemResource() ComputerSystem {
 		// bios.go). Standard navigation property — clients follow @odata.id
 		// to GET the current bootloader settings.
 		Bios: &biosLink,
+		// Per-device inventory collections. Always linked (JetKVM-style):
+		// clients descend and find whatever the current SMBIOS/env/gadget
+		// state provides, which may be an empty collection pre-first-boot.
+		Memory:             &memoryLink,
+		Processors:         &processorsLink,
+		Storage:            &storageLink,
+		EthernetInterfaces: &nicsLink,
 		Actions: &SystemActions{
 			Reset: ResetAction{
 				Target:            systemResetPath,
@@ -139,6 +150,7 @@ func buildSystemResource() ComputerSystem {
 		// SoftwareInventory. See trusted_components.go.
 		Links: &SystemLinks{
 			TrustedComponents: Links{Link(bootloaderComponentPath)},
+			Chassis:           Links{Link(chassisItemPath)},
 		},
 	}
 

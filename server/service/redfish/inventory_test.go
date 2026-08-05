@@ -140,7 +140,6 @@ func TestApplyEnvInfo(t *testing.T) {
 
 	oem := oemNanoKVM(&sys)
 	for key, want := range map[string]any{
-		"MACAddress":      "d8:3a:dd:00:11:22",
 		"SoC":             "bcm2712",
 		"DeviceTree":      "broadcom/bcm2712-rpi-5-b.dtb",
 		"BootMethods":     "efi pxe dhcp",
@@ -149,6 +148,11 @@ func TestApplyEnvInfo(t *testing.T) {
 		if oem[key] != want {
 			t.Errorf("Oem[%q] = %v, want %v", key, oem[key], want)
 		}
+	}
+	// The MAC's standard home is the EthernetInterfaces collection
+	// (ethernet_interfaces.go); it must no longer leak into Oem.
+	if _, present := oem["MACAddress"]; present {
+		t.Error("Oem[MACAddress] present; the MAC belongs to EthernetInterfaces")
 	}
 }
 
@@ -159,7 +163,7 @@ func TestApplyEnvInfoOmitsAbsentKeys(t *testing.T) {
 	applyEnvInfo(&sys, map[string]string{"board_name": "rpi5"})
 
 	oem := oemNanoKVM(&sys)
-	for _, key := range []string{"MACAddress", "SoC", "DeviceTree", "BootMethods"} {
+	for _, key := range []string{"SoC", "DeviceTree", "BootMethods"} {
 		if _, present := oem[key]; present {
 			t.Errorf("Oem[%q] present for an env that does not carry it", key)
 		}
@@ -180,7 +184,7 @@ func TestSMBIOSOverlayKeepsEnvOnlyOemKeys(t *testing.T) {
 	applySMBIOSInfo(&sys, &smbios.Info{Manufacturer: "Raspberry Pi", Product: "Raspberry Pi 5 Model B"})
 
 	oem := oemNanoKVM(&sys)
-	for _, key := range []string{"MACAddress", "SoC", "DeviceTree", "BootMethods"} {
+	for _, key := range []string{"SoC", "DeviceTree", "BootMethods"} {
 		if oem[key] == nil || oem[key] == "" {
 			t.Errorf("Oem[%q] lost when SMBIOS was overlaid", key)
 		}
@@ -192,8 +196,9 @@ func TestSMBIOSOverlayKeepsEnvOnlyOemKeys(t *testing.T) {
 }
 
 // applySMBIOSInfo must project the SMBIOS memory tables onto the standard
-// ComputerSystem.MemorySummary, and route the detail with no standard property
-// (module type/speed, ECC, sockets, per-module list, slots) to Oem.
+// ComputerSystem.MemorySummary. Per-module detail and ECC now live on the
+// Memory collection (memory.go); only the values with no standard home
+// anywhere (populated-slot count, system slots) may remain under Oem.
 func TestApplySMBIOSInfoMemory(t *testing.T) {
 	var sys ComputerSystem
 	info := &smbios.Info{
@@ -233,21 +238,61 @@ func TestApplySMBIOSInfoMemory(t *testing.T) {
 	}
 
 	oem := oemNanoKVM(&sys)
-	for key, want := range map[string]any{
-		"MemoryErrorCorrection": "Single-bit ECC",
-		"MemorySlots":           1,
-		"MemoryType":            "LPDDR4",
-		"MemorySpeedMTs":        4267,
-	} {
-		if oem[key] != want {
-			t.Errorf("Oem[%q] = %v, want %v", key, oem[key], want)
-		}
-	}
-	if _, ok := oem["MemoryDevices"].([]smbios.MemoryModule); !ok {
-		t.Errorf("Oem[MemoryDevices] is %T, want []smbios.MemoryModule", oem["MemoryDevices"])
+	if oem["MemorySlots"] != 1 {
+		t.Errorf("Oem[MemorySlots] = %v, want 1", oem["MemorySlots"])
 	}
 	if slots, ok := oem["Slots"].([]string); !ok || len(slots) != 1 || slots[0] != "PCIe" {
 		t.Errorf("Oem[Slots] = %v, want [PCIe]", oem["Slots"])
+	}
+	// Everything with a standard Memory-resource member must be gone.
+	for _, key := range []string{"MemoryErrorCorrection", "MemoryType", "MemorySpeedMTs", "MemoryDevices"} {
+		if _, present := oem[key]; present {
+			t.Errorf("Oem[%q] present; this detail belongs to the Memory collection", key)
+		}
+	}
+}
+
+// memoryResource must project an SMBIOS type-17 module onto the standard
+// Memory resource, including the enum translations.
+func TestMemoryResourceMapping(t *testing.T) {
+	m := smbios.MemoryModule{
+		Locator:            "P0 CH0",
+		SizeMB:             16384,
+		Type:               "LPDDR4",
+		SpeedMTs:           4267,
+		ConfiguredSpeedMTs: 4267,
+		Manufacturer:       "Micron",
+		PartNumber:         "MT53E2G32",
+		SerialNumber:       "0000000",
+		DataWidthBits:      32,
+		TotalWidthBits:     32,
+	}
+	id := memoryID(0, m)
+	if id != "P0CH0" {
+		t.Errorf("memoryID = %q, want locator-derived P0CH0", id)
+	}
+	res := memoryResource(id, m, "Single-bit ECC")
+	if res.MemoryDeviceType != "LPDDR4_SDRAM" {
+		t.Errorf("MemoryDeviceType = %q, want LPDDR4_SDRAM", res.MemoryDeviceType)
+	}
+	if res.ErrorCorrection != schemas.SingleBitECCErrorCorrection {
+		t.Errorf("ErrorCorrection = %q, want SingleBitECC", res.ErrorCorrection)
+	}
+	if res.CapacityMiB == nil || *res.CapacityMiB != 16384 {
+		t.Errorf("CapacityMiB = %v, want 16384", res.CapacityMiB)
+	}
+	if res.OperatingSpeedMhz == nil || *res.OperatingSpeedMhz != 4267 {
+		t.Errorf("OperatingSpeedMhz = %v, want 4267", res.OperatingSpeedMhz)
+	}
+	if res.DeviceLocator != "P0 CH0" || res.Manufacturer != "Micron" || res.PartNumber != "MT53E2G32" {
+		t.Errorf("identity fields wrong: %+v", res)
+	}
+}
+
+// A module with no locator falls back to a positional Id.
+func TestMemoryIDFallback(t *testing.T) {
+	if id := memoryID(2, smbios.MemoryModule{}); id != "DIMM2" {
+		t.Errorf("memoryID = %q, want DIMM2", id)
 	}
 }
 

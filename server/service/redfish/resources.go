@@ -107,22 +107,31 @@ type ComputerSystem struct {
 	MemorySummary    *MemorySummary    `json:"MemorySummary,omitempty"`
 	Boot             Boot              `json:"Boot"`
 	Bios             *Link             `json:"Bios,omitempty"`
-	Actions          *SystemActions    `json:"Actions,omitempty"`
-	Links            *SystemLinks      `json:"Links,omitempty"`
-	Oem              Oem               `json:"Oem,omitempty"`
+	// Sub-resource collections (see memory.go, processors.go, storage.go,
+	// ethernet_interfaces.go) — the standard homes for the per-device
+	// inventory that predates them under Oem.NanoKVM.
+	Memory             *Link          `json:"Memory,omitempty"`
+	Processors         *Link          `json:"Processors,omitempty"`
+	Storage            *Link          `json:"Storage,omitempty"`
+	EthernetInterfaces *Link          `json:"EthernetInterfaces,omitempty"`
+	Actions            *SystemActions `json:"Actions,omitempty"`
+	Links              *SystemLinks   `json:"Links,omitempty"`
+	Oem                Oem            `json:"Oem,omitempty"`
 }
 
 // SystemLinks carries ComputerSystem navigation links. TrustedComponents is
 // the standard place to advertise platform roots of trust; on the RPi 5 the
 // rpi-eeprom bootloader is one, exposed with its firmware as a nested
-// SoftwareInventory (see trusted_components.go).
+// SoftwareInventory (see trusted_components.go). Chassis binds the system to
+// the baseboard resource (chassis.go).
 type SystemLinks struct {
 	TrustedComponents Links `json:"TrustedComponents,omitempty"`
+	Chassis           Links `json:"Chassis,omitempty"`
 }
 
 // ProcessorSummary mirrors the Redfish property set. Note there is no
-// Manufacturer member — that lives on an individual Processor resource,
-// which we don't expose; SMBIOS's CPU manufacturer goes to Oem instead.
+// Manufacturer member — that lives on the individual Processor resource
+// (processors.go), which carries the full SMBIOS type-4 detail.
 type ProcessorSummary struct {
 	Count                 *uint  `json:"Count,omitempty"`
 	Model                 string `json:"Model,omitempty"`
@@ -133,8 +142,8 @@ type ProcessorSummary struct {
 // MemorySummary mirrors the Redfish ComputerSystem.MemorySummary property set,
 // derived from the SMBIOS type 16/17 tables. TotalSystemMemoryGiB is a pointer
 // so an unknown total is omitted rather than reported as a misleading 0 GiB.
-// Per-module detail (type, speed, part number) has no standard member here and
-// is reported under Oem instead (see inventory.go).
+// Per-module detail (type, speed, part number) lives on the Memory collection
+// members (memory.go).
 type MemorySummary struct {
 	TotalSystemMemoryGiB *float64                `json:"TotalSystemMemoryGiB,omitempty"`
 	MemoryMirroring      schemas.MemoryMirroring `json:"MemoryMirroring,omitempty"`
@@ -262,6 +271,9 @@ type SoftwareInventory struct {
 	Resource
 	SoftwareID string `json:"SoftwareId,omitempty"`
 	Version    string `json:"Version,omitempty"`
+	// Manufacturer is the firmware vendor (SMBIOS type-0 Vendor for the
+	// BIOS/U-Boot image).
+	Manufacturer string `json:"Manufacturer,omitempty"`
 	// ReleaseDate is the firmware's release/production date (ISO 8601). For
 	// the bootloader it carries the EEPROM flash time from
 	// BootloaderUpdateTimestamp.

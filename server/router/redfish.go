@@ -51,6 +51,26 @@ func redfishRouter(r *gin.Engine) {
 		api.PATCH("/Systems/1/Bios/Settings", service.PatchBiosSettings)
 		api.GET("/Systems/1/Bios/AttributeRegistry", service.GetBiosAttributeRegistry)
 
+		// Per-device inventory collections — the standard homes for what
+		// used to sit under the ComputerSystem's Oem.NanoKVM block.
+		api.GET("/Systems/1/Memory", service.GetMemoryCollection)
+		api.GET("/Systems/1/Memory/:module", service.GetMemoryModule)
+		api.GET("/Systems/1/Processors", service.GetProcessorCollection)
+		api.GET("/Systems/1/Processors/:processor", service.GetProcessor)
+		api.GET("/Systems/1/EthernetInterfaces", service.GetEthernetInterfaceCollection)
+		api.GET("/Systems/1/EthernetInterfaces/:nic", service.GetEthernetInterface)
+
+		// Storage — the USB gadget's LUNs as a Storage subsystem with one
+		// Drive per backed LUN (boot image + inserted virtual media).
+		api.GET("/Systems/1/Storage", service.GetStorageCollection)
+		api.GET("/Systems/1/Storage/:storage", service.GetStorage)
+		api.GET("/Systems/1/Storage/:storage/Drives/:drive", service.GetDrive)
+
+		// Chassis — the host baseboard (SMBIOS type 2); the service root
+		// has always advertised this collection.
+		api.GET("/Chassis", service.GetChassisCollection)
+		api.GET("/Chassis/1", service.GetChassis)
+
 		// TrustedComponents — the rpi-eeprom bootloader as the platform root
 		// of trust, with its firmware version/flash-time as a nested
 		// SoftwareInventory.
