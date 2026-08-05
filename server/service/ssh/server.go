@@ -35,6 +35,14 @@ const (
 	handshakeTimeout = 30 * time.Second
 	// maxAuthTries per connection before the server drops it.
 	maxAuthTries = 6
+	// maxPendingHandshakes caps connections in the pre-auth phase. Each
+	// handshake costs real crypto on the single C906 core, and the busiest
+	// moments are exactly when that core is already saturated (the managed
+	// Pi booting streams its 513 MB image through the USB gadget). Beyond
+	// the cap, connections are closed immediately — a fast, retryable
+	// refusal instead of a pile of crawling handshakes that deepen the
+	// starvation. Established sessions are never affected.
+	maxPendingHandshakes = 4
 	// serverVersion is the SSH identification string. Must start with
 	// "SSH-2.0-" per RFC 4253.
 	serverVersion = "SSH-2.0-NanoKVM"
@@ -47,6 +55,10 @@ type Server struct {
 
 	stop chan struct{}
 	wg   sync.WaitGroup
+
+	// handshakes is a semaphore bounding concurrent pre-auth handshakes
+	// (see maxPendingHandshakes).
+	handshakes chan struct{}
 
 	mu    sync.Mutex
 	conns map[net.Conn]struct{}
@@ -126,8 +138,9 @@ func newServer(conf config.SSH) (*Server, error) {
 	}
 
 	s := &Server{
-		stop:  make(chan struct{}),
-		conns: make(map[net.Conn]struct{}),
+		stop:       make(chan struct{}),
+		handshakes: make(chan struct{}, maxPendingHandshakes),
+		conns:      make(map[net.Conn]struct{}),
 	}
 
 	s.cfg = &ssh.ServerConfig{
@@ -207,11 +220,22 @@ func (s *Server) handleConn(nConn net.Conn) {
 		_ = nConn.Close()
 	}()
 
+	// Admission control before any crypto: past the cap, refuse instantly
+	// rather than crawl (see maxPendingHandshakes).
+	select {
+	case s.handshakes <- struct{}{}:
+	default:
+		log.Warnf("ssh: refusing %s: %d handshakes already in flight",
+			nConn.RemoteAddr(), maxPendingHandshakes)
+		return
+	}
+
 	// Bound the handshake, then clear the deadline so an idle interactive
 	// session is never torn down mid-use.
 	_ = nConn.SetDeadline(time.Now().Add(handshakeTimeout))
 
 	conn, chans, reqs, err := ssh.NewServerConn(nConn, s.cfg)
+	<-s.handshakes
 	if err != nil {
 		// Failed handshakes are routine (port scanners, key probes); debug.
 		log.Debugf("ssh: handshake from %s failed: %s", nConn.RemoteAddr(), err)

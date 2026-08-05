@@ -55,11 +55,14 @@ type Storage struct {
 // Drive is the Redfish Drive resource (DSP2046 §6.20).
 type Drive struct {
 	Resource
-	Model         string             `json:"Model,omitempty"`
-	CapacityBytes *int64             `json:"CapacityBytes,omitempty"`
-	MediaType     schemas.MediaType  `json:"MediaType,omitempty"`
-	Protocol      schemas.Protocol   `json:"Protocol,omitempty"`
-	Status        *Status            `json:"Status,omitempty"`
+	Manufacturer  string            `json:"Manufacturer,omitempty"`
+	Model         string            `json:"Model,omitempty"`
+	SerialNumber  string            `json:"SerialNumber,omitempty"`
+	Revision      string            `json:"Revision,omitempty"`
+	CapacityBytes *int64            `json:"CapacityBytes,omitempty"`
+	MediaType     schemas.MediaType `json:"MediaType,omitempty"`
+	Protocol      schemas.Protocol  `json:"Protocol,omitempty"`
+	Status        *Status           `json:"Status,omitempty"`
 }
 
 // gadgetDrives returns the currently backed LUNs as (id, resource) pairs in
@@ -135,35 +138,48 @@ func hostDrives() []Drive {
 	}
 	drives := make([]Drive, 0, len(inv.Drives))
 	for _, hd := range inv.Drives {
-		id := fmt.Sprintf("%s%d", hd.Interface, hd.Devnum)
-		name := hd.Product
-		if name == "" {
-			name = id
-		}
-		d := Drive{
-			Resource: Resource{
-				ODataType:    "#Drive.v1_17_0.Drive",
-				ODataID:      hostDrivesPath + "/" + id,
-				ODataContext: context("Drive.Drive"),
-				ID:           id,
-				Name:         name,
-			},
-			Model:    hd.Product,
-			Protocol: hostDriveProtocol(hd.Interface),
-			// Boot-time snapshot: the drive was present when the host last
-			// booted; the BMC cannot see hot-plug afterwards.
-			Status: &Status{State: schemas.EnabledState, Health: schemas.OKHealth},
-		}
-		if hd.Interface == "nvme" {
-			d.MediaType = schemas.SSDMediaType
-		}
-		if hd.SizeBytes > 0 && hd.SizeBytes <= uint64(1)<<62 {
-			size := int64(hd.SizeBytes) //nolint:gosec // bounded above
-			d.CapacityBytes = &size
-		}
-		drives = append(drives, d)
+		drives = append(drives, hostDriveResource(hd))
 	}
 	return drives
+}
+
+// hostDriveResource maps one reported device onto a Drive. U-Boot's blk_desc
+// fields carry different things per driver: for NVMe the fork puts the
+// Identify model name (MN) in vendor and the serial (SN) in product, while
+// SCSI-shaped drivers (USB, SATA) use vendor/product literally — so the
+// members are assigned per interface rather than uniformly.
+func hostDriveResource(hd blkinfo.Drive) Drive {
+	id := fmt.Sprintf("%s%d", hd.Interface, hd.Devnum)
+	d := Drive{
+		Resource: Resource{
+			ODataType:    "#Drive.v1_17_0.Drive",
+			ODataID:      hostDrivesPath + "/" + id,
+			ODataContext: context("Drive.Drive"),
+			ID:           id,
+		},
+		Revision: hd.Revision,
+		Protocol: hostDriveProtocol(hd.Interface),
+		// Boot-time snapshot: the drive was present when the host last
+		// booted; the BMC cannot see hot-plug afterwards.
+		Status: &Status{State: schemas.EnabledState, Health: schemas.OKHealth},
+	}
+	if hd.Interface == "nvme" {
+		d.Model = hd.Vendor
+		d.SerialNumber = hd.Product
+		d.MediaType = schemas.SSDMediaType
+	} else {
+		d.Manufacturer = hd.Vendor
+		d.Model = hd.Product
+	}
+	d.Name = d.Model
+	if d.Name == "" {
+		d.Name = id
+	}
+	if hd.SizeBytes > 0 && hd.SizeBytes <= uint64(1)<<62 {
+		size := int64(hd.SizeBytes) //nolint:gosec // bounded above
+		d.CapacityBytes = &size
+	}
+	return d
 }
 
 // storageSubsystem assembles one Storage resource from its drive list.
