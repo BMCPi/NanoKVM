@@ -1,7 +1,6 @@
 package ipmi
 
 import (
-	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -151,9 +150,4 @@ func (sol *solState) sendData(data []byte) {
 	if _, err := srv.conn.WriteToUDP(pkt, addr); err != nil {
 		log.Errorf("SOL: send error: %s", err)
 	}
-}
-
-// SerialPort returns the configured serial port path for diagnostics.
-func SerialPort() string {
-	return fmt.Sprintf("%s @ %s baud", defaultSerialPort, defaultBaudRate)
 }

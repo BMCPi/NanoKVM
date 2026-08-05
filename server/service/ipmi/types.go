@@ -118,12 +118,6 @@ const (
 	swID         byte = 0x81
 )
 
-// SOL serial port settings
-const (
-	defaultSerialPort = "/dev/ttyS0"
-	defaultBaudRate   = "115200"
-)
-
 // Default IPMI credentials (hardcoded for now)
 const defaultPassword = "admin"
 
