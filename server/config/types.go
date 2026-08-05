@@ -298,6 +298,11 @@ type SSH struct {
 type Firmware struct {
 	ImageURL  string `yaml:"imageURL"`
 	ImagePath string `yaml:"imagePath"`
+	// SeedPath is an xz-compressed copy of the boot image baked into the
+	// read-only rootfs (shipped by the build's rpi-firmware-seed recipe).
+	// When ImagePath is absent at startup it is decompressed from here
+	// instead of downloaded, so a factory-fresh BMC needs no network fetch.
+	SeedPath string `yaml:"seedPath"`
 	// FirmwareDir is the local directory holding the canonical FAT root files
 	// (u-boot.bin, config.txt, RPi *.elf/*.dat firmware blobs, .dtb files,
 	// overlays/, etc.). The boot image is built from this directory; it is

@@ -2,13 +2,13 @@ package vm
 
 import (
 	"fmt"
-	"os/exec"
 
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/server/config"
 	"github.com/pi-bmc/nanokvm-app/server/proto"
+	"github.com/pi-bmc/nanokvm-app/server/service/application"
 	"github.com/pi-bmc/nanokvm-app/server/utils"
 )
 
@@ -36,7 +36,9 @@ func (s *Service) SetTls(c *gin.Context) {
 
 	rsp.OkRsp(c)
 
-	_ = exec.Command("sh", "-c", "/etc/init.d/S95nanokvm restart").Run()
+	// The proto/cert change only takes effect on the next start; exit and
+	// let init respawn us.
+	application.RestartService()
 }
 
 func enableTls() error {

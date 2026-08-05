@@ -6,7 +6,6 @@ import (
 	"io"
 	"mime/multipart"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -37,7 +36,7 @@ func (s *Service) OfflineUpdate(c *gin.Context) {
 	log.Debugf("offline update application success")
 
 	time.Sleep(1 * time.Second)
-	_ = exec.Command("sh", "-c", "/etc/init.d/S95nanokvm restart").Run()
+	RestartService()
 }
 
 func offlineUpdate(c *gin.Context) error {

@@ -50,6 +50,7 @@ type Controller struct {
 
 	imageURL    string
 	imagePath   string
+	seedPath    string // baked-in .xz seed tried before any download
 	mountPoint  string
 	firmwareDir string
 	mediaDir    string // staging area for ISO files the user has uploaded
@@ -78,6 +79,7 @@ func GetController() *Controller {
 		instance = &Controller{
 			imageURL:    cfg.Firmware.ImageURL,
 			imagePath:   cfg.Firmware.ImagePath,
+			seedPath:    cfg.Firmware.SeedPath,
 			mountPoint:  cfg.Firmware.MountPoint,
 			firmwareDir: cfg.Firmware.FirmwareDir,
 			mediaDir:    cfg.Firmware.MediaDir,
@@ -114,17 +116,19 @@ func newEnvStore(cfg config.UbootEnv) *ubootenv.Store {
 	return ubootenv.NewStore(b, cfg.Offset, cfg.Size, cfg.SnapshotPath)
 }
 
-// Init ensures an image exists (downloading if missing), attaches the
-// persistent loop device, and presents the image via the USB gadget.
-// Call once at server startup.
+// Init ensures an image exists (seeding from the baked-in copy, else
+// downloading), attaches the persistent loop device, and presents the image
+// via the USB gadget. Call once at server startup.
 func (c *Controller) Init() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if !c.imageExists() {
-		log.Infof("firmware: image not found at %s, downloading", c.imagePath)
-		if err := c.downloadImageLocked(); err != nil {
-			return fmt.Errorf("download image: %w", err)
+		if err := c.seedImageLocked(); err != nil {
+			log.Infof("firmware: image not found at %s and no usable seed (%v); downloading", c.imagePath, err)
+			if err := c.downloadImageLocked(); err != nil {
+				return fmt.Errorf("download image: %w", err)
+			}
 		}
 	}
 

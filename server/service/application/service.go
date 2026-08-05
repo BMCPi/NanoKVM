@@ -35,9 +35,11 @@ const (
 // serverBinary is the relative path of the daemon inside an install dir.
 const serverBinary = "server/NanoKVM-Server"
 
-// ActiveAppDir returns the install directory the init script would launch:
+// ActiveAppDir returns the install directory the launcher would start:
 // the first of AppDir, BackupDir, BuiltinAppDir that contains an executable
-// server binary. Must mirror the cascade in the packaging init script.
+// server binary. Must mirror the cascade in the build's launcher script
+// (meta-nanokvm recipes-nanokvm/nanokvm/files/nanokvm-server-run), which
+// busybox init runs under an inittab ::respawn entry.
 func ActiveAppDir() string {
 	for _, dir := range []string{AppDir, BackupDir, BuiltinAppDir} {
 		info, err := os.Stat(filepath.Join(dir, serverBinary))

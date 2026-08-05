@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -36,7 +36,7 @@ func (s *Service) Update(c *gin.Context) {
 	log.Debugf("update application success")
 
 	time.Sleep(1 * time.Second)
-	_ = exec.Command("sh", "-c", "/etc/init.d/S95nanokvm restart").Run()
+	RestartService()
 }
 
 // RunUpdate downloads and installs the latest application release without an
@@ -52,10 +52,16 @@ func RunUpdate() error {
 	return update()
 }
 
-// RestartService kicks the init script. Best-effort and intended to be
-// called shortly after a successful RunUpdate.
+// RestartService restarts the server by exiting: busybox init runs the
+// server under an inittab ::respawn entry, so a clean exit is a restart,
+// and the respawned launcher re-walks the app -> app.prev -> /kvmapp
+// cascade, picking up whatever an update just installed. Raising SIGTERM
+// at ourselves (rather than calling os.Exit) routes through main's signal
+// handler, so listeners and the gadget shut down exactly as on a system
+// stop.
 func RestartService() {
-	_ = exec.Command("sh", "-c", "/etc/init.d/S95nanokvm restart").Run()
+	log.Info("restart requested; exiting for init to respawn")
+	_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
 }
 
 // LatestVersion returns the latest available release version string (or

@@ -80,6 +80,7 @@ var defaultConfig = &Config{
 	Firmware: Firmware{
 		ImageURL:      "https://github.com/tinkerbell-community/uboot-raspberrypi/releases/download/v2026.04-rc4.1/uboot-raspberrypi-2026.04-rc4.1.img.xz",
 		ImagePath:     "/var/lib/nanokvm/firmware/uboot-rpi.img",
+		SeedPath:      "/usr/share/rpi/uboot-rpi.img.xz",
 		FirmwareDir:   "/var/lib/nanokvm/firmware/files",
 		MountPoint:    "/var/lib/nanokvm/firmware/mnt",
 		MachineEnv:    "/var/lib/nanokvm/firmware/files/machine.env",

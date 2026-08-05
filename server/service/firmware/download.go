@@ -151,6 +151,37 @@ func downloadFile(url, dest string) error {
 	return f.Sync()
 }
 
+// seedImageLocked installs the boot image from the xz seed baked into the
+// read-only rootfs (rpi-firmware-seed recipe; path from Firmware.SeedPath),
+// replacing the retired S06nanokvm-data init script. Must hold c.mu. Same
+// decompress-to-temp + same-dir rename contract as downloads, so a power
+// cut can never leave a truncated image that imageExists()'s size check
+// would accept.
+func (c *Controller) seedImageLocked() error {
+	if c.seedPath == "" {
+		return fmt.Errorf("no seed configured")
+	}
+	if fi, err := os.Stat(c.seedPath); err != nil {
+		return err
+	} else if fi.Size() == 0 {
+		return fmt.Errorf("seed %s is empty", c.seedPath)
+	}
+	if err := os.MkdirAll(filepath.Dir(c.imagePath), 0o755); err != nil {
+		return fmt.Errorf("create image dir: %w", err)
+	}
+	tmp := c.imagePath + ".seed.tmp"
+	defer os.Remove(tmp)
+	log.Infof("firmware: seeding image from %s", c.seedPath)
+	if err := decompressXZ(c.seedPath, tmp); err != nil {
+		return err
+	}
+	if err := moveFile(tmp, c.imagePath); err != nil {
+		return fmt.Errorf("install seeded image: %w", err)
+	}
+	log.Infof("firmware: seeded %s", c.imagePath)
+	return nil
+}
+
 func decompressXZ(src, dest string) error {
 	in, err := os.Open(src)
 	if err != nil {
