@@ -68,8 +68,8 @@ Note: Use Linux operating system (x86-64), or any platform with Go cross-compila
        `Settings > Authorized Keys`. It serves shells and remote commands only: there is no
        SFTP subsystem and no `scp` binary on the device, so copy files over the HTTP API
        (`/api/firmware/file/:name`, `/api/firmware/media/upload`) or the web UI instead.
-    2. Replace the original file in the NanoKVM `/kvmapp/server/` directory with the newly compiled `NanoKVM-Server`.
-    3. Restart the service on NanoKVM by executing `/etc/init.d/S95nanokvm restart`.
+    2. Place the newly compiled `NanoKVM-Server` at `/var/lib/nanokvm/app/server/NanoKVM-Server` (the factory copy under the read-only `/kvmapp` is left untouched; the launcher prefers the writable install).
+    3. Restart the service by running `killall NanoKVM-Server` — busybox init supervises the server and respawns it immediately.
 
 ## Manually Update
 
@@ -78,5 +78,5 @@ Note: Use Linux operating system (x86-64), or any platform with Go cross-compila
 
 1. Download the latest application from [GitHub](https://github.com/sipeed/NanoKVM/releases);
 2. Unzip the downloaded file and rename the unzipped folder to `kvmapp`;
-3. Back up the existing `/kvmapp` directory on your NanoKVM, then replace it with the new `kvmapp` folder;
-4. Run `/etc/init.d/S95nanokvm restart` on your NanoKVM to restart the service.
+3. Place it at `/var/lib/nanokvm/app` on your NanoKVM (`/kvmapp` itself is the read-only factory copy inside the squashfs; the launcher runs `/var/lib/nanokvm/app` first when present);
+4. Run `killall NanoKVM-Server` to restart the service — busybox init respawns it from the new install.

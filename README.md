@@ -72,7 +72,6 @@ We offer several NanoKVM versions to suit your needs:
 ``` shell
 ├── cmd/            # CLI entry points (server, fw_env)
 ├── server/         # NanoKVM Back-end (Go + Gin)
-├── packaging/      # Release packaging (init scripts, service files)
 ├── ...
 ```
 

@@ -50,10 +50,6 @@ archives:
       - tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}"
     files:
-      - src: packaging/etc/init.d/*
-        dst: system/etc/init.d
-        info:
-          mode: 0755
       - LICENSE
       - README.md
       - version
