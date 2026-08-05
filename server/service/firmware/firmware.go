@@ -116,34 +116,55 @@ func newEnvStore(cfg config.UbootEnv) *ubootenv.Store {
 	return ubootenv.NewStore(b, cfg.Offset, cfg.Size, cfg.SnapshotPath)
 }
 
-// Init ensures an image exists (seeding from the baked-in copy, else
-// downloading), attaches the persistent loop device, and presents the image
-// via the USB gadget. Call once at server startup.
+// Init presents the boot image via the USB gadget when it exists; when it
+// does not (factory-fresh data partition), the image is produced in the
+// background — seeded from the baked-in copy, else downloaded — and
+// presented on completion. Startup must not block on this: the seed is a
+// ~513 MB decompress to SD that takes minutes, and the HTTP listeners only
+// open after initialization, which is exactly the window that makes a
+// first-boot BMC look dead. Call once at server startup.
 func (c *Controller) Init() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if !c.imageExists() {
-		if err := c.seedImageLocked(); err != nil {
-			log.Infof("firmware: image not found at %s and no usable seed (%v); downloading", c.imagePath, err)
-			if err := c.downloadImageLocked(); err != nil {
-				return fmt.Errorf("download image: %w", err)
-			}
+		log.Infof("firmware: image not found at %s; producing it in the background", c.imagePath)
+		go c.ensureImageAndPresent()
+	} else {
+		// The gadget itself (g0, all functions incl. lun.1) is built by the
+		// usbgadget package at server startup, before this runs. Here we only
+		// fill lun.0's backing file with the boot image.
+		log.Info("firmware: image found, presenting via USB gadget")
+		if err := c.presentImage(); err != nil {
+			log.Warnf("firmware: USB gadget present failed (may not be available in this environment): %v", err)
 		}
-	}
-
-	// The gadget itself (g0, all functions incl. lun.1) is built by the
-	// usbgadget package at server startup, before this runs. Here we only fill
-	// lun.0's backing file with the boot image.
-	log.Info("firmware: image found, presenting via USB gadget")
-	if err := c.presentImage(); err != nil {
-		log.Warnf("firmware: USB gadget present failed (may not be available in this environment): %v", err)
 	}
 
 	// Reconcile the durable env snapshot against the (volatile) EEPROM and
 	// start watching for host-side saveenv writes. Best-effort.
 	c.env.StartPersistence()
 	return nil
+}
+
+// ensureImageAndPresent seeds (else downloads) the boot image and presents
+// it via the gadget. Runs in the background at startup; mirrors
+// DownloadAndInit's locking.
+func (c *Controller) ensureImageAndPresent() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.imageExists() {
+		if err := c.seedImageLocked(); err != nil {
+			log.Infof("firmware: no usable seed (%v); downloading", err)
+			if err := c.downloadImageLocked(); err != nil {
+				log.Errorf("firmware: ensure image: %v", err)
+				return
+			}
+		}
+	}
+	if err := c.presentImage(); err != nil {
+		log.Warnf("firmware: USB gadget present failed (may not be available in this environment): %v", err)
+	}
 }
 
 // GetStatus returns the current lifecycle state.

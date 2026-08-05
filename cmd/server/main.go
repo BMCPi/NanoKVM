@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -41,7 +42,24 @@ var (
 var (
 	ipmiServer    *ipmi.Server
 	mdnsResponder *mdns.Responder
+
+	// instanceLock holds the abstract unix socket that marks this process as
+	// THE server instance; the kernel releases it on any exit path.
+	instanceLock net.Listener
 )
+
+// lockInstance refuses to start when another server is already running. The
+// listeners, the USB gadget and the firmware image staging all assume sole
+// ownership, so a second copy — typically started by hand on the console
+// while the supervised one is still seeding its boot image — must not run.
+func lockInstance() {
+	l, err := net.Listen("unix", "@nanokvm-server.instance")
+	if err != nil {
+		log.Fatalf("another NanoKVM-Server is already running (instance lock: %v) — "+
+			"busybox init supervises it; use `killall NanoKVM-Server` to restart it", err)
+	}
+	instanceLock = l
+}
 
 // networkReadyTimeout caps how long startup waits for the first interface
 // configuration pass. It covers a full first DHCP attempt (link wait +
@@ -50,6 +68,8 @@ var (
 const networkReadyTimeout = 60 * time.Second
 
 func main() {
+	lockInstance()
+
 	initialize()
 	defer dispose()
 
