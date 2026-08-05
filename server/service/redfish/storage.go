@@ -16,19 +16,30 @@ package redfish
 // lun.0 is the U-Boot boot image the managed Pi boots from; lun.1 is the
 // operator's virtual-media ISO and appears only while inserted (the same
 // state VirtualMedia reports).
+//
+// A second subsystem, "Host", carries the drives the host itself probed:
+// U-Boot walks its block devices after "nvme scan; usb start" and writes
+// the list to the blkinfo EEPROM region (SMBIOS has no disk structure), so
+// the BMC can report them while the host is off. That list is the host's
+// honest bus view — the BMC's own gadget LUNs appear there too, as the USB
+// drives the host sees them as; the two subsystems describe the same
+// devices from either end of the cable.
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stmcginnis/gofish/schemas"
 
+	"github.com/pi-bmc/nanokvm-app/server/service/blkinfo"
 	"github.com/pi-bmc/nanokvm-app/server/service/firmware"
 )
 
 const (
 	storageID        = "1"
+	hostStorageID    = "Host"
 	driveBootImageID = "BootImage"
 	driveMediaID     = "VirtualMedia"
 )
@@ -96,43 +107,117 @@ func driveResource(id, model string, size int64) Drive {
 	return d
 }
 
-func (s *Service) GetStorageCollection(c *gin.Context) {
-	c.JSON(http.StatusOK, newCollection(
-		"StorageCollection", "Storage Collection", storageRootPath,
-		Link(storagePath)))
+// hostDriveProtocol maps a U-Boot interface name onto the Redfish Protocol
+// enum; unknown interfaces are omitted rather than guessed.
+func hostDriveProtocol(iface string) schemas.Protocol {
+	switch iface {
+	case "nvme":
+		return schemas.NVMeProtocol
+	case "usb":
+		return schemas.USBProtocol
+	case "mmc":
+		// The closest value the enum has; there is no "SD".
+		return schemas.EMMCProtocol
+	case "sata", "scsi", "ide":
+		return schemas.SATAProtocol
+	default:
+		return ""
+	}
 }
 
-func (s *Service) GetStorage(c *gin.Context) {
-	if c.Param("storage") != storageID {
-		redfishErrorResponse(c, http.StatusNotFound, "storage subsystem not found")
-		return
+// hostDrives returns the drives the host's U-Boot reported through the
+// blkinfo EEPROM region, or nil when the region is unreadable (the host has
+// not booted a blkinfo-capable firmware yet).
+func hostDrives() []Drive {
+	inv, err := blkinfo.GetStore().Load()
+	if err != nil || inv == nil {
+		return nil
 	}
-	drives := gadgetDrives()
+	drives := make([]Drive, 0, len(inv.Drives))
+	for _, hd := range inv.Drives {
+		id := fmt.Sprintf("%s%d", hd.Interface, hd.Devnum)
+		name := hd.Product
+		if name == "" {
+			name = id
+		}
+		d := Drive{
+			Resource: Resource{
+				ODataType:    "#Drive.v1_17_0.Drive",
+				ODataID:      hostDrivesPath + "/" + id,
+				ODataContext: context("Drive.Drive"),
+				ID:           id,
+				Name:         name,
+			},
+			Model:    hd.Product,
+			Protocol: hostDriveProtocol(hd.Interface),
+			// Boot-time snapshot: the drive was present when the host last
+			// booted; the BMC cannot see hot-plug afterwards.
+			Status: &Status{State: schemas.EnabledState, Health: schemas.OKHealth},
+		}
+		if hd.Interface == "nvme" {
+			d.MediaType = schemas.SSDMediaType
+		}
+		if hd.SizeBytes > 0 && hd.SizeBytes <= uint64(1)<<62 {
+			size := int64(hd.SizeBytes) //nolint:gosec // bounded above
+			d.CapacityBytes = &size
+		}
+		drives = append(drives, d)
+	}
+	return drives
+}
+
+// storageSubsystem assembles one Storage resource from its drive list.
+func storageSubsystem(id, path, name string, drives []Drive) Storage {
 	links := make(Links, 0, len(drives))
 	for _, d := range drives {
 		links = append(links, Link(d.ODataID))
 	}
-	c.JSON(http.StatusOK, Storage{
+	return Storage{
 		Resource: Resource{
 			ODataType:    "#Storage.v1_15_0.Storage",
-			ODataID:      storagePath,
+			ODataID:      path,
 			ODataContext: context("Storage.Storage"),
-			ID:           storageID,
-			Name:         "USB Mass Storage (BMC gadget)",
+			ID:           id,
+			Name:         name,
 		},
 		Status:      &Status{State: schemas.EnabledState, Health: schemas.OKHealth},
 		Drives:      links,
 		DrivesCount: len(links),
-	})
+	}
+}
+
+func (s *Service) GetStorageCollection(c *gin.Context) {
+	c.JSON(http.StatusOK, newCollection(
+		"StorageCollection", "Storage Collection", storageRootPath,
+		Link(storagePath), Link(hostStoragePath)))
+}
+
+func (s *Service) GetStorage(c *gin.Context) {
+	switch c.Param("storage") {
+	case storageID:
+		c.JSON(http.StatusOK, storageSubsystem(storageID, storagePath,
+			"USB Mass Storage (BMC gadget)", gadgetDrives()))
+	case hostStorageID:
+		c.JSON(http.StatusOK, storageSubsystem(hostStorageID, hostStoragePath,
+			"Host Storage (U-Boot probe)", hostDrives()))
+	default:
+		redfishErrorResponse(c, http.StatusNotFound, "storage subsystem not found")
+	}
 }
 
 func (s *Service) GetDrive(c *gin.Context) {
-	if c.Param("storage") != storageID {
+	var drives []Drive
+	switch c.Param("storage") {
+	case storageID:
+		drives = gadgetDrives()
+	case hostStorageID:
+		drives = hostDrives()
+	default:
 		redfishErrorResponse(c, http.StatusNotFound, "storage subsystem not found")
 		return
 	}
 	want := c.Param("drive")
-	for _, d := range gadgetDrives() {
+	for _, d := range drives {
 		if d.ID == want {
 			c.JSON(http.StatusOK, d)
 			return

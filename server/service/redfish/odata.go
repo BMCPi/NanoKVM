@@ -102,6 +102,8 @@ const (
 	storageRootPath = systemPath + "/Storage"
 	storagePath     = storageRootPath + "/1"
 	drivesPath      = storagePath + "/Drives"
+	hostStoragePath = storageRootPath + "/Host"
+	hostDrivesPath  = hostStoragePath + "/Drives"
 
 	ethernetInterfacesPath = systemPath + "/EthernetInterfaces"
 	ethernetInterfacePath  = ethernetInterfacesPath + "/" + ethernetInterfaceID

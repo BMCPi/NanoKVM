@@ -21,6 +21,7 @@ type Config struct {
 	EfiVars        EfiVars   `yaml:"efiVars"`
 	UbootEnv       UbootEnv  `yaml:"ubootEnv"`
 	SMBIOS         SMBIOS    `yaml:"smbios"`
+	BlkInfo        BlkInfo   `yaml:"blkInfo"`
 
 	Power      Power      `yaml:"power"`
 	Telemetry  Telemetry  `yaml:"telemetry"`
@@ -487,4 +488,25 @@ type SMBIOS struct {
 	// Size is the SMBIOS region size. Must match the host's
 	// CONFIG_SMBIOS_I2C_STORE_SIZE (default 0x800).
 	Size int `yaml:"size"`
+}
+
+// BlkInfo is the host's block-device inventory: a fourth region of the same
+// EEPROM, written by U-Boot's CONFIG_BLKINFO_I2C_STORE after its storage
+// probes (SMBIOS defines no structure type for a disk). Read-only like
+// SMBIOS: only the host writes it. Feeds the Redfish Host storage
+// subsystem (/Systems/1/Storage/Host).
+type BlkInfo struct {
+	// Enabled gates the subsystem; when false the Host storage subsystem
+	// reports no drives.
+	Enabled bool `yaml:"enabled"`
+	// Path / I2CBus / I2CAddr / PageSize select the store exactly as for
+	// SMBIOS (file-backed slave-eeprom preferred, raw i2c master fallback).
+	Path     string `yaml:"path"`
+	I2CBus   int    `yaml:"i2cBus"`
+	I2CAddr  int    `yaml:"i2cAddr"`
+	PageSize int    `yaml:"pageSize"`
+	// Offset/Size must match the host's CONFIG_BLKINFO_I2C_STORE_OFFSET/
+	// _SIZE (defaults 0x6800/0x1000).
+	Offset int `yaml:"offset"`
+	Size   int `yaml:"size"`
 }

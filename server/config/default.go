@@ -175,6 +175,18 @@ var defaultConfig = &Config{
 		Offset:   0x6000, // host CONFIG_SMBIOS_I2C_STORE_OFFSET
 		Size:     0x800,  // host CONFIG_SMBIOS_I2C_STORE_SIZE
 	},
+	BlkInfo: BlkInfo{
+		Enabled: true,
+		// A fourth region of the same EEPROM: the host's
+		// CONFIG_BLKINFO_I2C_STORE writes its probed drive list here at
+		// boot, and the BMC serves it as /Systems/1/Storage/Host.
+		Path:     "/sys/bus/i2c/devices/0-1050/slave-eeprom",
+		I2CBus:   -1, // disable the raw-master fallback
+		I2CAddr:  0x50,
+		PageSize: 64,
+		Offset:   0x6800, // host CONFIG_BLKINFO_I2C_STORE_OFFSET
+		Size:     0x1000, // host CONFIG_BLKINFO_I2C_STORE_SIZE
+	},
 	Power: Power{
 		LegacyMode: false,
 	},
@@ -538,6 +550,28 @@ func normalizeEEPROMRegions() {
 	}
 	if instance.SMBIOS.Size <= 0 {
 		instance.SMBIOS.Size = defaultConfig.SMBIOS.Size
+	}
+
+	// Apply blkinfo store defaults, mirroring SMBIOS above: the host's drive
+	// inventory lives in a fourth region of the same EEPROM. When the whole
+	// section is absent (a config persisted by an older build), adopt
+	// Enabled too, so the upgrade lights the feature up like a fresh install.
+	if instance.BlkInfo.Path == "" && instance.BlkInfo.I2CBus == 0 {
+		instance.BlkInfo.Enabled = defaultConfig.BlkInfo.Enabled
+		instance.BlkInfo.Path = defaultConfig.BlkInfo.Path
+		instance.BlkInfo.I2CBus = defaultConfig.BlkInfo.I2CBus
+	}
+	if instance.BlkInfo.I2CAddr == 0 {
+		instance.BlkInfo.I2CAddr = defaultConfig.BlkInfo.I2CAddr
+	}
+	if instance.BlkInfo.PageSize <= 0 {
+		instance.BlkInfo.PageSize = defaultConfig.BlkInfo.PageSize
+	}
+	if instance.BlkInfo.Offset <= 0 {
+		instance.BlkInfo.Offset = defaultConfig.BlkInfo.Offset
+	}
+	if instance.BlkInfo.Size <= 0 {
+		instance.BlkInfo.Size = defaultConfig.BlkInfo.Size
 	}
 
 	// The three stores share one 24c256, so each region has to stop where the

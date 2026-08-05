@@ -358,15 +358,20 @@ paths:
   /redfish/v1/Systems/1/Storage:
     get:
       tags: [Systems]
-      summary: Storage collection (the BMC's USB mass-storage gadget).
+      summary: |
+        Storage collection: subsystem "1" (the BMC's USB mass-storage
+        gadget) and "Host" (the drives the host's U-Boot probed and
+        reported through the shared EEPROM).
       responses:
         "200": { description: StorageCollection resource. }
   /redfish/v1/Systems/1/Storage/{storage}:
     get:
       tags: [Systems]
       summary: |
-        The gadget subsystem: one Drive per backed LUN (host boot image,
-        plus the virtual-media ISO while inserted).
+        One subsystem. "1": a Drive per backed gadget LUN (host boot
+        image, plus the virtual-media ISO while inserted). "Host": a Drive
+        per device from the host's boot-time probe (NVMe/SD/USB), readable
+        even while the host is off.
       parameters:
         - { name: storage, in: path, required: true, schema: { type: string } }
       responses:
