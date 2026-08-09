@@ -1,6 +1,7 @@
 package network
 
 import (
+	"bytes"
 	"fmt"
 	"net"
 	"os"
@@ -90,6 +91,17 @@ func bootMACOverride() string {
 		return ""
 	}
 	return mac
+}
+
+// hasMAC reports whether the link already carries mac, letting callers skip the
+// down/set/up cycle that changing a hardware address requires. An unparsable
+// value reports false so the caller falls through to setMAC and logs there.
+func hasMAC(link netlink.Link, mac string) bool {
+	hw, err := net.ParseMAC(mac)
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(link.Attrs().HardwareAddr, hw)
 }
 
 // setMAC pins the link's hardware address. Must be applied while the link is

@@ -227,10 +227,13 @@ func (m *Manager) superviseEth0(done <-chan struct{}) {
 		if mac == "" {
 			mac = bootMACOverride()
 		}
-		if mac != "" {
-			// A hardware address can only be set while the link is down. Only
-			// attempted here, not on reconcile, so a re-assert never flaps a
-			// healthy link.
+		if mac != "" && !hasMAC(link, mac) {
+			// A hardware address can only be set while the link is down, so this
+			// is the one place in the package that can flap a healthy link.
+			// Skipping it when the address already matches matters because
+			// Restart() re-runs this supervisor: without the guard, saving any
+			// unrelated network setting would bounce eth0 (and with it the DHCP
+			// lease and every open session) for no reason.
 			_ = netlink.LinkSetDown(link)
 			if err := setMAC(link, mac); err != nil {
 				log.Warnf("network: eth0: %v", err)

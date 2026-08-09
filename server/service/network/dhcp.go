@@ -2,9 +2,13 @@ package network
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,6 +29,26 @@ const (
 	dhcpMinRenew = 30 * time.Second
 	// dhcpFallbackLease is used when a server omits the lease-time option.
 	dhcpFallbackLease = time.Hour
+	// dhcpExtendRetry paces RENEW/REBIND attempts within a lease's lifetime.
+	// RFC 2131 4.4.5 halves the remaining time down to a 60s floor; a flat,
+	// shorter interval is simpler and strictly more eager, which is what a BMC
+	// wants — the address matters more than the packet count.
+	dhcpExtendRetry = 30 * time.Second
+)
+
+// dhcpLeaseDir holds the remembered address per interface, on the persistent
+// data partition, so a restart can ask for the same address back (INIT-REBOOT)
+// rather than taking whatever DISCOVER happens to offer. A variable only so
+// tests can point it at a temporary directory.
+var dhcpLeaseDir = "/var/lib/nanokvm"
+
+// dhcpOutcome says why maintain() gave up on the lease it was holding.
+type dhcpOutcome int
+
+const (
+	dhcpStopped dhcpOutcome = iota // shutting down
+	dhcpRenewed                    // fresh ACK in hand; re-apply and keep going
+	dhcpExpired                    // binding gone; start again from DISCOVER
 )
 
 // dhcpRunner drives an in-process DHCPv4 client (insomniacslk/dhcp) for one
@@ -48,6 +72,8 @@ type dhcpRunner struct {
 }
 
 func (d *dhcpRunner) run() {
+	// A remembered address from a previous run is worth one INIT-REBOOT attempt.
+	remembered := loadRememberedAddr(d.iface)
 	var lease *nclient4.Lease
 	backoff := dhcpMinRetry
 
@@ -64,28 +90,26 @@ func (d *dhcpRunner) run() {
 			continue
 		}
 
-		var err error
 		if lease == nil {
-			lease, err = dhcpRequest(d.iface, d.done) // full DISCOVER/REQUEST
-		} else {
-			lease, err = dhcpRenew(d.iface, lease, d.done) // unicast renew
-		}
-		d.signalAttempt()
-		if err != nil {
-			select {
-			case <-d.done:
-				return // exchange cancelled by shutdown
-			default:
+			var err error
+			lease, err = d.obtain(remembered)
+			remembered = nil // one shot; a failed confirm means it is stale
+			d.signalAttempt()
+			if err != nil {
+				select {
+				case <-d.done:
+					return // exchange cancelled by shutdown
+				default:
+				}
+				log.Warnf("network: dhcp %s: %v (retry in %s)", d.iface, err, backoff)
+				if sleepOrDone(d.done, backoff) {
+					return
+				}
+				backoff = growBackoff(backoff)
+				continue
 			}
-			log.Warnf("network: dhcp %s: %v (retry in %s)", d.iface, err, backoff)
-			lease = nil
-			if sleepOrDone(d.done, backoff) {
-				return
-			}
-			backoff = growBackoff(backoff)
-			continue
+			backoff = dhcpMinRetry
 		}
-		backoff = dhcpMinRetry
 
 		if err := applyLease(d.iface, lease); err != nil {
 			log.Errorf("network: dhcp %s apply lease: %v", d.iface, err)
@@ -95,49 +119,151 @@ func (d *dhcpRunner) run() {
 			}
 			continue
 		}
-		log.Infof("network: dhcp %s bound %s (renew in %s)",
-			d.iface, lease.ACK.YourIPAddr, renewAfter(lease))
+		t1, t2, expiry := leaseTimes(lease)
+		rememberAddr(d.iface, lease.ACK.YourIPAddr)
+		log.Infof("network: dhcp %s bound %s (renew in %s, rebind in %s, expires in %s)",
+			d.iface, lease.ACK.YourIPAddr, until(t1), until(t2), until(expiry))
 
-		stopped, reacquire := d.waitRenew(lease)
-		if stopped {
+		outcome, renewed := d.maintain(lease)
+		switch outcome {
+		case dhcpStopped:
 			return
-		}
-		if reacquire {
+		case dhcpRenewed:
+			lease = renewed
+		case dhcpExpired:
 			lease = nil
 		}
 	}
 }
 
-func (d *dhcpRunner) signalAttempt() {
-	if d.onAttempt != nil {
-		d.onAttempt() // sync.Once on the manager side; safe to call repeatedly
+// maintain holds a bound lease through the RFC 2131 ladder: sleep until T1,
+// then retry a unicast RENEW against the leasing server; from T2 fall back to a
+// broadcast REBIND that any server on the segment may answer; only at expiry
+// give the address up. The point is that losing the DHCP server for a few
+// seconds must not cost the BMC its management address — the previous code
+// dropped the lease on the first failed renew and took whatever DISCOVER
+// offered next, which could silently move the IP.
+//
+// Kicks from the link monitor are serviced throughout, so an address wiped by a
+// link flap is re-applied without waiting for the next renewal.
+func (d *dhcpRunner) maintain(lease *nclient4.Lease) (dhcpOutcome, *nclient4.Lease) {
+	t1, t2, expiry := leaseTimes(lease)
+
+	for {
+		now := time.Now()
+		switch {
+		case now.Before(t1):
+			if stopped, _ := d.sleepUntil(t1, lease); stopped {
+				return dhcpStopped, nil
+			}
+
+		case now.Before(expiry):
+			rebinding := !now.Before(t2)
+			fresh, err := d.extend(lease, rebinding)
+			if err == nil {
+				return dhcpRenewed, fresh
+			}
+			select {
+			case <-d.done:
+				return dhcpStopped, nil
+			default:
+			}
+			// A NAK is authoritative: the binding is gone, so stop using the
+			// address instead of holding it until expiry.
+			var nak *nclient4.ErrNak
+			if errors.As(err, &nak) {
+				log.Warnf("network: dhcp %s: server rejected the lease; reacquiring", d.iface)
+				return dhcpExpired, nil
+			}
+			log.Warnf("network: dhcp %s: %s failed (%v); retrying, lease expires in %s",
+				d.iface, phaseName(rebinding), err, until(expiry))
+			// Pace from now, not from the top of the iteration: a failed
+			// exchange can itself burn dhcpOverallTimeout, and pacing off the
+			// stale timestamp would leave no gap at all between attempts —
+			// continuous DHCP traffic from T1 all the way to expiry. Clamped so
+			// we never sleep past the expiry check.
+			deadline := time.Now().Add(dhcpExtendRetry)
+			if deadline.After(expiry) {
+				deadline = expiry
+			}
+			if stopped, _ := d.sleepUntil(deadline, lease); stopped {
+				return dhcpStopped, nil
+			}
+
+		default:
+			log.Warnf("network: dhcp %s: lease expired; reacquiring", d.iface)
+			return dhcpExpired, nil
+		}
 	}
 }
 
-// waitRenew sleeps until the lease's renewal time, waking on kicks from the
-// link monitor to verify the address is still programmed (a link flap or
-// netdev re-creation wipes it). Returns stopped=true on shutdown; returns
-// reacquire=true when the lease could not be re-applied and a full DISCOVER
-// is needed.
-func (d *dhcpRunner) waitRenew(lease *nclient4.Lease) (stopped, reacquire bool) {
-	timer := time.NewTimer(renewAfter(lease))
+// sleepUntil waits for a deadline while staying responsive to shutdown and to
+// link-monitor kicks. On a kick it re-verifies the lease is still programmed (a
+// link flap or netdev re-creation wipes it) and re-applies it, then returns
+// kicked so the caller re-reads the clock rather than assuming it slept.
+func (d *dhcpRunner) sleepUntil(deadline time.Time, lease *nclient4.Lease) (stopped, kicked bool) {
+	timer := time.NewTimer(time.Until(deadline))
 	defer timer.Stop()
-	for {
-		select {
-		case <-d.done:
-			return true, false
-		case <-timer.C:
-			return false, false // time to renew
-		case <-d.kick:
-			if leaseApplied(d.iface, lease) {
-				continue
-			}
+	select {
+	case <-d.done:
+		return true, false
+	case <-timer.C:
+		return false, false
+	case <-d.kick:
+		if !leaseApplied(d.iface, lease) {
 			log.Warnf("network: dhcp %s: address lost; re-applying lease", d.iface)
 			if err := applyLease(d.iface, lease); err != nil {
-				log.Warnf("network: dhcp %s: re-apply failed (%v); reacquiring", d.iface, err)
-				return false, true
+				log.Warnf("network: dhcp %s: re-apply failed: %v", d.iface, err)
 			}
 		}
+		return false, true
+	}
+}
+
+func phaseName(rebinding bool) string {
+	if rebinding {
+		return "rebind"
+	}
+	return "renew"
+}
+
+// until renders a deadline as a whole-second duration for logging; already-past
+// deadlines read as 0s rather than a negative.
+func until(t time.Time) time.Duration {
+	return max(time.Until(t).Truncate(time.Second), 0)
+}
+
+// leaseTimes derives the RFC 2131 T1 (renew), T2 (rebind) and expiry instants.
+// Servers may state T1/T2 explicitly (options 58/59); when they do not, the
+// spec's 0.5 and 0.875 fractions apply.
+//
+// The result is forced strictly increasing. Two things can otherwise break the
+// ordering: a server is free to send an option 58/59 pair that does not make
+// sense, and the dhcpMinRenew floor on T1 can push it past a very short lease.
+// Pushing the later instants out rather than pulling T1 in is deliberate — the
+// degenerate alternative is an expiry that precedes T1, where the runner would
+// never attempt a renewal and would instead expire and re-DISCOVER in a loop.
+func leaseTimes(lease *nclient4.Lease) (t1, t2, expiry time.Time) {
+	base := lease.CreationTime
+	if base.IsZero() {
+		base = time.Now()
+	}
+	life := lease.ACK.IPAddressLeaseTime(dhcpFallbackLease)
+
+	d1 := max(lease.ACK.IPAddressRenewalTime(life/2), dhcpMinRenew)
+	d2 := lease.ACK.IPAddressRebindingTime(life * 7 / 8)
+	if d2 <= d1 {
+		d2 = d1 + dhcpExtendRetry
+	}
+	if life <= d2 {
+		life = d2 + dhcpExtendRetry
+	}
+	return base.Add(d1), base.Add(d2), base.Add(life)
+}
+
+func (d *dhcpRunner) signalAttempt() {
+	if d.onAttempt != nil {
+		d.onAttempt() // sync.Once on the manager side; safe to call repeatedly
 	}
 }
 
@@ -174,34 +300,172 @@ func exchangeContext(done <-chan struct{}) (context.Context, context.CancelFunc)
 	return ctx, cancel
 }
 
-func dhcpRequest(iface string, done <-chan struct{}) (*nclient4.Lease, error) {
-	c, err := nclient4.New(iface, nclient4.WithTimeout(dhcpExchangeTimeout))
+// obtain gets a lease from scratch. Given an address remembered from a previous
+// run it first tries INIT-REBOOT (RFC 2131 4.4.2) — a broadcast REQUEST naming
+// that address — which keeps the BMC's management IP stable across reboots and
+// skips a DISCOVER round trip. Anything other than an ACK falls through to the
+// full DISCOVER/REQUEST, so a stale remembered address costs one exchange.
+func (d *dhcpRunner) obtain(remembered net.IP) (*nclient4.Lease, error) {
+	if remembered != nil {
+		lease, err := d.initReboot(remembered)
+		if err == nil {
+			log.Infof("network: dhcp %s: reclaimed remembered address %s", d.iface, remembered)
+			return lease, nil
+		}
+		log.Infof("network: dhcp %s: could not reclaim %s (%v); falling back to discover",
+			d.iface, remembered, err)
+	}
+
+	ctx, c, cancel, err := d.exchange()
 	if err != nil {
-		return nil, fmt.Errorf("dhcp client: %w", err)
+		return nil, err
 	}
 	defer c.Close()
-
-	ctx, cancel := exchangeContext(done)
 	defer cancel()
-	return c.Request(ctx)
+	return c.Request(ctx, d.options(c)...)
 }
 
-func dhcpRenew(iface string, prev *nclient4.Lease, done <-chan struct{}) (*nclient4.Lease, error) {
-	c, err := nclient4.New(iface, nclient4.WithTimeout(dhcpExchangeTimeout))
+// initReboot sends the INIT-REBOOT REQUEST: no server identifier, the wanted
+// address in option 50, broadcast so any server holding the binding can answer.
+func (d *dhcpRunner) initReboot(want net.IP) (*nclient4.Lease, error) {
+	ctx, c, cancel, err := d.exchange()
 	if err != nil {
-		return nil, fmt.Errorf("dhcp client: %w", err)
+		return nil, err
 	}
 	defer c.Close()
-
-	ctx, cancel := exchangeContext(done)
 	defer cancel()
-	return c.Renew(ctx, prev)
+
+	req, err := dhcpv4.New(dhcpv4.PrependModifiers(d.options(c),
+		dhcpv4.WithMessageType(dhcpv4.MessageTypeRequest),
+		dhcpv4.WithHwAddr(c.InterfaceAddr()),
+		dhcpv4.WithBroadcast(true),
+		dhcpv4.WithOption(dhcpv4.OptMaxMessageSize(nclient4.MaxMessageSize)),
+		dhcpv4.WithOption(dhcpv4.OptRequestedIPAddress(want)),
+		dhcpv4.WithRequestedOptions(
+			dhcpv4.OptionSubnetMask,
+			dhcpv4.OptionRouter,
+			dhcpv4.OptionDomainName,
+			dhcpv4.OptionDomainNameServer,
+			dhcpv4.OptionNTPServers,
+		),
+	)...)
+	if err != nil {
+		return nil, fmt.Errorf("build init-reboot request: %w", err)
+	}
+	return finishExchange(ctx, c, req)
 }
 
-// renewAfter returns T1 (half the lease time, RFC 2131), floored so a tiny lease
-// does not spin.
-func renewAfter(lease *nclient4.Lease) time.Duration {
-	return max(lease.ACK.IPAddressLeaseTime(dhcpFallbackLease)/2, dhcpMinRenew)
+// extend asks for more time on the lease we already hold: a unicast RENEW to
+// the leasing server, or past T2 a broadcast REBIND any server may answer.
+func (d *dhcpRunner) extend(lease *nclient4.Lease, rebinding bool) (*nclient4.Lease, error) {
+	ctx, c, cancel, err := d.exchange()
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	defer cancel()
+
+	if !rebinding {
+		return c.Renew(ctx, lease, d.options(c)...)
+	}
+
+	// nclient4 has no rebind, but a REBIND is just the RENEW packet sent to the
+	// broadcast address with any server allowed to answer. Modifiers passed here
+	// are applied after the builder's own, so WithBroadcast(true) wins over the
+	// unicast default.
+	req, err := dhcpv4.NewRenewFromAck(lease.ACK, append(d.options(c),
+		dhcpv4.WithOption(dhcpv4.OptMaxMessageSize(nclient4.MaxMessageSize)),
+		dhcpv4.WithBroadcast(true))...)
+	if err != nil {
+		return nil, fmt.Errorf("build rebind: %w", err)
+	}
+	return finishExchange(ctx, c, req)
+}
+
+// finishExchange sends a hand-built REQUEST and turns the reply into a lease,
+// mapping a NAK onto the same ErrNak the library's own paths return so callers
+// can treat "the server says no" uniformly.
+//
+// The ACK is stored as the lease's Offer as well. That field is not decoration:
+// nclient4.Renew dereferences lease.Offer to filter replies by server
+// identifier, so a lease carrying a nil Offer — which an INIT-REBOOT or REBIND
+// has no offer to fill — would panic on its first renewal. The ACK carries the
+// same server identifier, and after a rebind it names the server that actually
+// answered rather than the one we started with.
+func finishExchange(ctx context.Context, c *nclient4.Client, req *dhcpv4.DHCPv4) (*nclient4.Lease, error) {
+	ack, err := c.SendAndRead(ctx, nclient4.DefaultServers, req,
+		nclient4.IsMessageType(dhcpv4.MessageTypeAck, dhcpv4.MessageTypeNak))
+	if err != nil {
+		return nil, err
+	}
+	if ack.MessageType() == dhcpv4.MessageTypeNak {
+		return nil, &nclient4.ErrNak{Offer: ack, Nak: ack}
+	}
+	return &nclient4.Lease{Offer: ack, ACK: ack, CreationTime: time.Now()}, nil
+}
+
+// exchange opens a client bound to the interface together with the context that
+// bounds the transaction. Callers must Close the client and call cancel.
+func (d *dhcpRunner) exchange() (context.Context, *nclient4.Client, context.CancelFunc, error) {
+	c, err := nclient4.New(d.iface, nclient4.WithTimeout(dhcpExchangeTimeout))
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("dhcp client: %w", err)
+	}
+	ctx, cancel := exchangeContext(d.done)
+	return ctx, c, cancel, nil
+}
+
+// options are the modifiers added to every outgoing message. The hostname
+// (option 12) is what makes the BMC show up under its own name in a server's
+// lease table instead of as an anonymous MAC — without it UniFi and friends
+// display nothing. The client identifier (option 61, RFC 2132 9.14: hardware
+// type 1 followed by the MAC) gives the server a stable key for the binding.
+func (d *dhcpRunner) options(c *nclient4.Client) []dhcpv4.Modifier {
+	var mods []dhcpv4.Modifier
+	if name, err := os.Hostname(); err == nil {
+		if name = strings.TrimSpace(name); name != "" && name != "(none)" {
+			mods = append(mods, dhcpv4.WithOption(dhcpv4.OptHostName(name)))
+		}
+	}
+	if hw := c.InterfaceAddr(); len(hw) > 0 {
+		mods = append(mods, dhcpv4.WithOption(
+			dhcpv4.OptClientIdentifier(append([]byte{0x01}, hw...))))
+	}
+	return mods
+}
+
+// ---- remembered address ----------------------------------------------------
+
+func rememberedAddrPath(iface string) string {
+	return filepath.Join(dhcpLeaseDir, fmt.Sprintf("dhcp-%s.addr", iface))
+}
+
+// rememberAddr records the bound address so the next run can ask for it back.
+// Best-effort: the data partition may not be mounted yet, and losing the hint
+// only costs a DISCOVER.
+func rememberAddr(iface string, ip net.IP) {
+	if ip == nil || ip.IsUnspecified() {
+		return
+	}
+	path := rememberedAddrPath(iface)
+	if prev, err := os.ReadFile(path); err == nil && strings.TrimSpace(string(prev)) == ip.String() {
+		return // unchanged; do not rewrite on every renewal
+	}
+	if err := os.WriteFile(path, []byte(ip.String()+"\n"), 0o644); err != nil {
+		log.Debugf("network: dhcp %s: remember %s: %v", iface, ip, err)
+	}
+}
+
+func loadRememberedAddr(iface string) net.IP {
+	data, err := os.ReadFile(rememberedAddrPath(iface))
+	if err != nil {
+		return nil
+	}
+	ip := net.ParseIP(strings.TrimSpace(string(data)))
+	if ip == nil {
+		return nil
+	}
+	return ip.To4()
 }
 
 // dhcpNTP holds the NTP servers (option 42) from the most recent lease, kept
