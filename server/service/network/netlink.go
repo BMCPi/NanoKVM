@@ -10,6 +10,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
+	"golang.org/x/sys/unix"
 )
 
 // The netlink primitives here mirror the calls jetkvm-community/kvm funnels
@@ -55,6 +56,17 @@ func ensureLinkUp(name string) error {
 // isAdminUp reports whether the link is administratively up.
 func isAdminUp(link netlink.Link) bool {
 	return link.Attrs().Flags&net.FlagUp != 0
+}
+
+// hasCarrier reports whether the link has a usable physical link, as opposed to
+// merely being administratively up. IFF_RUNNING is the authoritative bit and
+// stays correct on drivers that leave operstate at OperUnknown; operstate is
+// consulted as well so either source can report the carrier.
+func hasCarrier(attrs *netlink.LinkAttrs) bool {
+	if attrs == nil {
+		return false
+	}
+	return attrs.RawFlags&unix.IFF_RUNNING != 0 || attrs.OperState == netlink.OperUp
 }
 
 // hasAddr reports whether want is currently programmed on the link. Used by

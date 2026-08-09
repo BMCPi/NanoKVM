@@ -122,6 +122,28 @@ func TestRememberedAddrRoundTrip(t *testing.T) {
 	}
 }
 
+func TestForgetRememberedAddr(t *testing.T) {
+	dir := t.TempDir()
+	old := dhcpLeaseDir
+	dhcpLeaseDir = dir
+	defer func() { dhcpLeaseDir = old }()
+
+	rememberAddr("eth0", net.IPv4(10, 42, 0, 204))
+	if loadRememberedAddr("eth0") == nil {
+		t.Fatal("setup: address was not remembered")
+	}
+
+	// An address no server will confirm has to be dropped, or it costs an
+	// INIT-REBOOT attempt on every start for the life of the file.
+	forgetRememberedAddr("eth0")
+	if got := loadRememberedAddr("eth0"); got != nil {
+		t.Errorf("after forget, loadRememberedAddr = %v, want nil", got)
+	}
+
+	// Forgetting what is already gone is not an error.
+	forgetRememberedAddr("eth0")
+}
+
 func TestLeaseAddrsFull(t *testing.T) {
 	ack, _ := dhcpv4.New()
 	ack.YourIPAddr = net.IPv4(192, 168, 1, 50)

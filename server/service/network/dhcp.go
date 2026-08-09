@@ -23,6 +23,13 @@ const (
 	// bounds the whole DISCOVER/REQUEST (or renew) transaction.
 	dhcpExchangeTimeout = 10 * time.Second
 	dhcpOverallTimeout  = 30 * time.Second
+	// dhcpRebootTimeout bounds the INIT-REBOOT attempt, which is only an
+	// optimisation: if no server confirms the remembered address promptly,
+	// DISCOVER will. Giving it the full transaction timeout meant a remembered
+	// address from another network -- the interface having been moved, or the
+	// board bench-tested elsewhere -- stalled every startup for 30s before any
+	// useful DHCP happened.
+	dhcpRebootTimeout = 4 * time.Second
 	// dhcpMinRetry bounds the exponential backoff between failed acquisitions
 	// (growBackoff caps it at supRetryCap); dhcpMinRenew floors the renew timer.
 	dhcpMinRetry = 5 * time.Second
@@ -66,6 +73,11 @@ type dhcpRunner struct {
 	done  <-chan struct{}
 	// kick asks the runner to verify the lease is still programmed on the link.
 	kick <-chan struct{}
+	// reacquire asks the runner to discard the lease and start a fresh
+	// DISCOVER. Raised whenever eth0 gains carrier, so a bring-up always asks
+	// the server again instead of assuming an address it was holding is still
+	// valid -- the link may have come back on a different network.
+	reacquire <-chan struct{}
 	// onAttempt is invoked after the first acquisition attempt completes,
 	// success or failure (used to release WaitReady).
 	onAttempt func()
@@ -83,7 +95,7 @@ func (d *dhcpRunner) run() {
 		if err := ensureLinkUp(d.iface); err != nil {
 			log.Warnf("network: dhcp %s: %v (retry in %s)", d.iface, err, backoff)
 			d.signalAttempt()
-			if sleepOrDone(d.done, backoff) {
+			if d.waitBackoff(backoff) {
 				return
 			}
 			backoff = growBackoff(backoff)
@@ -102,7 +114,7 @@ func (d *dhcpRunner) run() {
 				default:
 				}
 				log.Warnf("network: dhcp %s: %v (retry in %s)", d.iface, err, backoff)
-				if sleepOrDone(d.done, backoff) {
+				if d.waitBackoff(backoff) {
 					return
 				}
 				backoff = growBackoff(backoff)
@@ -114,7 +126,7 @@ func (d *dhcpRunner) run() {
 		if err := applyLease(d.iface, lease); err != nil {
 			log.Errorf("network: dhcp %s apply lease: %v", d.iface, err)
 			lease = nil
-			if sleepOrDone(d.done, dhcpMinRetry) {
+			if d.waitBackoff(dhcpMinRetry) {
 				return
 			}
 			continue
@@ -153,8 +165,12 @@ func (d *dhcpRunner) maintain(lease *nclient4.Lease) (dhcpOutcome, *nclient4.Lea
 		now := time.Now()
 		switch {
 		case now.Before(t1):
-			if stopped, _ := d.sleepUntil(t1, lease); stopped {
+			stopped, _, reacquire := d.sleepUntil(t1, lease)
+			if stopped {
 				return dhcpStopped, nil
+			}
+			if reacquire {
+				return dhcpExpired, nil
 			}
 
 		case now.Before(expiry):
@@ -186,8 +202,12 @@ func (d *dhcpRunner) maintain(lease *nclient4.Lease) (dhcpOutcome, *nclient4.Lea
 			if deadline.After(expiry) {
 				deadline = expiry
 			}
-			if stopped, _ := d.sleepUntil(deadline, lease); stopped {
+			stopped, _, reacquire := d.sleepUntil(deadline, lease)
+			if stopped {
 				return dhcpStopped, nil
+			}
+			if reacquire {
+				return dhcpExpired, nil
 			}
 
 		default:
@@ -201,14 +221,16 @@ func (d *dhcpRunner) maintain(lease *nclient4.Lease) (dhcpOutcome, *nclient4.Lea
 // link-monitor kicks. On a kick it re-verifies the lease is still programmed (a
 // link flap or netdev re-creation wipes it) and re-applies it, then returns
 // kicked so the caller re-reads the clock rather than assuming it slept.
-func (d *dhcpRunner) sleepUntil(deadline time.Time, lease *nclient4.Lease) (stopped, kicked bool) {
+func (d *dhcpRunner) sleepUntil(deadline time.Time, lease *nclient4.Lease) (stopped, kicked, reacquire bool) {
 	timer := time.NewTimer(time.Until(deadline))
 	defer timer.Stop()
 	select {
 	case <-d.done:
-		return true, false
+		return true, false, false
 	case <-timer.C:
-		return false, false
+		return false, false, false
+	case <-d.reacquire:
+		return false, false, true
 	case <-d.kick:
 		if !leaseApplied(d.iface, lease) {
 			log.Warnf("network: dhcp %s: address lost; re-applying lease", d.iface)
@@ -216,7 +238,22 @@ func (d *dhcpRunner) sleepUntil(deadline time.Time, lease *nclient4.Lease) (stop
 				log.Warnf("network: dhcp %s: re-apply failed: %v", d.iface, err)
 			}
 		}
-		return false, true
+		return false, true, false
+	}
+}
+
+// waitBackoff paces a retry while no lease is held, returning early when the
+// link comes back so a bring-up is never stuck behind a long backoff.
+func (d *dhcpRunner) waitBackoff(dur time.Duration) (stopped bool) {
+	timer := time.NewTimer(dur)
+	defer timer.Stop()
+	select {
+	case <-d.done:
+		return true
+	case <-d.reacquire:
+		return false
+	case <-timer.C:
+		return false
 	}
 }
 
@@ -286,8 +323,8 @@ func leaseApplied(iface string, lease *nclient4.Lease) bool {
 
 // exchangeContext bounds a DHCP transaction and cancels it early when the
 // manager shuts down, so Stop/Restart never block behind an in-flight exchange.
-func exchangeContext(done <-chan struct{}) (context.Context, context.CancelFunc) {
-	ctx, cancel := context.WithTimeout(context.Background(), dhcpOverallTimeout)
+func exchangeContext(done <-chan struct{}, timeout time.Duration) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	if done != nil {
 		go func() {
 			select {
@@ -312,11 +349,17 @@ func (d *dhcpRunner) obtain(remembered net.IP) (*nclient4.Lease, error) {
 			log.Infof("network: dhcp %s: reclaimed remembered address %s", d.iface, remembered)
 			return lease, nil
 		}
-		log.Infof("network: dhcp %s: could not reclaim %s (%v); falling back to discover",
+		// Drop it now rather than leaving it to be overwritten by the next
+		// successful bind. The file is only rewritten on success, so a
+		// remembered address that no server will confirm -- typically one from
+		// a different network -- would otherwise cost this attempt on every
+		// single start until DHCP eventually succeeds.
+		log.Infof("network: dhcp %s: could not reclaim %s (%v); forgetting it and running discover",
 			d.iface, remembered, err)
+		forgetRememberedAddr(d.iface)
 	}
 
-	ctx, c, cancel, err := d.exchange()
+	ctx, c, cancel, err := d.exchange(dhcpOverallTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +371,7 @@ func (d *dhcpRunner) obtain(remembered net.IP) (*nclient4.Lease, error) {
 // initReboot sends the INIT-REBOOT REQUEST: no server identifier, the wanted
 // address in option 50, broadcast so any server holding the binding can answer.
 func (d *dhcpRunner) initReboot(want net.IP) (*nclient4.Lease, error) {
-	ctx, c, cancel, err := d.exchange()
+	ctx, c, cancel, err := d.exchange(dhcpRebootTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -358,7 +401,7 @@ func (d *dhcpRunner) initReboot(want net.IP) (*nclient4.Lease, error) {
 // extend asks for more time on the lease we already hold: a unicast RENEW to
 // the leasing server, or past T2 a broadcast REBIND any server may answer.
 func (d *dhcpRunner) extend(lease *nclient4.Lease, rebinding bool) (*nclient4.Lease, error) {
-	ctx, c, cancel, err := d.exchange()
+	ctx, c, cancel, err := d.exchange(dhcpOverallTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -406,12 +449,12 @@ func finishExchange(ctx context.Context, c *nclient4.Client, req *dhcpv4.DHCPv4)
 
 // exchange opens a client bound to the interface together with the context that
 // bounds the transaction. Callers must Close the client and call cancel.
-func (d *dhcpRunner) exchange() (context.Context, *nclient4.Client, context.CancelFunc, error) {
-	c, err := nclient4.New(d.iface, nclient4.WithTimeout(dhcpExchangeTimeout))
+func (d *dhcpRunner) exchange(timeout time.Duration) (context.Context, *nclient4.Client, context.CancelFunc, error) {
+	c, err := nclient4.New(d.iface, nclient4.WithTimeout(min(dhcpExchangeTimeout, timeout)))
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("dhcp client: %w", err)
 	}
-	ctx, cancel := exchangeContext(d.done)
+	ctx, cancel := exchangeContext(d.done, timeout)
 	return ctx, c, cancel, nil
 }
 
@@ -453,6 +496,14 @@ func rememberAddr(iface string, ip net.IP) {
 	}
 	if err := os.WriteFile(path, []byte(ip.String()+"\n"), 0o644); err != nil {
 		log.Debugf("network: dhcp %s: remember %s: %v", iface, ip, err)
+	}
+}
+
+// forgetRememberedAddr drops the hint so a stale address cannot be retried on
+// the next start. Best-effort: the worst case is one more failed reclaim.
+func forgetRememberedAddr(iface string) {
+	if err := os.Remove(rememberedAddrPath(iface)); err != nil && !os.IsNotExist(err) {
+		log.Debugf("network: dhcp %s: forget remembered address: %v", iface, err)
 	}
 }
 

@@ -42,6 +42,14 @@ const (
 	supRetryCap   = 60 * time.Second
 )
 
+// rhiEth0Wait caps how long the RHI defers to eth0. The uplink is configured
+// first so the management interface owns the default route and resolv.conf
+// before anything else touches the network, but the RHI is the out-of-band path
+// to the managed host -- the one that still works when the uplink does not --
+// so it must never be held hostage to eth0. Past this cap it comes up
+// regardless. A variable only so tests need not wait it out.
+var rhiEth0Wait = 30 * time.Second
+
 // Manager owns the lifecycle of the interface-configuration goroutines. Stop
 // closes the shared done channel, unwinding the DHCP loop, the supervisors and
 // the link monitor, and waits for them to exit so a Restart never races a
@@ -65,6 +73,21 @@ type Manager struct {
 	// dhcpKick wakes the DHCP runner to re-verify its lease is still
 	// programmed (fed by link events and the reconcile ticker).
 	dhcpKick chan struct{}
+
+	// dhcpReacquire tells the DHCP runner to throw its lease away and start a
+	// fresh DISCOVER. Raised on the edge where eth0 gains carrier, so every
+	// bring-up -- boot, cable replug, switch reboot, link recovery -- goes out
+	// and asks again rather than assuming the address it held still belongs to
+	// it. A carrier bounce does not remove addresses from a netdev, so without
+	// this the runner would look at a still-programmed address, conclude
+	// nothing was lost, and silently keep a lease that may be from a different
+	// network entirely.
+	dhcpReacquire chan struct{}
+
+	// eth0Carrier is the last observed carrier state, so the edge can be
+	// detected rather than re-triggering on every event while it stays up.
+	// Guarded by mu.
+	eth0Carrier bool
 
 	// rhiDHCP is the single-lease DHCP server for the USB host link; restarted
 	// on every RHI (re)configure so it survives netdev re-creation. Guarded by
@@ -131,11 +154,12 @@ func startLocked() {
 	}
 
 	m := &Manager{
-		cfg:       cfg,
-		done:      make(chan struct{}),
-		eth0Ready: make(chan struct{}),
-		rhiReady:  make(chan struct{}),
-		dhcpKick:  make(chan struct{}, 1),
+		cfg:           cfg,
+		done:          make(chan struct{}),
+		eth0Ready:     make(chan struct{}),
+		rhiReady:      make(chan struct{}),
+		dhcpKick:      make(chan struct{}, 1),
+		dhcpReacquire: make(chan struct{}, 1),
 	}
 
 	if cfg.Eth0.Name != "" {
@@ -146,7 +170,10 @@ func startLocked() {
 	}
 	if cfg.RHI.Interface != "" && cfg.RHI.Address != "" {
 		m.wg.Add(1)
-		go m.superviseRHI(m.done)
+		go func() {
+			m.awaitEth0(m.done)
+			m.superviseRHI(m.done)
+		}()
 	} else {
 		m.signalRHIReady()
 	}
@@ -171,6 +198,31 @@ func (m *Manager) stop() {
 		m.rhiDHCP = nil
 	}
 	m.mu.Unlock()
+}
+
+// awaitEth0 defers a dependent interface until eth0's first configuration
+// attempt has completed, so the uplink is addressed -- and owns the default
+// route and resolv.conf -- before anything else is brought up.
+//
+// It waits on the attempt, not on success: eth0Ready closes whether the attempt
+// bound a lease or gave up, so an unplugged cable or absent DHCP server costs
+// the wait once rather than forever. rhiEth0Wait is the backstop for the case
+// where even that signal is slow, because the RHI is the access path that has
+// to survive a broken uplink.
+func (m *Manager) awaitEth0(done <-chan struct{}) {
+	if m.cfg.Eth0.Name == "" {
+		return
+	}
+	timer := time.NewTimer(rhiEth0Wait)
+	defer timer.Stop()
+
+	select {
+	case <-m.eth0Ready:
+	case <-done:
+	case <-timer.C:
+		log.Warnf("network: %s not configured after %s; bringing up %s anyway",
+			m.cfg.Eth0.Name, rhiEth0Wait, m.cfg.RHI.Interface)
+	}
 }
 
 func (m *Manager) signalEth0Ready() { m.eth0Once.Do(func() { close(m.eth0Ready) }) }
@@ -272,6 +324,7 @@ func (m *Manager) superviseEth0(done <-chan struct{}) {
 				iface:     ic.Name,
 				done:      done,
 				kick:      m.dhcpKick,
+				reacquire: m.dhcpReacquire,
 				onAttempt: m.signalEth0Ready,
 			}).run()
 			return
@@ -460,10 +513,32 @@ func (m *Manager) monitorLinks(done <-chan struct{}) {
 			if u.Link == nil || u.Attrs() == nil {
 				continue
 			}
+			if u.Attrs().Name == m.cfg.Eth0.Name {
+				m.noteEth0Carrier(hasCarrier(u.Attrs()))
+			}
 			m.handleLinkEvent(u.Attrs().Name)
 		case <-ticker.C:
 			m.reconcile()
 		}
+	}
+}
+
+// noteEth0Carrier records the carrier state and, on the transition to carrier
+// present, asks the DHCP runner to reacquire. Only the rising edge signals, so
+// a link that stays up does not restart DHCP on every unrelated netlink event.
+func (m *Manager) noteEth0Carrier(up bool) {
+	m.mu.Lock()
+	rose := up && !m.eth0Carrier
+	m.eth0Carrier = up
+	m.mu.Unlock()
+
+	if !rose || !dhcpMode(m.cfg.Eth0.Mode) {
+		return
+	}
+	log.Infof("network: %s carrier up; reacquiring a lease", m.cfg.Eth0.Name)
+	select {
+	case m.dhcpReacquire <- struct{}{}:
+	default: // one pending reacquire is as good as several
 	}
 }
 
@@ -481,6 +556,14 @@ func (m *Manager) reconcile() {
 		m.reconcileRHI()
 	}
 	if m.cfg.Eth0.Name != "" {
+		// Re-read the carrier from the kernel as well: this is the backstop for
+		// a missed or dropped netlink event, and it is what makes the rising
+		// edge reliable rather than best-effort.
+		if link, err := netlink.LinkByName(m.cfg.Eth0.Name); err == nil {
+			m.noteEth0Carrier(hasCarrier(link.Attrs()))
+		} else {
+			m.noteEth0Carrier(false)
+		}
 		m.reconcileEth0()
 	}
 }
@@ -497,6 +580,13 @@ func (m *Manager) reconcileEth0() {
 		default:
 		}
 	}
+}
+
+// dhcpMode reports whether an interface is DHCP-addressed. Anything not
+// explicitly static is, which mirrors superviseEth0's switch so the two can
+// never disagree about which runner owns the link.
+func dhcpMode(mode string) bool {
+	return !strings.EqualFold(mode, ModeStatic)
 }
 
 func growBackoff(d time.Duration) time.Duration {
