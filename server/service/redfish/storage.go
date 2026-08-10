@@ -176,7 +176,7 @@ func hostDriveResource(hd blkinfo.Drive) Drive {
 		d.Name = id
 	}
 	if hd.SizeBytes > 0 && hd.SizeBytes <= uint64(1)<<62 {
-		size := int64(hd.SizeBytes) //nolint:gosec // bounded above
+		size := int64(hd.SizeBytes)
 		d.CapacityBytes = &size
 	}
 	return d

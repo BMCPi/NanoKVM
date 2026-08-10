@@ -22,7 +22,7 @@ func TestNewFileWriter(t *testing.T) {
 	}
 	defer func() { _ = w.Close() }()
 
-	if _, ok := interface{}(w).(*lumberjack.Logger); !ok {
+	if _, ok := any(w).(*lumberjack.Logger); !ok {
 		t.Fatalf("expected a *lumberjack.Logger, got %T", w)
 	}
 	if w.MaxSize <= 0 || w.MaxBackups <= 0 {

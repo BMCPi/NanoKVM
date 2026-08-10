@@ -11,7 +11,7 @@ import (
 var env = os.Getenv(gin.EnvGinMode)
 
 // ValidateRequest Validates request parameters.
-func ValidateRequest(req interface{}) error {
+func ValidateRequest(req any) error {
 	validate := validator.New()
 
 	if err := validate.Struct(req); err != nil {
@@ -27,7 +27,7 @@ func ValidateRequest(req interface{}) error {
 }
 
 // ParseQueryRequest Validates GET requests.
-func ParseQueryRequest(c *gin.Context, req interface{}) error {
+func ParseQueryRequest(c *gin.Context, req any) error {
 	var err error
 	if err = c.ShouldBindQuery(req); err != nil {
 		log.Errorf("parse request failed, err: %s", err)
@@ -38,7 +38,7 @@ func ParseQueryRequest(c *gin.Context, req interface{}) error {
 }
 
 // ParseFormRequest Validates POST Requests.
-func ParseFormRequest(c *gin.Context, req interface{}) error {
+func ParseFormRequest(c *gin.Context, req any) error {
 	var err error
 	if err = c.ShouldBind(req); err != nil {
 		log.Errorf("parse request failed, err: %s", err)

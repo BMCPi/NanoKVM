@@ -22,6 +22,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/server/config"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
@@ -82,11 +83,12 @@ func Init(ctx context.Context) error {
 			// process_open_fds / _max_fds / _resident_memory_bytes. Swap it
 			// for one that surfaces errors, so FD/RSS are observable (and any
 			// read failure shows up as a scrape error instead of a blank).
+			collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})
 			PromRegistry.Unregister(
-				prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}),
+				collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 			)
-			if err := PromRegistry.Register(prometheus.NewProcessCollector(
-				prometheus.ProcessCollectorOpts{ReportErrors: true},
+			if err := PromRegistry.Register(collectors.NewProcessCollector(
+				collectors.ProcessCollectorOpts{ReportErrors: true},
 			)); err != nil {
 				log.Warnf("telemetry: process collector: %v", err)
 			}

@@ -7,9 +7,9 @@ import (
 )
 
 type Response struct {
-	Code int         `json:"code"` // Status code. 0-success, others-failure
-	Msg  string      `json:"msg"`  // Status details
-	Data interface{} `json:"data"` // Returned data
+	Code int    `json:"code"` // Status code. 0-success, others-failure
+	Msg  string `json:"msg"`  // Status details
+	Data any    `json:"data"` // Returned data
 }
 
 func (r *Response) Ok() {
@@ -17,7 +17,7 @@ func (r *Response) Ok() {
 	r.Msg = "success"
 }
 
-func (r *Response) OkWithData(data interface{}) {
+func (r *Response) OkWithData(data any) {
 	r.Ok()
 	r.Data = data
 }
@@ -35,7 +35,7 @@ func (r *Response) OkRsp(c *gin.Context) {
 }
 
 // OkRspWithData Successful response with data.
-func (r *Response) OkRspWithData(c *gin.Context, data interface{}) {
+func (r *Response) OkRspWithData(c *gin.Context, data any) {
 	r.Ok()
 	r.Data = data
 

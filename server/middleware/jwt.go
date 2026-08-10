@@ -175,7 +175,7 @@ func GenerateJWT(username string) (string, error) {
 func ParseJWT(jwtToken string) (*Token, error) {
 	conf := config.GetInstance()
 
-	t, err := jwt.ParseWithClaims(jwtToken, &Token{}, func(token *jwt.Token) (interface{}, error) {
+	t, err := jwt.ParseWithClaims(jwtToken, &Token{}, func(token *jwt.Token) (any, error) {
 		return []byte(conf.JWT.SecretKey), nil
 	})
 	if err != nil {
