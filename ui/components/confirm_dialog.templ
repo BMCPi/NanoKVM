@@ -28,9 +28,9 @@ templ ConfirmDialog() {
 					Confirm
 				}
 				@alertdialog.Action(alertdialog.ActionProps{
-					ID:      "app-confirm-action-destructive",
-					Variant: button.VariantDestructive,
-					Class:   "hidden",
+					ID:         "app-confirm-action-destructive",
+					Variant:    button.VariantDestructive,
+					Attributes: templ.Attributes{"hidden": true},
 				}) {
 					Confirm
 				}
@@ -63,8 +63,11 @@ templ confirmDialogScript() {
 				const dact = document.getElementById('app-confirm-action-destructive');
 				act.textContent = label;
 				dact.textContent = label;
-				act.classList.toggle('hidden', !!opts.destructive);
-				dact.classList.toggle('hidden', !opts.destructive);
+				// The `hidden` property, not a class: these are buttons, and
+				// their inline-flex utility sits later in the stylesheet than
+				// .hidden, so a class toggle leaves both actions on screen.
+				act.hidden = !!opts.destructive;
+				dact.hidden = !opts.destructive;
 				return new Promise((resolve) => {
 					pending = resolve;
 					tui.dialog.open(popup);

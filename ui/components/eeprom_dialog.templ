@@ -37,7 +37,7 @@ templ EEPROMDialogTrigger() {
 // scope for the trigger.
 templ EEPROMDialog() {
 	@dialog.Dialog(dialog.Props{ID: "eeprom-dialog"}) {
-		@dialog.Content(dialog.ContentProps{Class: "max-w-3xl max-h-[calc(100svh-4rem)] flex flex-col"}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-3xl max-h-[calc(100svh-4rem)] flex flex-col"}) {
 			@dialog.Header() {
 				@dialog.Title() {
 					<div class="flex items-center gap-2">
@@ -46,9 +46,10 @@ templ EEPROMDialog() {
 						// pieeprom.upd is present. Driven by the load
 						// handler below; default hidden.
 						@badge.Badge(badge.Props{
-							ID:      "eeprom-pending-badge",
-							Variant: badge.VariantSecondary,
-							Class:   "hidden bg-yellow-500/15 text-yellow-500",
+							ID:         "eeprom-pending-badge",
+							Variant:    badge.VariantSecondary,
+							Class:      "bg-yellow-500/15 text-yellow-500",
+							Attributes: templ.Attributes{"hidden": true},
 						}) {
 							Pending update
 						}
@@ -63,7 +64,7 @@ templ EEPROMDialog() {
 			<div class="flex-1 min-h-0 overflow-y-auto no-scrollbar">
 			// First-time setup panel: shown when no EEPROM image is on the FAT.
 			// Hidden once the operator initializes or an image is found.
-			<div id="eeprom-init-panel" class="hidden py-10 flex flex-col items-center gap-5 text-center">
+			<div id="eeprom-init-panel" class="py-10 flex flex-col items-center gap-5 text-center" hidden>
 				<div class="flex h-14 w-14 items-center justify-center rounded-full bg-muted text-muted-foreground">
 					@icon.HardDrive()
 				</div>
@@ -110,15 +111,14 @@ templ EEPROMDialog() {
 				</div>
 			</div>
 			</div>
-			@dialog.Footer() {
+			@dialog.Footer(dialog.FooterProps{Class: "sm:flex-wrap"}) {
 				@button.Button(button.Props{Variant: button.VariantOutline, Attributes: dialog.Close(ctx)}) {
 					Cancel
 				}
 				// First-time setup: hidden until loadEEPROMConfig detects no local image.
 				@button.Button(button.Props{
 					ID:         "eeprom-init",
-					Class:      "hidden",
-					Attributes: templ.Attributes{"onclick": "initializeEEPROM()", "title": "Download the latest stable bootloader and stage as pieeprom.upd"},
+					Attributes: templ.Attributes{"onclick": "initializeEEPROM()", "title": "Download the latest stable bootloader and stage as pieeprom.upd", "hidden": true},
 				}) {
 					@icon.Download()
 					<span>Initialize EEPROM</span>
@@ -128,8 +128,7 @@ templ EEPROMDialog() {
 				@button.Button(button.Props{
 					ID:         "eeprom-discard",
 					Variant:    button.VariantDestructive,
-					Class:      "hidden",
-					Attributes: templ.Attributes{"onclick": "discardPendingEEPROM()", "title": "Remove pieeprom.upd; revert to the live config"},
+					Attributes: templ.Attributes{"onclick": "discardPendingEEPROM()", "title": "Remove pieeprom.upd; revert to the live config", "hidden": true},
 				}) {
 					Discard pending
 				}
@@ -245,25 +244,25 @@ templ eepromDialogScript() {
 			// Editor-only buttons hidden during first-time setup.
 			const editorOnlyIds = ['eeprom-save', 'eeprom-reload', 'eeprom-upgrade', 'eeprom-refresh-bin'];
 
-			function showInitView() {
-				document.getElementById('eeprom-init-panel').classList.remove('hidden');
-				document.getElementById('eeprom-editor-grid').classList.add('hidden');
-				document.getElementById('eeprom-init').classList.remove('hidden');
-				for (const id of editorOnlyIds) {
-					const el = document.getElementById(id);
-					if (el) el.classList.add('hidden');
-				}
+			// Visibility rides the `hidden` PROPERTY, never a `hidden` class.
+			// Preflight's [hidden]{display:none!important} always wins; a
+			// `hidden` class only wins when it happens to sit later in the
+			// stylesheet than the element's own display utility — it does not
+			// against inline-flex, so class-toggled buttons stayed on screen.
+			function setHidden(id, hide) {
+				const el = document.getElementById(id);
+				if (el) el.hidden = hide;
 			}
 
-			function showEditorView() {
-				document.getElementById('eeprom-init-panel').classList.add('hidden');
-				document.getElementById('eeprom-editor-grid').classList.remove('hidden');
-				document.getElementById('eeprom-init').classList.add('hidden');
-				for (const id of editorOnlyIds) {
-					const el = document.getElementById(id);
-					if (el) el.classList.remove('hidden');
-				}
+			function setView(init) {
+				setHidden('eeprom-init-panel', !init);
+				setHidden('eeprom-editor-grid', init);
+				setHidden('eeprom-init', !init);
+				for (const id of editorOnlyIds) setHidden(id, init);
 			}
+
+			function showInitView()   { setView(true); }
+			function showEditorView() { setView(false); }
 
 			function setStatus(msg, cls) {
 				const s = status();
@@ -276,15 +275,9 @@ templ eepromDialogScript() {
 			// applyPendingChrome flips the pending badge + discard button
 			// based on the summary's `pending`/`source` fields.
 			function applyPendingChrome(summary) {
-				const badge = document.getElementById('eeprom-pending-badge');
-				const discard = document.getElementById('eeprom-discard');
-				if (summary && summary.pending) {
-					badge.classList.remove('hidden');
-					discard.classList.remove('hidden');
-				} else {
-					badge.classList.add('hidden');
-					discard.classList.add('hidden');
-				}
+				const pending = !!(summary && summary.pending);
+				setHidden('eeprom-pending-badge', !pending);
+				setHidden('eeprom-discard', !pending);
 			}
 
 			function describeState(data) {
