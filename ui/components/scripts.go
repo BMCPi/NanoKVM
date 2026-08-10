@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
@@ -17,7 +18,9 @@ import (
 // floatingui/floating_ui_core.js ahead of floating_ui_dom.js, the one pair
 // where load order matters. In production the bundle is built once from the
 // embedded files; in development it is rebuilt from disk on every request so
-// edits hot-reload.
+// edits hot-reload. When the disk build finds nothing (a deployed binary
+// running without GO_ENV=production has no components/ dir), the embedded
+// bundle is served instead — an empty bundle is never the right answer.
 
 func isDevelopment() bool {
 	return os.Getenv("GO_ENV") != "production"
@@ -33,7 +36,7 @@ func buildBundle(fsys fs.FS) ([]byte, string) {
 		if err != nil {
 			return nil
 		}
-		buf.WriteString("// components/" + path + "\n")
+		buf.WriteString(fmt.Sprintf("// components/%s\n", path))
 		buf.Write(data)
 		buf.WriteString("\n")
 		return nil
@@ -62,8 +65,9 @@ func gzipBundle(js []byte) []byte {
 
 func bundle() ([]byte, []byte, string) {
 	if isDevelopment() {
-		js, hash := buildBundle(os.DirFS("components"))
-		return js, nil, hash
+		if js, hash := buildBundle(os.DirFS("components")); len(js) > 0 {
+			return js, nil, hash
+		}
 	}
 	prodOnce.Do(func() {
 		prodJS, prodHash = buildBundle(TemplFiles)
@@ -94,7 +98,7 @@ func ScriptsHandler() http.Handler {
 		etag := `"` + hash + `"`
 		w.Header().Set("Content-Type", "application/javascript")
 		w.Header().Set("ETag", etag)
-		if isDevelopment() {
+		if gz == nil {
 			w.Header().Set("Cache-Control", "no-store")
 		} else {
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
