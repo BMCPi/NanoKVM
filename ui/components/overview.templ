@@ -5,6 +5,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/ui/components/badge"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/card"
+	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
 	selectcomp "github.com/pi-bmc/nanokvm-app/ui/components/select"
 )
 
@@ -32,14 +33,17 @@ templ OverviewSidebar() {
 					<h2 class="text-sm font-semibold">Server Overview</h2>
 					<p class="text-xs text-muted-foreground">Identity, network, and firmware state.</p>
 				</div>
-				<button
-					onclick="toggleOverview()"
-					title="Close"
-					aria-label="Close Server Overview"
-					class="rounded-sm p-1 opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring transition-opacity"
-				>
-					<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-				</button>
+				@button.Button(button.Props{
+					Variant: button.VariantGhost,
+					Size:    button.SizeIcon,
+					Attributes: templ.Attributes{
+						"onclick":    "toggleOverview()",
+						"title":      "Close",
+						"aria-label": "Close Server Overview",
+					},
+				}) {
+					@icon.X()
+				}
 			</div>
 			<div class="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 py-3 space-y-4">
 				@overviewServerCard()

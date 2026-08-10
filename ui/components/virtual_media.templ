@@ -5,6 +5,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/ui/components/dropdownmenu"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
 	"github.com/pi-bmc/nanokvm-app/ui/components/input"
+	"github.com/pi-bmc/nanokvm-app/ui/utils"
 )
 
 // VirtualMediaMenu is the navbar virtual-media picker. Two views — "current
@@ -12,11 +13,18 @@ import (
 // three tabs (Existing / Upload / URL) to keep height fixed.
 templ VirtualMediaMenu() {
 	@dropdownmenu.DropdownMenu() {
-		<button class="nav-item" onclick="navVmRefresh()" { dropdownmenu.Trigger(ctx)... }>
-			<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" x2="2" y1="12" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" x2="6.01" y1="16" y2="16"/><line x1="10" x2="10.01" y1="16" y2="16"/></svg>
+		@button.Button(button.Props{
+			Variant: button.VariantGhost,
+			Size:    button.SizeSm,
+			Attributes: utils.MergeAttributes(
+				dropdownmenu.Trigger(ctx),
+				templ.Attributes{"onclick": "navVmRefresh()"},
+			),
+		}) {
+			@icon.HardDrive()
 			<span class="hidden sm:inline">Virtual Media</span>
-			<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="opacity-60"><path d="m6 9 6 6 6-6"/></svg>
-		</button>
+			@icon.ChevronDown()
+		}
 		@dropdownmenu.Content(dropdownmenu.ContentProps{Class: "w-96 p-0 panel-fit"}) {
 			@vmCurrentView()
 			@vmAddView()
@@ -97,9 +105,15 @@ templ vmAddView() {
 		</div>
 		// Tab bar
 		<div class="flex gap-0.5 rounded-md bg-muted p-0.5 text-xs">
-			<button id="vm-tab-existing" class="vm-tab vm-tab-active" onclick="navVmTab('existing')">Existing</button>
-			<button id="vm-tab-upload" class="vm-tab" onclick="navVmTab('upload')">Upload</button>
-			<button id="vm-tab-url" class="vm-tab" onclick="navVmTab('url')">URL</button>
+			@vmTabButton("vm-tab-existing", "existing", true) {
+				Existing
+			}
+			@vmTabButton("vm-tab-upload", "upload", false) {
+				Upload
+			}
+			@vmTabButton("vm-tab-url", "url", false) {
+				URL
+			}
 		</div>
 		// Tab panels
 		<div id="vm-panel-existing" class="space-y-2">
@@ -151,6 +165,29 @@ templ vmAddView() {
 		</div>
 		<p id="nav-vm-add-status" class="text-xs text-muted-foreground min-h-[1rem]"></p>
 	</div>
+	@vmTabStyles()
+}
+
+// vmTabButton renders one segment of the add-media tab bar. The vm-tab /
+// vm-tab-active classes carry the segmented-control look; navVmTab toggles
+// vm-tab-active on click.
+templ vmTabButton(id string, name string, active bool) {
+	{{ class := "vm-tab" }}
+	if active {
+		{{ class = "vm-tab vm-tab-active" }}
+	}
+	@button.Button(button.Props{
+		ID:         id,
+		Variant:    button.VariantGhost,
+		Size:       button.SizeSm,
+		Class:      class,
+		Attributes: templ.Attributes{"onclick": "navVmTab('" + name + "')"},
+	}) {
+		{ children... }
+	}
+}
+
+templ vmTabStyles() {
 	<style>
 		.vm-tab { flex: 1; padding: .25rem .5rem; border-radius: .25rem; color: var(--muted-foreground); cursor: pointer; background: transparent; border: none; transition: background .1s, color .1s; }
 		.vm-tab:hover { color: var(--foreground); }

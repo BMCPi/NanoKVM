@@ -8,6 +8,11 @@ package components
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
+import (
+	"github.com/pi-bmc/nanokvm-app/ui/components/button"
+	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
+)
+
 // bmcTerminalPanelID is the ID of the slide-up terminal drawer.
 const bmcTerminalPanelID = "bmc-terminal-panel"
 
@@ -52,13 +57,81 @@ func BMCTerminalPanel() templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(bmcTerminalPanelID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/bmc_terminal.templ`, Line: 18, Col: 25}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/bmc_terminal.templ`, Line: 23, Col: 25}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" class=\"bmc-term-panel\" data-state=\"closed\" aria-label=\"BMC Terminal\" aria-hidden=\"true\"><div class=\"bmc-term-grip\" title=\"Drag to resize\" onmousedown=\"startBmcTerminalResize(event)\" ontouchstart=\"startBmcTerminalResize(event)\"></div><div class=\"bmc-term-header\"><button class=\"bmc-term-icon-btn\" onclick=\"closeBmcTerminal()\" title=\"Hide BMC Terminal\" aria-label=\"Hide BMC Terminal\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m6 9 6 6 6-6\"></path></svg></button> <span class=\"bmc-term-title\">BMC Terminal</span><div class=\"bmc-term-actions\"><span id=\"bmc-term-status\" class=\"bmc-term-status\"></span> <button class=\"bmc-term-hide-btn\" onclick=\"closeBmcTerminal()\" aria-label=\"Hide BMC Terminal\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m6 9 6 6 6-6\"></path></svg> <span>Hide</span></button></div></div><div class=\"bmc-term-body\"><div id=\"bmc-terminal\"></div></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" class=\"bmc-term-panel\" data-state=\"closed\" aria-label=\"BMC Terminal\" aria-hidden=\"true\"><div class=\"bmc-term-grip\" title=\"Drag to resize\" onmousedown=\"startBmcTerminalResize(event)\" ontouchstart=\"startBmcTerminalResize(event)\"></div><div class=\"bmc-term-header\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Var3 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Err = icon.ChevronDown().Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			return nil
+		})
+		templ_7745c5c3_Err = button.Button(button.Props{
+			Variant: button.VariantGhost,
+			Size:    button.SizeIcon,
+			Class:   "justify-self-start",
+			Attributes: templ.Attributes{
+				"onclick":    "closeBmcTerminal()",
+				"title":      "Hide BMC Terminal",
+				"aria-label": "Hide BMC Terminal",
+			},
+		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<span class=\"bmc-term-title\">BMC Terminal</span><div class=\"bmc-term-actions\"><span id=\"bmc-term-status\" class=\"bmc-term-status\"></span>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Var4 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Err = icon.ChevronDown().Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, " <span>Hide</span>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			return nil
+		})
+		templ_7745c5c3_Err = button.Button(button.Props{
+			Variant:    button.VariantOutline,
+			Attributes: templ.Attributes{"onclick": "closeBmcTerminal()", "aria-label": "Hide BMC Terminal"},
+		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</div></div><div class=\"bmc-term-body\"><div id=\"bmc-terminal\"></div></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -86,12 +159,12 @@ func bmcTerminalStyles() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var3 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var3 == nil {
-			templ_7745c5c3_Var3 = templ.NopComponent
+		templ_7745c5c3_Var5 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var5 == nil {
+			templ_7745c5c3_Var5 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<style>\n\t\t.bmc-term-panel {\n\t\t\tposition: fixed;\n\t\t\tleft: 0;\n\t\t\tright: 0;\n\t\t\tbottom: 0;\n\t\t\tz-index: 45;\n\t\t\tdisplay: flex;\n\t\t\tflex-direction: column;\n\t\t\theight: 45vh;\n\t\t\tmin-height: 10rem;\n\t\t\tbackground: var(--card);\n\t\t\tborder-top: 1px solid var(--border);\n\t\t\tbox-shadow: 0 -12px 30px -14px rgba(0, 0, 0, 0.7);\n\t\t\ttransform: translateY(100%);\n\t\t\tvisibility: hidden;\n\t\t\ttransition: transform 0.22s ease, visibility 0s linear 0.22s;\n\t\t}\n\t\t.bmc-term-panel[data-state=\"open\"] {\n\t\t\ttransform: translateY(0);\n\t\t\tvisibility: visible;\n\t\t\ttransition: transform 0.22s ease, visibility 0s;\n\t\t}\n\t\t/* No slide animation while the user drags the top edge. */\n\t\t.bmc-term-panel.resizing { transition: none; }\n\n\t\t/* Top-edge drag handle for resizing the drawer. */\n\t\t.bmc-term-grip {\n\t\t\tposition: absolute;\n\t\t\ttop: 0;\n\t\t\tleft: 0;\n\t\t\tright: 0;\n\t\t\theight: 5px;\n\t\t\tcursor: ns-resize;\n\t\t\tbackground: transparent;\n\t\t}\n\t\t.bmc-term-grip:hover { background: color-mix(in oklab, var(--primary) 45%, transparent); }\n\n\t\t/* 1fr auto 1fr keeps the title optically centred regardless of the\n\t\t   width of the buttons on either side. */\n\t\t.bmc-term-header {\n\t\t\tdisplay: grid;\n\t\t\tgrid-template-columns: 1fr auto 1fr;\n\t\t\talign-items: center;\n\t\t\tgap: 0.5rem;\n\t\t\tpadding: 0.375rem 0.5rem;\n\t\t\tborder-bottom: 1px solid var(--border);\n\t\t\tflex-shrink: 0;\n\t\t\tuser-select: none;\n\t\t}\n\t\t.bmc-term-title {\n\t\t\tfont-size: 0.8125rem;\n\t\t\tcolor: var(--muted-foreground);\n\t\t\ttext-align: center;\n\t\t\twhite-space: nowrap;\n\t\t}\n\t\t.bmc-term-actions {\n\t\t\tdisplay: flex;\n\t\t\talign-items: center;\n\t\t\tjustify-content: flex-end;\n\t\t\tgap: 0.5rem;\n\t\t}\n\t\t.bmc-term-status {\n\t\t\tfont-size: 0.6875rem;\n\t\t\tcolor: var(--muted-foreground);\n\t\t\twhite-space: nowrap;\n\t\t}\n\t\t.bmc-term-icon-btn {\n\t\t\tdisplay: inline-flex;\n\t\t\talign-items: center;\n\t\t\tjustify-content: center;\n\t\t\twidth: 1.75rem;\n\t\t\theight: 1.75rem;\n\t\t\tborder: none;\n\t\t\tborder-radius: 0.25rem;\n\t\t\tbackground: transparent;\n\t\t\tcolor: var(--muted-foreground);\n\t\t\tcursor: pointer;\n\t\t\tjustify-self: start;\n\t\t}\n\t\t.bmc-term-icon-btn:hover { color: var(--foreground); background: var(--accent); }\n\t\t.bmc-term-hide-btn {\n\t\t\tdisplay: inline-flex;\n\t\t\talign-items: center;\n\t\t\tgap: 0.375rem;\n\t\t\theight: 1.75rem;\n\t\t\tpadding: 0 0.625rem;\n\t\t\tfont-size: 0.8125rem;\n\t\t\tline-height: 1;\n\t\t\tcolor: var(--muted-foreground);\n\t\t\tbackground: transparent;\n\t\t\tborder: 1px solid var(--border);\n\t\t\tborder-radius: 0.375rem;\n\t\t\tcursor: pointer;\n\t\t\twhite-space: nowrap;\n\t\t}\n\t\t.bmc-term-hide-btn:hover { color: var(--foreground); background: var(--accent); }\n\n\t\t.bmc-term-body {\n\t\t\tflex: 1;\n\t\t\tmin-height: 0;\n\t\t\toverflow: hidden;\n\t\t\tpadding: 0.25rem 0.5rem 0.5rem;\n\t\t\tbackground: var(--background);\n\t\t}\n\t\t#bmc-terminal { height: 100%; }\n\t</style>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<style>\n\t\t.bmc-term-panel {\n\t\t\tposition: fixed;\n\t\t\tleft: 0;\n\t\t\tright: 0;\n\t\t\tbottom: 0;\n\t\t\tz-index: 45;\n\t\t\tdisplay: flex;\n\t\t\tflex-direction: column;\n\t\t\theight: 45vh;\n\t\t\tmin-height: 10rem;\n\t\t\tbackground: var(--card);\n\t\t\tborder-top: 1px solid var(--border);\n\t\t\tbox-shadow: 0 -12px 30px -14px rgba(0, 0, 0, 0.7);\n\t\t\ttransform: translateY(100%);\n\t\t\tvisibility: hidden;\n\t\t\ttransition: transform 0.22s ease, visibility 0s linear 0.22s;\n\t\t}\n\t\t.bmc-term-panel[data-state=\"open\"] {\n\t\t\ttransform: translateY(0);\n\t\t\tvisibility: visible;\n\t\t\ttransition: transform 0.22s ease, visibility 0s;\n\t\t}\n\t\t/* No slide animation while the user drags the top edge. */\n\t\t.bmc-term-panel.resizing { transition: none; }\n\n\t\t/* Top-edge drag handle for resizing the drawer. */\n\t\t.bmc-term-grip {\n\t\t\tposition: absolute;\n\t\t\ttop: 0;\n\t\t\tleft: 0;\n\t\t\tright: 0;\n\t\t\theight: 5px;\n\t\t\tcursor: ns-resize;\n\t\t\tbackground: transparent;\n\t\t}\n\t\t.bmc-term-grip:hover { background: color-mix(in oklab, var(--primary) 45%, transparent); }\n\n\t\t/* 1fr auto 1fr keeps the title optically centred regardless of the\n\t\t   width of the buttons on either side. */\n\t\t.bmc-term-header {\n\t\t\tdisplay: grid;\n\t\t\tgrid-template-columns: 1fr auto 1fr;\n\t\t\talign-items: center;\n\t\t\tgap: 0.5rem;\n\t\t\tpadding: 0.375rem 0.5rem;\n\t\t\tborder-bottom: 1px solid var(--border);\n\t\t\tflex-shrink: 0;\n\t\t\tuser-select: none;\n\t\t}\n\t\t.bmc-term-title {\n\t\t\tfont-size: 0.8125rem;\n\t\t\tcolor: var(--muted-foreground);\n\t\t\ttext-align: center;\n\t\t\twhite-space: nowrap;\n\t\t}\n\t\t.bmc-term-actions {\n\t\t\tdisplay: flex;\n\t\t\talign-items: center;\n\t\t\tjustify-content: flex-end;\n\t\t\tgap: 0.5rem;\n\t\t}\n\t\t.bmc-term-status {\n\t\t\tfont-size: 0.6875rem;\n\t\t\tcolor: var(--muted-foreground);\n\t\t\twhite-space: nowrap;\n\t\t}\n\t\t.bmc-term-body {\n\t\t\tflex: 1;\n\t\t\tmin-height: 0;\n\t\t\toverflow: hidden;\n\t\t\tpadding: 0.25rem 0.5rem 0.5rem;\n\t\t\tbackground: var(--background);\n\t\t}\n\t\t#bmc-terminal { height: 100%; }\n\t</style>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -119,12 +192,12 @@ func bmcTerminalScript() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var4 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var4 == nil {
-			templ_7745c5c3_Var4 = templ.NopComponent
+		templ_7745c5c3_Var6 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var6 == nil {
+			templ_7745c5c3_Var6 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<script>\n\t\t(function () {\n\t\t\tconst XTerm = window.Terminal;\n\t\t\tconst Fit = window.FitAddon?.FitAddon || window.FitAddon;\n\t\t\tconst Attach = window.AttachAddon?.AttachAddon || window.AttachAddon;\n\n\t\t\tlet bterm = null;\n\t\t\tlet bws = null;\n\t\t\tlet bfit = null;\n\t\t\tlet bresize = null;\n\n\t\t\tfunction panel() { return document.getElementById('bmc-terminal-panel'); }\n\t\t\tfunction isOpen() { return panel().getAttribute('data-state') === 'open'; }\n\n\t\t\tfunction setStatus(text) {\n\t\t\t\tdocument.getElementById('bmc-term-status').textContent = text || '';\n\t\t\t}\n\n\t\t\tfunction fit() {\n\t\t\t\tif (!bfit) return;\n\t\t\t\ttry { bfit.fit(); } catch (e) { return; }\n\t\t\t\tif (bws && bws.readyState === WebSocket.OPEN && bterm) {\n\t\t\t\t\t// Binary frame = resize; the server pushes it onto the PTY.\n\t\t\t\t\tbws.send(new TextEncoder().encode(JSON.stringify({ cols: bterm.cols, rows: bterm.rows })));\n\t\t\t\t}\n\t\t\t}\n\n\t\t\tfunction connect() {\n\t\t\t\tbterm = new XTerm({\n\t\t\t\t\tallowProposedApi: true,\n\t\t\t\t\tcursorBlink: true,\n\t\t\t\t\tfontSize: 13,\n\t\t\t\t\tfontFamily: 'Menlo, Monaco, \"Courier New\", monospace',\n\t\t\t\t});\n\t\t\t\tbfit = new Fit();\n\t\t\t\tbterm.loadAddon(bfit);\n\n\t\t\t\tconst el = document.getElementById('bmc-terminal');\n\t\t\t\tel.innerHTML = '';\n\t\t\t\tbterm.open(el);\n\t\t\t\tbfit.fit();\n\n\t\t\t\tbws = new WebSocket(getWsUrl() + '/api/vm/shell');\n\t\t\t\tsetStatus('connecting…');\n\n\t\t\t\tbws.onopen = () => {\n\t\t\t\t\tbterm.loadAddon(new Attach(bws));\n\t\t\t\t\tsetStatus('');\n\t\t\t\t\tfit();\n\t\t\t\t\tbterm.focus();\n\t\t\t\t};\n\t\t\t\tbws.onclose = () => {\n\t\t\t\t\tsetStatus('session closed');\n\t\t\t\t\tif (bterm) bterm.write('\\r\\n\\x1b[31m[session closed]\\x1b[0m\\r\\n');\n\t\t\t\t\tbws = null;\n\t\t\t\t};\n\t\t\t\tbws.onerror = () => { setStatus('error'); };\n\n\t\t\t\tbresize = () => { if (isOpen()) fit(); };\n\t\t\t\twindow.addEventListener('resize', bresize);\n\t\t\t}\n\n\t\t\tfunction teardown() {\n\t\t\t\tif (bresize) { window.removeEventListener('resize', bresize); bresize = null; }\n\t\t\t\tif (bws) { try { bws.close(); } catch (e) {} bws = null; }\n\t\t\t\tif (bterm) { bterm.dispose(); bterm = null; }\n\t\t\t\tbfit = null;\n\t\t\t}\n\n\t\t\twindow.openBmcTerminal = function () {\n\t\t\t\tconst p = panel();\n\t\t\t\tp.setAttribute('data-state', 'open');\n\t\t\t\tp.setAttribute('aria-hidden', 'false');\n\t\t\t\tsetNavActive(true);\n\t\t\t\t// Lazily start the session; a hidden drawer keeps its shell so\n\t\t\t\t// reopening lands back on the same prompt.\n\t\t\t\tif (!bterm || !bws) {\n\t\t\t\t\tteardown();\n\t\t\t\t\tconnect();\n\t\t\t\t} else {\n\t\t\t\t\tsetTimeout(() => { fit(); bterm.focus(); }, 240);\n\t\t\t\t}\n\t\t\t};\n\n\t\t\twindow.closeBmcTerminal = function () {\n\t\t\t\tconst p = panel();\n\t\t\t\tp.setAttribute('data-state', 'closed');\n\t\t\t\tp.setAttribute('aria-hidden', 'true');\n\t\t\t\tsetNavActive(false);\n\t\t\t};\n\n\t\t\twindow.toggleBmcTerminal = function () {\n\t\t\t\tisOpen() ? closeBmcTerminal() : openBmcTerminal();\n\t\t\t};\n\n\t\t\tfunction setNavActive(active) {\n\t\t\t\tconst btn = document.getElementById('btn-bmc-terminal');\n\t\t\t\tif (!btn) return;\n\t\t\t\tbtn.classList.toggle('bg-accent', active);\n\t\t\t\tbtn.classList.toggle('text-foreground', active);\n\t\t\t\tbtn.setAttribute('aria-expanded', active ? 'true' : 'false');\n\t\t\t}\n\n\t\t\t// ── Drag-to-resize the drawer height ───────────────────────────\n\t\t\tlet dragStartY = 0;\n\t\t\tlet dragStartH = 0;\n\n\t\t\twindow.startBmcTerminalResize = function (e) {\n\t\t\t\tconst p = panel();\n\t\t\t\tdragStartY = (e.touches ? e.touches[0].clientY : e.clientY);\n\t\t\t\tdragStartH = p.getBoundingClientRect().height;\n\t\t\t\tp.classList.add('resizing');\n\t\t\t\te.preventDefault();\n\t\t\t\tdocument.addEventListener('mousemove', onDrag);\n\t\t\t\tdocument.addEventListener('touchmove', onDrag, { passive: false });\n\t\t\t\tdocument.addEventListener('mouseup', endDrag);\n\t\t\t\tdocument.addEventListener('touchend', endDrag);\n\t\t\t};\n\n\t\t\tfunction onDrag(e) {\n\t\t\t\tconst y = (e.touches ? e.touches[0].clientY : e.clientY);\n\t\t\t\tconst h = Math.min(window.innerHeight - 80, Math.max(160, dragStartH + (dragStartY - y)));\n\t\t\t\tpanel().style.height = h + 'px';\n\t\t\t\tif (e.cancelable) e.preventDefault();\n\t\t\t}\n\n\t\t\tfunction endDrag() {\n\t\t\t\tpanel().classList.remove('resizing');\n\t\t\t\tdocument.removeEventListener('mousemove', onDrag);\n\t\t\t\tdocument.removeEventListener('touchmove', onDrag);\n\t\t\t\tdocument.removeEventListener('mouseup', endDrag);\n\t\t\t\tdocument.removeEventListener('touchend', endDrag);\n\t\t\t\tfit();\n\t\t\t}\n\n\t\t\t// Escape hides the drawer when the focus is inside it.\n\t\t\tdocument.addEventListener('keydown', (e) => {\n\t\t\t\tif (e.key !== 'Escape' || !isOpen()) return;\n\t\t\t\tif (!document.activeElement || !document.activeElement.closest('#bmc-terminal-panel')) return;\n\t\t\t\te.preventDefault();\n\t\t\t\tcloseBmcTerminal();\n\t\t\t});\n\n\t\t\twindow.addEventListener('beforeunload', teardown);\n\t\t})();\n\t</script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<script>\n\t\t(function () {\n\t\t\tconst XTerm = window.Terminal;\n\t\t\tconst Fit = window.FitAddon?.FitAddon || window.FitAddon;\n\t\t\tconst Attach = window.AttachAddon?.AttachAddon || window.AttachAddon;\n\n\t\t\tlet bterm = null;\n\t\t\tlet bws = null;\n\t\t\tlet bfit = null;\n\t\t\tlet bresize = null;\n\n\t\t\tfunction panel() { return document.getElementById('bmc-terminal-panel'); }\n\t\t\tfunction isOpen() { return panel().getAttribute('data-state') === 'open'; }\n\n\t\t\tfunction setStatus(text) {\n\t\t\t\tdocument.getElementById('bmc-term-status').textContent = text || '';\n\t\t\t}\n\n\t\t\tfunction fit() {\n\t\t\t\tif (!bfit) return;\n\t\t\t\ttry { bfit.fit(); } catch (e) { return; }\n\t\t\t\tif (bws && bws.readyState === WebSocket.OPEN && bterm) {\n\t\t\t\t\t// Binary frame = resize; the server pushes it onto the PTY.\n\t\t\t\t\tbws.send(new TextEncoder().encode(JSON.stringify({ cols: bterm.cols, rows: bterm.rows })));\n\t\t\t\t}\n\t\t\t}\n\n\t\t\tfunction connect() {\n\t\t\t\tbterm = new XTerm({\n\t\t\t\t\tallowProposedApi: true,\n\t\t\t\t\tcursorBlink: true,\n\t\t\t\t\tfontSize: 13,\n\t\t\t\t\tfontFamily: 'Menlo, Monaco, \"Courier New\", monospace',\n\t\t\t\t});\n\t\t\t\tbfit = new Fit();\n\t\t\t\tbterm.loadAddon(bfit);\n\n\t\t\t\tconst el = document.getElementById('bmc-terminal');\n\t\t\t\tel.innerHTML = '';\n\t\t\t\tbterm.open(el);\n\t\t\t\tbfit.fit();\n\n\t\t\t\tbws = new WebSocket(getWsUrl() + '/api/vm/shell');\n\t\t\t\tsetStatus('connecting…');\n\n\t\t\t\tbws.onopen = () => {\n\t\t\t\t\tbterm.loadAddon(new Attach(bws));\n\t\t\t\t\tsetStatus('');\n\t\t\t\t\tfit();\n\t\t\t\t\tbterm.focus();\n\t\t\t\t};\n\t\t\t\tbws.onclose = () => {\n\t\t\t\t\tsetStatus('session closed');\n\t\t\t\t\tif (bterm) bterm.write('\\r\\n\\x1b[31m[session closed]\\x1b[0m\\r\\n');\n\t\t\t\t\tbws = null;\n\t\t\t\t};\n\t\t\t\tbws.onerror = () => { setStatus('error'); };\n\n\t\t\t\tbresize = () => { if (isOpen()) fit(); };\n\t\t\t\twindow.addEventListener('resize', bresize);\n\t\t\t}\n\n\t\t\tfunction teardown() {\n\t\t\t\tif (bresize) { window.removeEventListener('resize', bresize); bresize = null; }\n\t\t\t\tif (bws) { try { bws.close(); } catch (e) {} bws = null; }\n\t\t\t\tif (bterm) { bterm.dispose(); bterm = null; }\n\t\t\t\tbfit = null;\n\t\t\t}\n\n\t\t\twindow.openBmcTerminal = function () {\n\t\t\t\tconst p = panel();\n\t\t\t\tp.setAttribute('data-state', 'open');\n\t\t\t\tp.setAttribute('aria-hidden', 'false');\n\t\t\t\tsetNavActive(true);\n\t\t\t\t// Lazily start the session; a hidden drawer keeps its shell so\n\t\t\t\t// reopening lands back on the same prompt.\n\t\t\t\tif (!bterm || !bws) {\n\t\t\t\t\tteardown();\n\t\t\t\t\tconnect();\n\t\t\t\t} else {\n\t\t\t\t\tsetTimeout(() => { fit(); bterm.focus(); }, 240);\n\t\t\t\t}\n\t\t\t};\n\n\t\t\twindow.closeBmcTerminal = function () {\n\t\t\t\tconst p = panel();\n\t\t\t\tp.setAttribute('data-state', 'closed');\n\t\t\t\tp.setAttribute('aria-hidden', 'true');\n\t\t\t\tsetNavActive(false);\n\t\t\t};\n\n\t\t\twindow.toggleBmcTerminal = function () {\n\t\t\t\tisOpen() ? closeBmcTerminal() : openBmcTerminal();\n\t\t\t};\n\n\t\t\tfunction setNavActive(active) {\n\t\t\t\tconst btn = document.getElementById('btn-bmc-terminal');\n\t\t\t\tif (!btn) return;\n\t\t\t\tbtn.classList.toggle('bg-accent', active);\n\t\t\t\tbtn.classList.toggle('text-foreground', active);\n\t\t\t\tbtn.setAttribute('aria-expanded', active ? 'true' : 'false');\n\t\t\t}\n\n\t\t\t// ── Drag-to-resize the drawer height ───────────────────────────\n\t\t\tlet dragStartY = 0;\n\t\t\tlet dragStartH = 0;\n\n\t\t\twindow.startBmcTerminalResize = function (e) {\n\t\t\t\tconst p = panel();\n\t\t\t\tdragStartY = (e.touches ? e.touches[0].clientY : e.clientY);\n\t\t\t\tdragStartH = p.getBoundingClientRect().height;\n\t\t\t\tp.classList.add('resizing');\n\t\t\t\te.preventDefault();\n\t\t\t\tdocument.addEventListener('mousemove', onDrag);\n\t\t\t\tdocument.addEventListener('touchmove', onDrag, { passive: false });\n\t\t\t\tdocument.addEventListener('mouseup', endDrag);\n\t\t\t\tdocument.addEventListener('touchend', endDrag);\n\t\t\t};\n\n\t\t\tfunction onDrag(e) {\n\t\t\t\tconst y = (e.touches ? e.touches[0].clientY : e.clientY);\n\t\t\t\tconst h = Math.min(window.innerHeight - 80, Math.max(160, dragStartH + (dragStartY - y)));\n\t\t\t\tpanel().style.height = h + 'px';\n\t\t\t\tif (e.cancelable) e.preventDefault();\n\t\t\t}\n\n\t\t\tfunction endDrag() {\n\t\t\t\tpanel().classList.remove('resizing');\n\t\t\t\tdocument.removeEventListener('mousemove', onDrag);\n\t\t\t\tdocument.removeEventListener('touchmove', onDrag);\n\t\t\t\tdocument.removeEventListener('mouseup', endDrag);\n\t\t\t\tdocument.removeEventListener('touchend', endDrag);\n\t\t\t\tfit();\n\t\t\t}\n\n\t\t\t// Escape hides the drawer when the focus is inside it.\n\t\t\tdocument.addEventListener('keydown', (e) => {\n\t\t\t\tif (e.key !== 'Escape' || !isOpen()) return;\n\t\t\t\tif (!document.activeElement || !document.activeElement.closest('#bmc-terminal-panel')) return;\n\t\t\t\te.preventDefault();\n\t\t\t\tcloseBmcTerminal();\n\t\t\t});\n\n\t\t\twindow.addEventListener('beforeunload', teardown);\n\t\t})();\n\t</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

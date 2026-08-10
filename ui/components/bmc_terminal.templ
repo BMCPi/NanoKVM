@@ -1,5 +1,10 @@
 package components
 
+import (
+	"github.com/pi-bmc/nanokvm-app/ui/components/button"
+	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
+)
+
 // bmcTerminalPanelID is the ID of the slide-up terminal drawer.
 const bmcTerminalPanelID = "bmc-terminal-panel"
 
@@ -23,21 +28,28 @@ templ BMCTerminalPanel() {
 	>
 		<div class="bmc-term-grip" title="Drag to resize" onmousedown="startBmcTerminalResize(event)" ontouchstart="startBmcTerminalResize(event)"></div>
 		<div class="bmc-term-header">
-			<button
-				class="bmc-term-icon-btn"
-				onclick="closeBmcTerminal()"
-				title="Hide BMC Terminal"
-				aria-label="Hide BMC Terminal"
-			>
-				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-			</button>
+			@button.Button(button.Props{
+				Variant: button.VariantGhost,
+				Size:    button.SizeIcon,
+				Class:   "justify-self-start",
+				Attributes: templ.Attributes{
+					"onclick":    "closeBmcTerminal()",
+					"title":      "Hide BMC Terminal",
+					"aria-label": "Hide BMC Terminal",
+				},
+			}) {
+				@icon.ChevronDown()
+			}
 			<span class="bmc-term-title">BMC Terminal</span>
 			<div class="bmc-term-actions">
 				<span id="bmc-term-status" class="bmc-term-status"></span>
-				<button class="bmc-term-hide-btn" onclick="closeBmcTerminal()" aria-label="Hide BMC Terminal">
-					<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+				@button.Button(button.Props{
+					Variant:    button.VariantOutline,
+					Attributes: templ.Attributes{"onclick": "closeBmcTerminal()", "aria-label": "Hide BMC Terminal"},
+				}) {
+					@icon.ChevronDown()
 					<span>Hide</span>
-				</button>
+				}
 			</div>
 		</div>
 		<div class="bmc-term-body">
@@ -115,37 +127,6 @@ templ bmcTerminalStyles() {
 			color: var(--muted-foreground);
 			white-space: nowrap;
 		}
-		.bmc-term-icon-btn {
-			display: inline-flex;
-			align-items: center;
-			justify-content: center;
-			width: 1.75rem;
-			height: 1.75rem;
-			border: none;
-			border-radius: 0.25rem;
-			background: transparent;
-			color: var(--muted-foreground);
-			cursor: pointer;
-			justify-self: start;
-		}
-		.bmc-term-icon-btn:hover { color: var(--foreground); background: var(--accent); }
-		.bmc-term-hide-btn {
-			display: inline-flex;
-			align-items: center;
-			gap: 0.375rem;
-			height: 1.75rem;
-			padding: 0 0.625rem;
-			font-size: 0.8125rem;
-			line-height: 1;
-			color: var(--muted-foreground);
-			background: transparent;
-			border: 1px solid var(--border);
-			border-radius: 0.375rem;
-			cursor: pointer;
-			white-space: nowrap;
-		}
-		.bmc-term-hide-btn:hover { color: var(--foreground); background: var(--accent); }
-
 		.bmc-term-body {
 			flex: 1;
 			min-height: 0;
