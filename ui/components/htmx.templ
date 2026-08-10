@@ -1,0 +1,65 @@
+package components
+
+// HTMXScript is the bridge between htmx and the pieces of the UI that are
+// not markup: the AlertDialog behind uiConfirm(), the toast viewport, and
+// the shadcn-templ component bundle. Mounted once per page in the layout.
+//
+// Everything here is a listener on an htmx event — there is no per-component
+// glue. A fragment stays a fragment: it declares hx-confirm / returns an
+// HX-Trigger header and this file turns that into the right UI affordance.
+templ HTMXScript() {
+	<script>
+		(function () {
+			// ── hx-confirm → uiConfirm() ───────────────────────────────────
+			// htmx's default is window.confirm. Taking over htmx:confirm lets
+			// every hx-confirm attribute render as the app's AlertDialog
+			// instead, while htmx keeps owning the request lifecycle.
+			//
+			// hx-confirm carries the question; the optional data-confirm-*
+			// attributes tune the dialog the same way uiConfirm's opts do.
+			document.addEventListener('htmx:confirm', function (e) {
+				const question = e.detail.question;
+				if (!question) return; // no hx-confirm on this element
+				e.preventDefault();
+				const el = e.detail.elt;
+				uiConfirm({
+					title: el.getAttribute('data-confirm-title') || question,
+					description: el.getAttribute('data-confirm-title') ? question : '',
+					confirmLabel: el.getAttribute('data-confirm-label') || 'Confirm',
+					destructive: el.hasAttribute('data-confirm-destructive'),
+				}).then(function (ok) {
+					if (ok) e.detail.issueRequest(true);
+				});
+			});
+
+			// ── HX-Trigger: {"ui-toast": {...}} → tui.toast ────────────────
+			// Fragment handlers raise toasts by header, so a Go handler never
+			// has to render notification markup or know where it is mounted.
+			document.body.addEventListener('ui-toast', function (e) {
+				const d = e.detail || {};
+				tui.toast.add({
+					type: d.type || 'info',
+					title: d.title || '',
+					description: d.description || '',
+				});
+			});
+
+			// ── Transport failures ─────────────────────────────────────────
+			// A handler that answers 4xx/5xx without a ui-toast trigger still
+			// gets one, so no failure is silent. Status 0 is a dropped
+			// connection — expected while the BMC restarts after an update.
+			document.addEventListener('htmx:responseError', function (e) {
+				const xhr = e.detail.xhr;
+				if (xhr.getResponseHeader('HX-Trigger')) return;
+				tui.toast.add({
+					type: 'error',
+					title: 'Request failed',
+					description: 'HTTP ' + xhr.status + ' ' + (xhr.statusText || ''),
+				});
+			});
+			document.addEventListener('htmx:sendError', function () {
+				tui.toast.add({ type: 'error', title: 'Network error', description: 'The BMC did not respond.' });
+			});
+		})();
+	</script>
+}

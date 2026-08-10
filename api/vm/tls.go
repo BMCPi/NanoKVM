@@ -23,9 +23,9 @@ func (s *Service) SetTls(c *gin.Context) {
 	}
 
 	if req.Enabled {
-		err = enableTls()
+		err = EnableTLS()
 	} else {
-		err = disableTls()
+		err = DisableTLS()
 	}
 
 	if err != nil {
@@ -41,7 +41,10 @@ func (s *Service) SetTls(c *gin.Context) {
 	application.RestartService()
 }
 
-func enableTls() error {
+// EnableTLS generates a self-signed certificate and switches the persisted
+// proto to https. Exported so the UI's settings fragment applies TLS through
+// the same path as the JSON API rather than duplicating the config writes.
+func EnableTLS() error {
 	if err := utils.GenerateCert(); err != nil {
 		return err
 	}
@@ -62,7 +65,8 @@ func enableTls() error {
 	return nil
 }
 
-func disableTls() error {
+// DisableTLS switches the persisted proto back to http.
+func DisableTLS() error {
 	conf, err := config.Read()
 	if err != nil {
 		return err

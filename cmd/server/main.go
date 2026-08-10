@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -71,13 +73,31 @@ const networkReadyTimeout = 60 * time.Second
 func main() {
 	lockInstance()
 
-	initialize()
-	defer dispose()
-
-	run()
+	// realMain keeps deferred cleanup running on every exit path; os.Exit here
+	// is the only one, after all defers have unwound.
+	os.Exit(realMain())
 }
 
-func initialize() {
+func realMain() int {
+	// Root context for the whole process: cancelled on the first SIGINT/
+	// SIGTERM/SIGQUIT. Every subsystem goroutine and blocking call hangs off
+	// this ctx; run() restores default signal handling once shutdown starts,
+	// so a second signal force-kills a wedged shutdown.
+	ctx, stop := signal.NotifyContext(context.Background(),
+		syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	defer stop()
+
+	initialize(ctx)
+	defer dispose()
+
+	if err := run(ctx, stop); err != nil {
+		log.Printf("server: %v", err)
+		return 1
+	}
+	return 0
+}
+
+func initialize(ctx context.Context) {
 	log.Printf("NanoKVM BMC %s (commit=%s, built=%s)", version, commit, date)
 
 	// Propagate build-time version to the application service.
@@ -91,7 +111,7 @@ func initialize() {
 	utils.InitGoMemLimit()
 
 	// Initialize OpenTelemetry + Prometheus (no-op when disabled in config).
-	if err := telemetry.Init(context.Background()); err != nil {
+	if err := telemetry.Init(ctx); err != nil {
 		log.Printf("telemetry init: %v", err)
 	}
 
@@ -156,19 +176,13 @@ func initialize() {
 	} else {
 		mdnsResponder = r
 	}
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-	go func() {
-		sig := <-sigChan
-		log.Printf("\nReceived signal: %v\n", sig)
-
-		dispose()
-		os.Exit(0)
-	}()
 }
 
-func run() {
+// shutdownTimeout bounds the drain of in-flight HTTP requests once the root
+// context is cancelled; connections still open after it are closed hard.
+const shutdownTimeout = 10 * time.Second
+
+func run(ctx context.Context, stop context.CancelFunc) error {
 	// Hold the HTTP/HTTPS listeners until the initial interface configuration
 	// pass has been applied (eth0 addressing attempted, RHI address asserted).
 	// Bounded so a dead uplink can never wedge boot — on timeout the manager
@@ -187,6 +201,11 @@ func run() {
 	gin.DisableConsoleColor()
 
 	r := gin.New()
+	// Make *gin.Context a real context.Context: Done/Deadline/Err/Value fall
+	// back to the request context, so handlers pass `c` directly into
+	// ctx-taking code and cancellation propagates when the client disconnects
+	// or the server drains during shutdown.
+	r.ContextWithFallback = true
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 	if conf.Authentication == "disable" {
@@ -203,26 +222,59 @@ func run() {
 	httpAddr := fmt.Sprintf(":%d", conf.Port.Http)
 	httpsAddr := fmt.Sprintf(":%d", conf.Port.Https)
 
+	// BaseContext hands the root ctx to every accepted connection, so request
+	// contexts (and therefore gin contexts) are cancelled when shutdown starts.
+	baseCtx := func(net.Listener) context.Context { return ctx }
+
+	var servers []*http.Server
+	errCh := make(chan error, 2)
+
 	if conf.Proto == "https" {
+		httpsSrv := &http.Server{Addr: httpsAddr, Handler: r, BaseContext: baseCtx}
+		servers = append(servers, httpsSrv)
 		go func() {
-			err := r.RunTLS(httpsAddr, conf.Cert.Crt, conf.Cert.Key)
-			if err != nil {
-				panic("start https server failed")
+			if err := httpsSrv.ListenAndServeTLS(conf.Cert.Crt, conf.Cert.Key); !errors.Is(err, http.ErrServerClosed) {
+				errCh <- fmt.Errorf("start https server: %w", err)
 			}
 		}()
 
-		if err := middleware.ListenAndServeLoopbackHTTPRedirect(
-			httpAddr,
-			httpsAddr,
-			r,
-		); err != nil {
-			panic("start http server failed")
-		}
+		redirectSrv := middleware.NewLoopbackHTTPRedirect(httpAddr, httpsAddr)
+		redirectSrv.BaseContext = baseCtx
+		servers = append(servers, redirectSrv)
+		go func() {
+			if err := redirectSrv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+				errCh <- fmt.Errorf("start http redirect server: %w", err)
+			}
+		}()
 	} else {
-		if err := r.Run(httpAddr); err != nil {
-			panic("start http server failed")
+		httpSrv := &http.Server{Addr: httpAddr, Handler: r, BaseContext: baseCtx}
+		servers = append(servers, httpSrv)
+		go func() {
+			if err := httpSrv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+				errCh <- fmt.Errorf("start http server: %w", err)
+			}
+		}()
+	}
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+	}
+
+	// Shutdown path: restore default signal handling first so a second signal
+	// force-kills instead of being swallowed while we drain.
+	stop()
+	log.Printf("shutdown: signal received, draining requests (max %s)", shutdownTimeout)
+
+	drainCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	for _, srv := range servers {
+		if err := srv.Shutdown(drainCtx); err != nil {
+			log.Printf("shutdown: %s: %v", srv.Addr, err)
 		}
 	}
+	return nil
 }
 
 func dispose() {

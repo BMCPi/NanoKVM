@@ -69,6 +69,11 @@ func pageRoutes(r *gin.Engine) {
 	pageGroup := r.Group("/")
 	pageGroup.Use(middleware.ResolveAuth())
 
+	// htmx fragment endpoints. Registered on pageGroup rather than protected
+	// so they can reject with HX-Redirect instead of RequireAuth's 302, which
+	// htmx would follow and swap the login page into the fragment's target.
+	fragmentRoutes(pageGroup)
+
 	// Password reset is reachable both logged-in and as a guest.
 	pageGroup.GET("/auth/password", func(c *gin.Context) {
 		render := newRender(c.Request.Context(), http.StatusOK, pages.PasswordPage(middleware.IsAuthed(c)))

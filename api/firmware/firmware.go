@@ -540,44 +540,22 @@ func registerBIOS(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 	// the version they're already running.
 	fw.POST("/bios/kernel/:kernel/download", func(c *gin.Context) {
 		kernel := c.Param("kernel")
-		ubootVer, ok := firmware.KernelUBootMap[kernel]
-		if !ok {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("unknown kernel version %q", kernel)})
-			return
-		}
-		if ctrl.IsDownloading() {
-			c.JSON(http.StatusConflict, gin.H{"error": "download already in progress"})
-			return
-		}
-		rel, err := firmware.ReleaseByVersion(ubootVer)
+		reactivating, err := ctrl.StartKernelDownload(kernel, c.Query("force") == "true")
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			status := http.StatusNotFound // ReleaseByVersion miss
+			switch {
+			case errors.Is(err, firmware.ErrUnknownKernel):
+				status = http.StatusBadRequest
+			case errors.Is(err, firmware.ErrDownloadBusy):
+				status = http.StatusConflict
+			}
+			c.JSON(status, gin.H{"error": err.Error()})
 			return
 		}
-		force := c.Query("force") == "true"
-		// Snapshot active version BEFORE the download so the auto-reactivate
-		// decision isn't affected by a concurrent activation racing this one.
-		wasActive := force && ctrl.ActiveUBootVersion() == ubootVer
-		go func(ver, url string, force, reactivate bool) {
-			if force {
-				ctrl.DeleteVersionedImage(ver)
-			}
-			if err := ctrl.DownloadVersionedImage(ver, url); err != nil {
-				log.Errorf("versioned image download failed (%s): %v", ver, err)
-				return
-			}
-			if reactivate {
-				if err := ctrl.ActivateVersionedImage(ver); err != nil {
-					log.Errorf("auto-reactivate after refresh failed (%s): %v", ver, err)
-				} else {
-					log.Infof("auto-reactivated %s after refresh of currently-active image", ver)
-				}
-			}
-		}(ubootVer, rel.AssetURL, force, wasActive)
 		c.JSON(http.StatusAccepted, gin.H{
 			"message":      "download started",
-			"uboot":        ubootVer,
-			"reactivating": wasActive,
+			"uboot":        firmware.KernelUBootMap[kernel],
+			"reactivating": reactivating,
 		})
 	})
 

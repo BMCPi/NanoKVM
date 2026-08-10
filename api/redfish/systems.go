@@ -1,6 +1,7 @@
 package redfish
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -104,6 +105,32 @@ func (s *Service) PatchSystem(c *gin.Context) {
 
 	log.Debugf("redfish boot override: target=%s enabled=%s", target, enabled)
 	c.JSON(http.StatusOK, buildSystemResource())
+}
+
+// SystemInventory returns the merged ComputerSystem resource for in-process
+// consumers — the ui package's overview fragments render the Server
+// Information card from it. Same data GET /redfish/v1/Systems/1 serves.
+// (Precedent: api/vm exports EnableTLS/DisableTLS for the settings fragments.)
+func SystemInventory() ComputerSystem {
+	return buildSystemResource()
+}
+
+// ApplyBootOverride sets or clears the boot-source override for in-process
+// consumers (the ui boot-override fragments), with the same semantics as
+// PATCH /redfish/v1/Systems/1: empty enabled means Once, and Disabled or a
+// None target clears the override.
+func ApplyBootOverride(target schemas.BootSource, enabled schemas.BootSourceOverrideEnabled) error {
+	if enabled == "" {
+		enabled = schemas.OnceBootSourceOverrideEnabled
+	}
+	if enabled == schemas.DisabledBootSourceOverrideEnabled || target == schemas.NoneBootSource {
+		clearBootOverride()
+		return nil
+	}
+	if !bootSourceSupported(target) {
+		return fmt.Errorf("invalid BootSourceOverrideTarget: %s", target)
+	}
+	return setBootOverride(target, enabled)
 }
 
 func buildSystemResource() ComputerSystem {

@@ -19,8 +19,9 @@ func initialPowerState() (on bool, known bool) {
 }
 
 // PowerMenu is the navbar power-state pill and the dropdown holding power
-// actions + boot-device override. Polled by the inline script below; clicks
-// on items dispatch /api/vm/gpio.
+// actions + boot-device override. Actions are htmx posts to /ui/power/…;
+// the pill itself is fed by the GPIO SSE stream (see powerMenuScript) —
+// deliberately not htmx: the server pushes transitions, nothing polls.
 templ PowerMenu() {
 	@dropdownmenu.DropdownMenu() {
 		@button.Button(button.Props{
@@ -46,24 +47,34 @@ templ PowerMenu() {
 		}
 		@dropdownmenu.Content(dropdownmenu.ContentProps{Class: "w-72 panel-fit"}) {
 			<div class="p-2 space-y-2">
-				// Power actions: 2×2 compact grid
+				// Power actions: 2×2 compact grid + full-width recovery row.
 				<div>
 					<p class="px-1 pb-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">Power</p>
 					<div class="grid grid-cols-2 gap-1">
-						@powerGridBtn("powerAction('on')", "", icon.Power, "Power On")
-						@powerGridBtn("powerAction('off')", "", icon.PowerOff, "Power Off")
-						@powerGridBtn("powerAction('reset')", "", icon.RefreshCw, "Reset")
-						@powerGridBtn("confirmPowerAction('forceoff', 'Force power off?', 'The host loses power immediately without a clean shutdown.')", "text-destructive hover:text-destructive", icon.CircleX, "Force Off")
-						@powerGridBtn("confirmPowerAction('rpiboot', 'Enter USB recovery mode?', 'Forces the host into rpiboot (USB recovery). A running host is powered off first.')", "col-span-2", icon.Usb, "Recovery (rpiboot)")
+						@powerGridBtn("on", "", icon.Power, "Power On", nil)
+						@powerGridBtn("off", "", icon.PowerOff, "Power Off", nil)
+						@powerGridBtn("reset", "", icon.RefreshCw, "Reset", nil)
+						@powerGridBtn("forceoff", "text-destructive hover:text-destructive", icon.CircleX, "Force Off", templ.Attributes{
+							"hx-confirm":               "The host loses power immediately without a clean shutdown.",
+							"data-confirm-title":       "Force power off?",
+							"data-confirm-label":       "Force Off",
+							"data-confirm-destructive": true,
+						})
+						@powerGridBtn("rpiboot", "col-span-2", icon.Usb, "Recovery (rpiboot)", templ.Attributes{
+							"hx-confirm":               "Forces the host into rpiboot (USB recovery). A running host is powered off first.",
+							"data-confirm-title":       "Enter USB recovery mode?",
+							"data-confirm-label":       "Enter recovery",
+							"data-confirm-destructive": true,
+						})
 					</div>
 				</div>
 				<div class="h-px bg-border"></div>
-				// Boot override: two selects side-by-side + apply/clear in one row.
+				// Boot override: same fragment endpoint as the overview card.
 				// Native <select> elements (like the Virtual Media ISO picker):
 				// the shadcn-templ Select portals its popup to <body>, and the
 				// dropdown menu treats pointerdowns there as outside clicks, so
 				// a composed Select would close the menu on first use.
-				<div class="space-y-1.5">
+				<form class="space-y-1.5" hx-post="/ui/overview/boot-override" hx-swap="none">
 					<p class="px-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">Boot Override</p>
 					<div class="grid grid-cols-2 gap-1">
 						@bootDeviceSelect()
@@ -71,34 +82,40 @@ templ PowerMenu() {
 					</div>
 					<div class="flex gap-1">
 						@button.Button(button.Props{
-							Size:       button.SizeSm,
-							Class:      "flex-1",
-							Attributes: templ.Attributes{"onclick": "applyBootOverride()"},
+							Size:  button.SizeSm,
+							Class: "flex-1",
+							Type:  button.TypeSubmit,
 						}) {
 							Apply
 						}
 						@button.Button(button.Props{
 							Variant:    button.VariantDestructive,
 							Size:       button.SizeSm,
-							Attributes: templ.Attributes{"onclick": "clearBootOverride()"},
+							Type:       button.TypeSubmit,
+							Attributes: templ.Attributes{"name": "clear", "value": "1"},
 						}) {
 							Clear
 						}
 					</div>
-				</div>
+				</form>
 			</div>
 		}
 	}
 	@powerMenuScript()
 }
 
-// powerGridBtn renders a compact icon+label button for the 2×2 power grid.
-templ powerGridBtn(onclick, class string, ico func(...icon.Props) templ.Component, label string) {
+// powerGridBtn renders a compact icon+label button that posts one power
+// action; extra carries the hx-confirm attributes for destructive actions.
+templ powerGridBtn(action, class string, ico func(...icon.Props) templ.Component, label string, extra templ.Attributes) {
 	@button.Button(button.Props{
-		Variant:    button.VariantOutline,
-		Size:       button.SizeSm,
-		Class:      "w-full justify-start gap-2 " + class,
-		Attributes: templ.Attributes{"onclick": onclick},
+		Variant: button.VariantOutline,
+		Size:    button.SizeSm,
+		Class:   "w-full justify-start gap-2 " + class,
+		Attributes: utils.MergeAttributes(templ.Attributes{
+			"hx-post":         "/ui/power/" + action,
+			"hx-swap":         "none",
+			"hx-disabled-elt": "this",
+		}, extra),
 	}) {
 		@ico()
 		<span>{ label }</span>
@@ -107,7 +124,7 @@ templ powerGridBtn(onclick, class string, ico func(...icon.Props) templ.Componen
 
 // bootDeviceSelect drives the Redfish boot device override.
 templ bootDeviceSelect() {
-	@NativeSelect("boot-device", "w-full min-w-0 px-2") {
+	@NativeSelect("boot-device", "boot-override", "w-full min-w-0 px-2") {
 		<option value="None" selected>Default</option>
 		<option value="Pxe">PXE / Network</option>
 		<option value="Hdd">HDD / SD / NVMe</option>
@@ -118,90 +135,43 @@ templ bootDeviceSelect() {
 
 // bootPersistSelect chooses Once vs Continuous for the boot override.
 templ bootPersistSelect() {
-	@NativeSelect("boot-persist", "w-full min-w-0 px-2") {
-		<option value="Once" selected>Once (default)</option>
-		<option value="Continuous">Continuous</option>
+	@NativeSelect("boot-persist", "mode", "w-full min-w-0 px-2") {
+		<option value="once" selected>Once (default)</option>
+		<option value="continuous">Continuous</option>
 	}
 }
 
 // NativeSelect renders a plain <select> styled to match the Input component.
 // Used where the composed Select can't go — inside dropdown menus, whose
 // outside-click dismiss would fire on the Select's body-portaled popup.
-templ NativeSelect(id string, class string) {
-	<select id={ id } name={ id } class={ "h-8 rounded-md border border-input bg-transparent text-sm dark:bg-input/30", class }>
+templ NativeSelect(id string, name string, class string) {
+	<select id={ id } name={ name } class={ "h-8 rounded-md border border-input bg-transparent text-sm dark:bg-input/30", class }>
 		{ children... }
 	</select>
 }
 
+// powerMenuScript is the SSE half of the pill: the server pushes a `power`
+// event on every GPIO transition (nothing polls), and a reconnect re-sends
+// the current state. Auth rides the nano-kvm-token cookie.
 templ powerMenuScript() {
 	<script>
-		function renderPower(on) {
-			const dot = document.getElementById('power-dot');
-			dot.className = 'inline-block size-2 rounded-full ' + (on ? 'bg-green-500' : 'bg-destructive');
-			const txt = document.getElementById('power-text');
-			txt.textContent = on ? 'Power On' : 'Power Off';
-			txt.className = 'hidden sm:inline';
-		}
-
-		// The server pushes a `power` event on every GPIO transition, so there is
-		// nothing to poll. EventSource reconnects on its own after a drop; the
-		// stream re-sends the current state on connect, so a reconnect resyncs.
-		// Auth rides the nano-kvm-token cookie, which EventSource sends for us.
-		const powerEvents = new EventSource('/api/vm/gpio/events');
-		powerEvents.addEventListener('power', (e) => {
-			try {
-				renderPower(JSON.parse(e.data).pwr);
-			} catch(err) { console.error(err); }
-		});
-		powerEvents.onerror = () => {
-			// Leave the last known state on screen while EventSource retries.
-			console.debug('power stream interrupted, reconnecting');
-		};
-
-		async function powerAction(action) {
-			try {
-				await fetch('/api/vm/gpio', {
-					method: 'POST', headers: getAuthHeaders(),
-					body: JSON.stringify({action}),
-				});
-			} catch(e) { console.error(e); }
-			// No refresh needed — the resulting LED transition arrives on the stream.
-		}
-
-		async function confirmPowerAction(action, title, description) {
-			if (await uiConfirm({ title, description, destructive: true })) powerAction(action);
-		}
-
-		async function applyBootOverride() {
-			const device = document.getElementById('boot-device').value || 'None';
-			const persist = document.getElementById('boot-persist').value || 'Once';
-			try {
-				const r = await fetch('/redfish/v1/Systems/1', {
-					method: 'PATCH', headers: getAuthHeaders(),
-					body: JSON.stringify({ Boot: { BootSourceOverrideTarget: device, BootSourceOverrideEnabled: persist } })
-				});
-				if (!r.ok) throw new Error(r.statusText);
-				const b = (await r.json()).Boot;
-				tui.toast.add({ type: 'success', title: 'Boot override set',
-					description: b ? `${b.BootSourceOverrideTarget} (${b.BootSourceOverrideEnabled})` : undefined });
-			} catch(e) {
-				tui.toast.add({ type: 'error', title: 'Boot override failed' });
+		(function () {
+			function renderPower(on) {
+				const dot = document.getElementById('power-dot');
+				dot.className = 'inline-block size-2 rounded-full ' + (on ? 'bg-green-500' : 'bg-destructive');
+				const txt = document.getElementById('power-text');
+				txt.textContent = on ? 'Power On' : 'Power Off';
 			}
-			if (typeof loadFirmwareInfo === 'function') loadFirmwareInfo();
-		}
-
-		async function clearBootOverride() {
-			try {
-				const r = await fetch('/redfish/v1/Systems/1', {
-					method: 'PATCH', headers: getAuthHeaders(),
-					body: JSON.stringify({ Boot: { BootSourceOverrideTarget: 'None', BootSourceOverrideEnabled: 'Disabled' } })
-				});
-				if (!r.ok) throw new Error(r.statusText);
-				tui.toast.add({ type: 'success', title: 'Boot override cleared' });
-			} catch(e) {
-				tui.toast.add({ type: 'error', title: 'Clearing boot override failed' });
-			}
-			if (typeof loadFirmwareInfo === 'function') loadFirmwareInfo();
-		}
+			const powerEvents = new EventSource('/api/vm/gpio/events');
+			powerEvents.addEventListener('power', (e) => {
+				try {
+					renderPower(JSON.parse(e.data).pwr);
+				} catch(err) { console.error(err); }
+			});
+			powerEvents.onerror = () => {
+				// Leave the last known state on screen while EventSource retries.
+				console.debug('power stream interrupted, reconnecting');
+			};
+		})();
 	</script>
 }

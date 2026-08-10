@@ -22,6 +22,13 @@ templ Base(title string, showNav bool, onDocsPage bool) {
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			<title>{ title }</title>
 			<link rel="stylesheet" href="/css/output.css"/>
+			// htmx drives every server-rendered update: the hx-* attributes on
+			// the components request the fragment routes in ui/fragments.go and
+			// swap the returned markup in. Vendored (v2.0.10) rather than loaded
+			// from a CDN — the BMC has no outbound internet on a closed
+			// management network. Deferred like the component bundle; htmx
+			// initializes on DOMContentLoaded either way.
+			<script defer nonce={ templ.GetNonce(ctx) } src="/js/htmx.min.js"></script>
 			@components.Scripts()
 			@authHelperScript()
 		</head>
@@ -45,6 +52,10 @@ templ Base(title string, showNav bool, onDocsPage bool) {
 			// Toast viewport for tui.toast.add() — mounted on every page so
 			// auth pages can surface errors the same way as the dashboard.
 			@toast.Toaster()
+			// Wires htmx's confirm/trigger/error events to the dialog and
+			// toast components above, so fragments never ship their own glue.
+			// Rendered last: its listeners reference those elements.
+			@components.HTMXScript()
 		</body>
 	</html>
 }
