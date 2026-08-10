@@ -8,14 +8,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/auth"
 	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
 )
 
 // Register mounts the public auth routes on the engine and the
 // token-protected ones on the shared /api group.
 func Register(r *gin.Engine, api *gin.RouterGroup) {
-	service := auth.NewService()
+	service := NewService()
 
 	r.POST("/api/auth/login", service.Login) // login
 

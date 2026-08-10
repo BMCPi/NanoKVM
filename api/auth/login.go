@@ -3,6 +3,7 @@ package auth
 import (
 	"time"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/auth"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
 	"github.com/pi-bmc/nanokvm-app/pkg/proto"
@@ -24,8 +25,8 @@ func (s *Service) Login(c *gin.Context) {
 		return
 	}
 
-	clientIP := GetClientIP(c)
-	if locked, code, msg := CheckLoginAttempt(clientIP); locked {
+	clientIP := requestIP(c)
+	if locked, code, msg := auth.CheckLoginAttempt(clientIP); locked {
 		time.Sleep(3 * time.Second)
 		rsp.ErrRsp(c, code, msg)
 		return
@@ -37,10 +38,10 @@ func (s *Service) Login(c *gin.Context) {
 		return
 	}
 
-	if ok := CompareAccount(req.Username, req.Password); !ok {
+	if ok := auth.CompareAccount(req.Username, req.Password); !ok {
 		time.Sleep(2 * time.Second)
 
-		if locked, code, msg := RecordLoginFailure(clientIP); locked {
+		if locked, code, msg := auth.RecordLoginFailure(clientIP); locked {
 			rsp.ErrRsp(c, code, msg)
 			return
 		}
@@ -49,7 +50,7 @@ func (s *Service) Login(c *gin.Context) {
 		return
 	}
 
-	ClearLoginAttempt(clientIP)
+	auth.ClearLoginAttempt(clientIP)
 
 	token, err := middleware.GenerateJWT(req.Username)
 	if err != nil {
@@ -79,7 +80,7 @@ func (s *Service) Logout(c *gin.Context) {
 func (s *Service) GetAccount(c *gin.Context) {
 	var rsp proto.Response
 
-	account, err := GetAccount()
+	account, err := auth.GetAccount()
 	if err != nil {
 		rsp.ErrRsp(c, -1, "get account failed")
 		return
@@ -89,4 +90,13 @@ func (s *Service) GetAccount(c *gin.Context) {
 		Username: account.Username,
 	})
 	log.Debugf("get account successful")
+}
+
+// requestIP gets a reliable real IP for brute-force accounting.
+func requestIP(c *gin.Context) string {
+	ip := c.RemoteIP()
+	if ip == "" {
+		ip = c.ClientIP()
+	}
+	return ip
 }

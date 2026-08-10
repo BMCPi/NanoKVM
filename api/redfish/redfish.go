@@ -3,13 +3,11 @@ package redfish
 import (
 	"strings"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/redfish"
-
 	"github.com/gin-gonic/gin"
 )
 
 func Register(r *gin.Engine) {
-	service := redfish.NewService()
+	service := NewService()
 
 	// Public endpoints
 	r.GET("/redfish", service.GetRedfishBase)
@@ -19,8 +17,8 @@ func Register(r *gin.Engine) {
 	// what gofish requests on Login and what we now emit as @odata.id. The
 	// bare "/redfish/v1" stays registered so existing callers keep working
 	// rather than relying on gin's 301 redirect.
-	r.GET(redfish.ServiceRootPath, service.GetServiceRoot)
-	r.GET(strings.TrimSuffix(redfish.ServiceRootPath, "/"), service.GetServiceRoot)
+	r.GET(ServiceRootPath, service.GetServiceRoot)
+	r.GET(strings.TrimSuffix(ServiceRootPath, "/"), service.GetServiceRoot)
 
 	r.GET("/redfish/v1/SessionService", service.GetSessionService)
 	r.POST("/redfish/v1/SessionService/Sessions", service.CreateSession)
@@ -33,7 +31,7 @@ func Register(r *gin.Engine) {
 	r.GET("/redfish/v1/openapi.json", service.GetOpenAPIJSON)
 
 	// Protected endpoints
-	api := r.Group("/redfish/v1").Use(redfish.CheckAuth())
+	api := r.Group("/redfish/v1").Use(CheckAuth())
 	{
 		// Systems
 		api.GET("/Systems", service.GetSystemCollection)

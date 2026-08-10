@@ -1,6 +1,6 @@
 // Package shell runs local shell sessions on the BMC. It is the single
 // implementation behind both front ends that need one: the web terminal
-// drawer (pkg/vm.Shell, over a WebSocket) and the in-process SSH
+// drawer (api/vm Shell, over a WebSocket) and the in-process SSH
 // server (pkg/ssh).
 package shell
 

@@ -2,13 +2,11 @@ package vm
 
 import (
 	"github.com/gin-gonic/gin"
-
-	"github.com/pi-bmc/nanokvm-app/pkg/vm"
 )
 
 // Register mounts the vm routes on the shared authenticated group.
 func Register(api *gin.RouterGroup) {
-	service := vm.NewService()
+	service := NewService()
 
 	api.GET("/vm/info", service.GetInfo)         // get device information
 	api.GET("/vm/hardware", service.GetHardware) // get hardware version

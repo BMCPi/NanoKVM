@@ -106,7 +106,7 @@ templ OverviewDataScript() {
 		// One read backs the whole Server Information card plus the BIOS
 		// card's device-tree/boot rows. The service merges SMBIOS (preferred)
 		// over the U-Boot env and puts everything Redfish has no standard
-		// property for under Oem.NanoKVM — see service/redfish/inventory.go.
+		// property for under Oem.NanoKVM — see api/redfish/inventory.go.
 		//
 		// Kept as the most recent payload so loadBIOSVersion can fall back to
 		// ComputerSystem.BiosVersion without a second round trip.

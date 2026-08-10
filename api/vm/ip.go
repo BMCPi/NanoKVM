@@ -9,19 +9,19 @@ import (
 )
 
 const (
-	Wired    = "Wired"
-	Wireless = "Wireless"
+	wired    = "wired"
+	wireless = "wireless"
 	Other    = "Other"
 )
 
-type InterfaceInfo struct {
+type interfaceInfo struct {
 	Name string
 	Type string
 	IP   net.IP
 }
 
-func GetInterfaceInfos() ([]*InterfaceInfo, error) {
-	var interfaceInfos []*InterfaceInfo
+func listInterfaces() ([]*interfaceInfo, error) {
+	var interfaceInfos []*interfaceInfo
 
 	interfaces, err := net.Interfaces()
 	if err != nil {
@@ -43,7 +43,7 @@ func GetInterfaceInfos() ([]*InterfaceInfo, error) {
 	return interfaceInfos, nil
 }
 
-func getInterfaceInfo(iface net.Interface) *InterfaceInfo {
+func getInterfaceInfo(iface net.Interface) *interfaceInfo {
 	if iface.Flags&net.FlagUp == 0 {
 		return nil
 	}
@@ -58,7 +58,7 @@ func getInterfaceInfo(iface net.Interface) *InterfaceInfo {
 		return nil
 	}
 
-	return &InterfaceInfo{
+	return &interfaceInfo{
 		Name: iface.Name,
 		Type: interfaceType,
 		IP:   interfaceIP,
@@ -67,11 +67,11 @@ func getInterfaceInfo(iface net.Interface) *InterfaceInfo {
 
 func getInterfaceType(iface net.Interface) string {
 	if strings.HasPrefix(iface.Name, "eth") || strings.HasPrefix(iface.Name, "en") {
-		return Wired
+		return wired
 	}
 
 	if strings.HasPrefix(iface.Name, "wlan") || strings.HasPrefix(iface.Name, "wl") {
-		return Wireless
+		return wireless
 	}
 
 	return Other

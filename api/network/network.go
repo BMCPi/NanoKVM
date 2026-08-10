@@ -2,13 +2,11 @@ package network
 
 import (
 	"github.com/gin-gonic/gin"
-
-	"github.com/pi-bmc/nanokvm-app/pkg/network"
 )
 
 // Register mounts the network routes on the shared authenticated group.
 func Register(api *gin.RouterGroup) {
-	service := network.NewService()
+	service := NewService()
 
 	api.POST("/network/wol", service.WakeOnLAN)           // wake on lan
 	api.GET("/network/wol/mac", service.GetMac)           // get mac list

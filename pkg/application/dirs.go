@@ -49,9 +49,3 @@ func ActiveAppDir() string {
 	}
 	return BuiltinAppDir
 }
-
-type Service struct{}
-
-func NewService() *Service {
-	return &Service{}
-}

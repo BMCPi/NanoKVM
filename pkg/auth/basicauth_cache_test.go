@@ -93,8 +93,8 @@ func containsSubstr(haystack, needle string) bool {
 // admin/admin account. It is skipped when a real account file is present so it
 // never depends on machine-specific credentials.
 func TestComparePlainAccountFastPath(t *testing.T) {
-	if _, err := os.Stat(AccountFile); err == nil {
-		t.Skipf("%s exists; skipping default-account fast-path test", AccountFile)
+	if _, err := os.Stat(accountFile); err == nil {
+		t.Skipf("%s exists; skipping default-account fast-path test", accountFile)
 	}
 	basicAuthCache.flush()
 	t.Cleanup(basicAuthCache.flush)

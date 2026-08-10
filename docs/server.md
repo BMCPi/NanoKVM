@@ -9,11 +9,13 @@ For detailed documentation, please visit our [Wiki](https://wiki.sipeed.com/nano
 ```shell
 .
 ├── api          // HTTP API — one subpackage per sub-router (auth, application,
-│                // vm, network, redfish, firmware, autoupdate)
+│                // vm, network, redfish, firmware, autoupdate), each holding
+│                // its routes and gin service handlers
 ├── cmd/server   // Server entry point (composition: telemetry → ui → api)
 ├── pkg          // Domain + infrastructure packages: config, logger, middleware,
-│                // proto, telemetry, utils, and one package per service
-│                // (ipmi, firmware, redfish, network, power, …)
+│                // proto, telemetry, utils, and one package per domain
+│                // (ipmi, firmware, network, power, auth, …); pkg/redfish
+│                // holds the shared OpenAPI spec
 └── ui           // Web front-end: templ layouts/pages/components (incl. the
                  // vendored shadcn-templ library) + embedded static assets
 ```

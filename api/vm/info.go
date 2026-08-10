@@ -40,7 +40,7 @@ func (s *Service) GetInfo(c *gin.Context) {
 }
 
 func getIPs() (ips []proto.IP) {
-	interfaces, err := GetInterfaceInfos()
+	interfaces, err := listInterfaces()
 	if err != nil {
 		return
 	}

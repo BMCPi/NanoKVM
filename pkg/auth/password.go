@@ -7,75 +7,51 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/proto"
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
-
-	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
 )
 
-func (s *Service) ChangePassword(c *gin.Context) {
-	var req proto.ChangePasswordReq
-	var rsp proto.Response
-
-	if err := proto.ParseFormRequest(c, &req); err != nil {
-		rsp.ErrRsp(c, -1, "invalid parameters")
-		return
-	}
-
-	password, err := utils.DecodeDecrypt(req.Password)
-	if err != nil || password == "" {
-		rsp.ErrRsp(c, -2, "invalid password")
-		return
-	}
-
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+// ChangePassword updates both credentials the BMC authenticates against:
+// the web/SSH account file and the root shell password, which must not
+// diverge. On a root-password failure the account write is rolled back so
+// the two stay consistent.
+func ChangePassword(username, plainPassword string) error {
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(plainPassword), bcrypt.DefaultCost)
 	if err != nil {
-		rsp.ErrRsp(c, -3, "failed to hash password")
-		return
+		return err
 	}
 
-	if err = SetAccount(req.Username, string(hashedPassword)); err != nil {
-		rsp.ErrRsp(c, -4, "failed to save password")
-		return
+	if err := SetAccount(username, string(hashedPassword)); err != nil {
+		return err
 	}
 
-	// change root password
-	err = changeRootPassword(password)
-	if err != nil {
+	if err := changeRootPassword(plainPassword); err != nil {
 		_ = DelAccount()
-		rsp.ErrRsp(c, -5, "failed to change password")
-		return
+		return err
 	}
 
-	rsp.OkRsp(c)
-	log.Debugf("change password success, username: %s", req.Username)
+	log.Debugf("change password success, username: %s", username)
+	return nil
 }
 
-func (s *Service) IsPasswordUpdated(c *gin.Context) {
-	var rsp proto.Response
-
-	if _, err := os.Stat(AccountFile); err != nil {
-		rsp.OkRspWithData(c, &proto.IsPasswordUpdatedRsp{
-			IsUpdated: false,
-		})
-		return
+// IsPasswordUpdated reports whether the default admin password has been
+// changed: false while no account file exists or while the stored hash
+// still matches "admin".
+func IsPasswordUpdated() (bool, error) {
+	if _, err := os.Stat(accountFile); err != nil {
+		return false, nil
 	}
 
 	account, err := GetAccount()
 	if err != nil || account == nil {
-		rsp.ErrRsp(c, -1, "failed to get password")
-		return
+		return false, err
 	}
 
 	err = bcrypt.CompareHashAndPassword([]byte(account.Password), []byte("admin"))
 
-	rsp.OkRspWithData(c, &proto.IsPasswordUpdatedRsp{
-		// If the hash is not valid, still assume it's not updated
-		// The error we want to see is password and hash not matching
-		IsUpdated: errors.Is(err, bcrypt.ErrMismatchedHashAndPassword),
-	})
+	// If the hash is not valid, still assume it's not updated. The error
+	// we want to see is password and hash not matching.
+	return errors.Is(err, bcrypt.ErrMismatchedHashAndPassword), nil
 }
 
 func changeRootPassword(password string) error {

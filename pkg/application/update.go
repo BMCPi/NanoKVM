@@ -7,37 +7,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/proto"
 	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 )
 
 const (
 	maxTries = 3
 )
-
-func (s *Service) Update(c *gin.Context) {
-	var rsp proto.Response
-
-	if !acquireUpdateLock() {
-		rsp.ErrRsp(c, -1, "update already in progress")
-		return
-	}
-	defer releaseUpdateLock()
-
-	if err := update(); err != nil {
-		rsp.ErrRsp(c, -1, fmt.Sprintf("update failed: %s", err))
-		return
-	}
-
-	rsp.OkRsp(c)
-	log.Debugf("update application success")
-
-	time.Sleep(1 * time.Second)
-	RestartService()
-}
 
 // RunUpdate downloads and installs the latest application release without an
 // HTTP context. Acquires the global update lock so concurrent runs (HTTP
@@ -50,6 +27,30 @@ func RunUpdate() error {
 	}
 	defer releaseUpdateLock()
 	return update()
+}
+
+// RunOfflineUpdate installs an update package supplied by the caller: it
+// acquires the update lock, prepares CacheDir, invokes stage to place the
+// package there (returning its path), and installs it. stage runs inside
+// the lock so an upload cannot race a concurrent update, and the lock and
+// cache lifecycle stay owned by this package.
+func RunOfflineUpdate(stage func(cacheDir string) (string, error)) error {
+	if !acquireUpdateLock() {
+		return fmt.Errorf("update already in progress")
+	}
+	defer releaseUpdateLock()
+
+	_ = os.RemoveAll(CacheDir)
+	_ = os.MkdirAll(CacheDir, 0o755)
+	defer func() {
+		_ = os.RemoveAll(CacheDir)
+	}()
+
+	target, err := stage(CacheDir)
+	if err != nil {
+		return err
+	}
+	return installPackage(target)
 }
 
 // RestartService restarts the server by exiting: busybox init runs the
@@ -73,11 +74,6 @@ func LatestVersion() string {
 		return ""
 	}
 	return l.Version
-}
-
-// CurrentVersion returns the running application version.
-func CurrentVersion() string {
-	return currentAppVersion()
 }
 
 func update() error {

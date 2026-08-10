@@ -23,7 +23,7 @@ var (
 // concurrent use.
 func loadAPIDocsModel() (pages.APIDocsModel, error) {
 	apiDocsOnce.Do(func() {
-		apiDocsModel, errAPIDocs = pages.LoadAPIDocs(redfish.OpenAPIYAML())
+		apiDocsModel, errAPIDocs = pages.LoadAPIDocs([]byte(redfish.OpenAPIYAML()))
 	})
 	return apiDocsModel, errAPIDocs
 }

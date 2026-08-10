@@ -11,9 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/proto"
-
-	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -47,31 +44,13 @@ type Latest struct {
 	Size    int64
 }
 
-func (s *Service) GetVersion(c *gin.Context) {
-	var rsp proto.Response
-
-	currentVersion := currentAppVersion()
-
-	log.Debugf("current version: %s", currentVersion)
-
-	latestVersion := ""
-	latest, err := getLatest()
-	if err == nil && latest != nil {
-		latestVersion = latest.Version
-	}
-
-	rsp.OkRspWithData(c, &proto.GetVersionRsp{
-		Current: currentVersion,
-		Latest:  latestVersion,
-	})
-}
-
-// currentAppVersion returns the running application version.
-// It first checks for a build-time version variable, then falls back to a
-// version file on disk.
+// Version is the build-time version stamped via goreleaser ldflags
+// (propagated from main); "dev" when built without stamping.
 var Version = "dev"
 
-func currentAppVersion() string {
+// CurrentVersion returns the running application version: the build-time
+// Version when stamped, else the version file of the active install dir.
+func CurrentVersion() string {
 	if Version != "dev" && Version != "" {
 		return Version
 	}

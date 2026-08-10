@@ -6,7 +6,6 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 
-	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -51,15 +50,6 @@ func startCleanupRoutine() {
 			loginMutex.Unlock()
 		}
 	}()
-}
-
-// GetClientIP gets a reliable real IP
-func GetClientIP(c *gin.Context) string {
-	ip := c.RemoteIP()
-	if ip == "" {
-		ip = c.ClientIP()
-	}
-	return ip
 }
 
 // CheckLoginAttempt checks if a login attempt is allowed based on brute-force protection rules.

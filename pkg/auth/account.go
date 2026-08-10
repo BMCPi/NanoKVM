@@ -12,7 +12,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-const AccountFile = "/etc/kvm/pwd"
+const accountFile = "/etc/kvm/pwd"
 
 type Account struct {
 	Username string `json:"username"`
@@ -20,14 +20,14 @@ type Account struct {
 }
 
 func GetAccount() (*Account, error) {
-	if _, err := os.Stat(AccountFile); err != nil {
+	if _, err := os.Stat(accountFile); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return getDefaultAccount(), nil
 		}
 		return nil, err
 	}
 
-	content, err := os.ReadFile(AccountFile)
+	content, err := os.ReadFile(accountFile)
 	if err != nil {
 		return nil, err
 	}
@@ -51,13 +51,13 @@ func SetAccount(username string, hashedPassword string) error {
 		return err
 	}
 
-	err = os.MkdirAll(filepath.Dir(AccountFile), 0o644)
+	err = os.MkdirAll(filepath.Dir(accountFile), 0o644)
 	if err != nil {
-		log.Errorf("create directory %s failed: %s", AccountFile, err)
+		log.Errorf("create directory %s failed: %s", accountFile, err)
 		return err
 	}
 
-	err = os.WriteFile(AccountFile, account, 0o644)
+	err = os.WriteFile(accountFile, account, 0o644)
 	if err != nil {
 		log.Errorf("write password failed: %s", err)
 		return err
@@ -132,7 +132,7 @@ func ComparePlainAccount(username string, plainPassword string) bool {
 }
 
 func DelAccount() error {
-	if err := os.Remove(AccountFile); err != nil {
+	if err := os.Remove(accountFile); err != nil {
 		log.Errorf("failed to delete password: %s", err)
 		return err
 	}
