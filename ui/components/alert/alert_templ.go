@@ -68,7 +68,7 @@ func Alert(props ...Props) templ.Component {
 			p = props[0]
 		}
 		var templ_7745c5c3_Var2 = []any{utils.CN(
-			"grid gap-0.5 rounded-lg border px-4 py-3 text-left text-sm has-data-[slot=alert-action]:relative has-data-[slot=alert-action]:pr-18 has-[>svg]:grid-cols-[auto_1fr] has-[>svg]:gap-x-2.5 *:[svg]:row-span-2 *:[svg]:translate-y-0.5 *:[svg]:text-current *:[svg:not([class*='size-'])]:size-4 group/alert relative w-full",
+			"grid gap-1 bg-background border px-4 py-3 text-left text-sm has-data-[slot=alert-action]:relative has-data-[slot=alert-action]:pr-18 has-[>svg]:grid-cols-[auto_1fr] has-[>svg]:gap-x-2.5 *:[svg]:row-span-2 *:[svg]:translate-y-0.5 *:[svg]:text-current *:[svg:not([class*='size-'])]:size-4 after:-inset-y-px after:-left-px after:w-0.5 after:absolute group/alert relative w-full",
 			variantClasses(p.Variant),
 			p.Class,
 		),
@@ -163,7 +163,7 @@ func Title(props ...TitleProps) templ.Component {
 			p = props[0]
 		}
 		var templ_7745c5c3_Var6 = []any{utils.CN(
-			"font-medium group-has-[>svg]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground",
+			"font-semibold group-has-[>svg]/alert:col-start-2 text-sm [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground",
 			p.Class,
 		),
 		}
@@ -419,9 +419,9 @@ func Action(props ...ActionProps) templ.Component {
 func variantClasses(variant Variant) string {
 	switch variant {
 	case VariantDestructive:
-		return "text-destructive bg-card *:data-[slot=alert-description]:text-destructive/90 *:[svg]:text-current"
+		return "text-destructive bg-card *:data-[slot=alert-description]:text-destructive/90 *:[svg]:text-current after:bg-destructive"
 	default:
-		return "bg-card text-card-foreground"
+		return "bg-card text-card-foreground after:bg-foreground"
 	}
 }
 

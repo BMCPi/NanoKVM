@@ -154,7 +154,7 @@ templ Overlay(props ...OverlayProps) {
 		data-tui-dialog-backdrop
 		role="presentation"
 		style="user-select: none; -webkit-user-select: none;"
-		class={ utils.CN("data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 bg-black/80 duration-100 supports-backdrop-filter:backdrop-blur-xs fixed inset-0 isolate z-50", p.Class) }
+		class={ utils.CN("data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 bg-black/20 duration-100 supports-backdrop-filter:backdrop-blur-sm fixed inset-0 isolate z-50", p.Class) }
 		{ p.Attributes... }
 	></div>
 }
@@ -184,7 +184,7 @@ templ Content(props ...ContentProps) {
 				}
 				class={
 					utils.CN(
-						"bg-popover text-popover-foreground data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 ring-foreground/10 grid max-w-[calc(100%-2rem)] gap-4 rounded-xl p-4 text-xs/relaxed ring-1 duration-100 sm:max-w-sm fixed top-1/2 left-1/2 z-50 w-full -translate-x-1/2 -translate-y-1/2 outline-none",
+						"bg-popover text-popover-foreground data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 ring-foreground/10 grid max-w-[calc(100%-2rem)] gap-6 rounded-none p-6 text-sm shadow-md ring-1 duration-100 sm:max-w-md fixed top-1/2 left-1/2 z-50 w-full -translate-x-1/2 -translate-y-1/2 outline-none",
 						p.Class,
 					),
 				}
@@ -195,7 +195,7 @@ templ Content(props ...ContentProps) {
 					@button.Button(button.Props{
 						Variant: button.VariantGhost,
 						Size:    button.SizeIconSm,
-						Class:   "absolute top-2 right-2",
+						Class:   "absolute top-5 right-5 bg-secondary",
 						Attributes: templ.Attributes{
 							"data-slot":             "dialog-close",
 							"data-tui-dialog-close": true,
@@ -220,7 +220,7 @@ templ Header(props ...HeaderProps) {
 			id={ p.ID }
 		}
 		data-slot="dialog-header"
-		class={ utils.CN("gap-1 flex flex-col", p.Class) }
+		class={ utils.CN("gap-2 flex flex-col", p.Class) }
 		{ p.Attributes... }
 	>
 		{ children... }
@@ -257,7 +257,7 @@ templ Title(props ...TitleProps) {
 		}
 		data-slot="dialog-title"
 		data-tui-dialog-title
-		class={ utils.CN("text-sm font-medium", p.Class) }
+		class={ utils.CN("text-lg font-semibold leading-none uppercase tracking-wider", p.Class) }
 		{ p.Attributes... }
 	>
 		{ children... }
@@ -277,7 +277,7 @@ templ Description(props ...DescriptionProps) {
 		}
 		data-slot="dialog-description"
 		data-tui-dialog-description
-		class={ utils.CN("text-muted-foreground *:[a]:hover:text-foreground text-xs/relaxed *:[a]:underline *:[a]:underline-offset-3", p.Class) }
+		class={ utils.CN("text-muted-foreground *:[a]:hover:text-foreground text-sm *:[a]:underline *:[a]:underline-offset-3 leading-relaxed mt-0.5", p.Class) }
 		{ p.Attributes... }
 	>
 		{ children... }

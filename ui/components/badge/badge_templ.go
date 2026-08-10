@@ -224,7 +224,7 @@ func Badge(props ...Props) templ.Component {
 
 // 1:1 base/ui/badge.tsx: structure lives here, the look comes from the
 // active style-*.css via the classes.
-const baseClasses = "h-5 gap-1 rounded-full border border-transparent px-2 py-0.5 text-[0.625rem] font-medium transition-all has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&>svg]:size-2.5! group/badge inline-flex w-fit shrink-0 items-center justify-center overflow-hidden whitespace-nowrap focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none"
+const baseClasses = "gap-1.5 rounded-none border-0 bg-transparent px-0 py-0 text-[0.625rem] font-semibold uppercase tracking-widest transition-colors has-data-[icon=inline-end]:pr-0 has-data-[icon=inline-start]:pl-0 [&>svg]:size-3! group/badge inline-flex w-fit shrink-0 items-center justify-center overflow-hidden whitespace-nowrap focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none"
 
 func badgeClasses(p Props) string {
 	return utils.CN(baseClasses, p.variantClasses(), p.Class)
@@ -240,17 +240,17 @@ func (p Props) variant() Variant {
 func (p Props) variantClasses() string {
 	switch p.variant() {
 	case VariantSecondary:
-		return "bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80"
+		return "text-muted-foreground [a]:hover:text-foreground"
 	case VariantDestructive:
-		return "bg-destructive/10 [a]:hover:bg-destructive/20 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 text-destructive dark:bg-destructive/20"
+		return "text-destructive [a]:hover:text-destructive/70 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40"
 	case VariantOutline:
-		return "border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground bg-input/20 dark:bg-input/30"
+		return "text-foreground [a]:hover:text-foreground/70"
 	case VariantGhost:
-		return "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50"
+		return "text-muted-foreground hover:text-foreground"
 	case VariantLink:
-		return "text-primary underline-offset-4 hover:underline"
+		return "text-foreground underline-offset-4 hover:underline"
 	default:
-		return "bg-primary text-primary-foreground [a]:hover:bg-primary/80"
+		return "text-foreground [a]:hover:text-foreground/70"
 	}
 }
 

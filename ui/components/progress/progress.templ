@@ -123,7 +123,7 @@ templ Track(props ...TrackProps) {
 		}
 		data-slot="progress-track"
 		data-tui-progress-part
-		class={ utils.CN("bg-muted h-1.5 rounded-full relative flex w-full items-center overflow-x-hidden", p.Class) }
+		class={ utils.CN("bg-muted h-0.5 rounded-none relative flex w-full items-center overflow-x-hidden", p.Class) }
 		{ statusAttr(s.value, s.max)... }
 		{ p.Attributes... }
 	>
@@ -173,7 +173,7 @@ templ Label(props ...LabelProps) {
 		data-slot="progress-label"
 		data-tui-progress-part
 		role="presentation"
-		class={ utils.CN("text-sm font-medium", p.Class) }
+		class={ utils.CN("text-xs font-semibold tracking-wide uppercase", p.Class) }
 		{ statusAttr(s.value, s.max)... }
 		{ p.Attributes... }
 	>

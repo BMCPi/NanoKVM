@@ -109,7 +109,7 @@ func InputGroup(props ...Props) templ.Component {
 		if len(props) > 0 {
 			p = props[0]
 		}
-		var templ_7745c5c3_Var2 = []any{utils.CN("border-input bg-input/20 dark:bg-input/30 has-[[data-slot=input-group-control]:focus-visible]:border-ring has-[[data-slot=input-group-control]:focus-visible]:ring-ring/30 has-[[data-slot][aria-invalid=true]]:ring-destructive/20 has-[[data-slot][aria-invalid=true]]:border-destructive dark:has-[[data-slot][aria-invalid=true]]:ring-destructive/40 h-7 rounded-md border transition-colors in-data-[slot=combobox-content]:focus-within:border-inherit in-data-[slot=combobox-content]:focus-within:ring-0 has-data-[align=block-end]:rounded-md has-data-[align=block-start]:rounded-md has-[[data-slot=input-group-control]:focus-visible]:ring-2 has-[[data-slot][aria-invalid=true]]:ring-2 has-[textarea]:rounded-md has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>[data-align=block-end]]:[&>input]:pt-3 has-[>[data-align=block-start]]:[&>input]:pb-3 has-[>[data-align=inline-end]]:[&>input]:pr-1.5 has-[>[data-align=inline-start]]:[&>input]:pl-1.5 group/input-group relative flex w-full min-w-0 items-center outline-none has-[>textarea]:h-auto", p.Class)}
+		var templ_7745c5c3_Var2 = []any{utils.CN("border-transparent border-b-input bg-transparent has-[[data-slot=input-group-control]:focus-visible]:border-b-ring has-[[data-slot][aria-invalid=true]]:border-b-destructive dark:has-[[data-slot][aria-invalid=true]]:border-b-destructive/50 h-10 rounded-none border transition-[color,border-color] in-data-[slot=combobox-content]:focus-within:border-inherit in-data-[slot=combobox-content]:focus-within:ring-0 has-data-[align=block-end]:rounded-none has-data-[align=block-start]:rounded-none has-[textarea]:rounded-none has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>[data-align=block-end]]:[&>input]:pt-3 has-[>[data-align=block-start]]:[&>input]:pb-3 group/input-group relative flex w-full min-w-0 items-center outline-none has-[>textarea]:h-auto", p.Class)}
 		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var2...)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -213,7 +213,7 @@ func Input(props ...InputProps) templ.Component {
 			Value:       p.Value,
 			Placeholder: p.Placeholder,
 			Disabled:    p.Disabled,
-			Class:       utils.CN("rounded-none border-0 bg-transparent shadow-none ring-0 focus-visible:ring-0 aria-invalid:ring-0 dark:bg-transparent flex-1", p.Class),
+			Class:       utils.CN("border-0 bg-transparent ring-0 focus-visible:ring-0 aria-invalid:ring-0 dark:bg-transparent group-has-[>[data-align=inline-start]]/input-group:pl-2 group-has-[>[data-align=inline-end]]/input-group:pr-2 flex-1", p.Class),
 			Attributes:  attrs,
 		}).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
@@ -261,7 +261,7 @@ func Textarea(props ...TextareaProps) templ.Component {
 			Placeholder: p.Placeholder,
 			Rows:        p.Rows,
 			Disabled:    p.Disabled,
-			Class:       utils.CN("rounded-none border-0 bg-transparent py-2 shadow-none ring-0 focus-visible:ring-0 aria-invalid:ring-0 dark:bg-transparent flex-1 resize-none", p.Class),
+			Class:       utils.CN("border-0 bg-transparent py-2.5 ring-0 focus-visible:ring-0 aria-invalid:ring-0 dark:bg-transparent flex-1 resize-none", p.Class),
 			Attributes:  attrs,
 		}).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
@@ -300,16 +300,16 @@ func Addon(props ...AddonProps) templ.Component {
 			p.Align = AlignInlineStart
 		}
 		// 1:1 the inputGroupAddonVariants cva from base/ui/input-group.tsx.
-		align := "pl-2 has-[>button]:ml-[-0.275rem] has-[>kbd]:ml-[-0.275rem] order-first"
+		align := "order-first"
 		switch p.Align {
 		case AlignInlineEnd:
-			align = "pr-2 has-[>button]:mr-[-0.275rem] has-[>kbd]:mr-[-0.275rem] order-last"
+			align = "order-last"
 		case AlignBlockStart:
-			align = "px-2 pt-2 group-has-[>input]/input-group:pt-2 [.border-b]:pb-2 order-first w-full justify-start"
+			align = "pt-3 group-has-[>input]/input-group:pt-3.5 [.border-b]:pb-3.5 order-first w-full justify-start"
 		case AlignBlockEnd:
-			align = "px-2 pb-2 group-has-[>input]/input-group:pb-2 [.border-t]:pt-2 order-last w-full justify-start"
+			align = "pb-3 group-has-[>input]/input-group:pb-3.5 [.border-t]:pt-3.5 order-last w-full justify-start"
 		}
-		var templ_7745c5c3_Var8 = []any{utils.CN("text-muted-foreground **:data-[slot=kbd]:bg-muted-foreground/10 h-auto gap-1 py-2 text-xs/relaxed font-medium group-data-[disabled=true]/input-group:opacity-50 **:data-[slot=kbd]:rounded-[calc(var(--radius-sm)-2px)] **:data-[slot=kbd]:px-1 **:data-[slot=kbd]:text-[0.625rem] [&>svg:not([class*='size-'])]:size-3.5 flex cursor-text items-center justify-center select-none"+align, p.Class)}
+		var templ_7745c5c3_Var8 = []any{utils.CN("text-muted-foreground **:data-[slot=kbd]:bg-muted-foreground/10 h-auto gap-2 py-2 text-sm font-medium group-data-[disabled=true]/input-group:opacity-50 **:data-[slot=kbd]:rounded-none **:data-[slot=kbd]:px-1.5 [&>svg:not([class*='size-'])]:size-3.5 flex cursor-text items-center justify-center select-none"+align, p.Class)}
 		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var8...)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -389,16 +389,16 @@ func Addon(props ...AddonProps) templ.Component {
 
 // 1:1 the inputGroupButtonVariants cva from base/ui/input-group.tsx.
 func inputGroupButtonClasses(size ButtonSize) string {
-	base := "gap-2 rounded-md text-xs/relaxed flex items-center shadow-none"
+	base := "gap-2 rounded-none text-sm flex items-center shadow-none"
 	switch size {
 	case ButtonSizeSm:
-		return base + "gap-1"
+		return base + ""
 	case ButtonSizeIconXs:
-		return base + "size-6 p-0 has-[>svg]:p-0"
+		return base + "size-6 p-0 has-[>svg]:p-0 text-xs"
 	case ButtonSizeIconSm:
-		return base + "size-7 p-0 has-[>svg]:p-0"
+		return base + "size-8 p-0 has-[>svg]:p-0"
 	default:
-		return base + "h-5 gap-1 rounded-[calc(var(--radius-sm)-2px)] px-1 [&>svg:not([class*='size-'])]:size-3"
+		return base + "h-6 gap-1 rounded-none px-1.5 [&>svg:not([class*='size-'])]:size-3.5 text-xs"
 	}
 }
 
@@ -497,7 +497,7 @@ func Text(props ...TextProps) templ.Component {
 		if len(props) > 0 {
 			p = props[0]
 		}
-		var templ_7745c5c3_Var15 = []any{utils.CN("text-muted-foreground gap-2 text-xs/relaxed [&_svg:not([class*='size-'])]:size-4 flex items-center [&_svg]:pointer-events-none", p.Class)}
+		var templ_7745c5c3_Var15 = []any{utils.CN("text-muted-foreground gap-2 text-sm [&_svg:not([class*='size-'])]:size-3.5 flex items-center [&_svg]:pointer-events-none", p.Class)}
 		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var15...)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err

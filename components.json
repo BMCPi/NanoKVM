@@ -1,16 +1,15 @@
 {
   "$schema": "https://shadcn-templ.com/schema/components.json",
-  "style": "base-mira",
+  "style": "base-sera",
   "tailwind": {
     "css": "ui/assets/css/globals.css",
-    "baseColor": "zinc",
+    "baseColor": "mauve",
     "cssVariables": true
   },
   "rtl": false,
-  "iconLibrary": "lucide",
+  "iconLibrary": "phosphor",
   "menuColor": "default-translucent",
   "menuAccent": "subtle",
-  "menu": "default-translucent",
   "aliases": {
     "components": "github.com/pi-bmc/nanokvm-app/ui/components",
     "utils": "github.com/pi-bmc/nanokvm-app/ui/utils"

@@ -271,7 +271,7 @@ func Track(props ...TrackProps) templ.Component {
 			p = props[0]
 		}
 		s := state(ctx)
-		var templ_7745c5c3_Var10 = []any{utils.CN("bg-muted h-1.5 rounded-full relative flex w-full items-center overflow-x-hidden", p.Class)}
+		var templ_7745c5c3_Var10 = []any{utils.CN("bg-muted h-0.5 rounded-none relative flex w-full items-center overflow-x-hidden", p.Class)}
 		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var10...)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -477,7 +477,7 @@ func Label(props ...LabelProps) templ.Component {
 			p.ID = utils.RandomID()
 		}
 		s := state(ctx)
-		var templ_7745c5c3_Var19 = []any{utils.CN("text-sm font-medium", p.Class)}
+		var templ_7745c5c3_Var19 = []any{utils.CN("text-xs font-semibold tracking-wide uppercase", p.Class)}
 		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var19...)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err

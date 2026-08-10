@@ -5,6 +5,7 @@
 /* All templ sources — ui/layouts, ui/pages, and the components
    (app + vendored shadcn-templ) under ui/components — so every utility
    class they use lands in output.css. */
+
 @source "../../../**/*.templ";
 
 @custom-variant dark (&:is(.dark *));
@@ -53,71 +54,71 @@
 
 :root {
   --background: oklch(1 0 0);
-  --foreground: oklch(0.141 0.005 285.823);
+  --foreground: oklch(0.145 0.008 326);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.141 0.005 285.823);
+  --card-foreground: oklch(0.145 0.008 326);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.141 0.005 285.823);
-  --primary: oklch(0.505 0.213 27.518);
-  --primary-foreground: oklch(0.971 0.013 17.38);
+  --popover-foreground: oklch(0.145 0.008 326);
+  --primary: oklch(0.514 0.222 16.935);
+  --primary-foreground: oklch(0.969 0.015 12.422);
   --secondary: oklch(0.967 0.001 286.375);
   --secondary-foreground: oklch(0.21 0.006 285.885);
-  --muted: oklch(0.967 0.001 286.375);
-  --muted-foreground: oklch(0.552 0.016 285.938);
-  --accent: oklch(0.967 0.001 286.375);
-  --accent-foreground: oklch(0.21 0.006 285.885);
+  --muted: oklch(0.96 0.003 325.6);
+  --muted-foreground: oklch(0.542 0.034 322.5);
+  --accent: oklch(0.96 0.003 325.6);
+  --accent-foreground: oklch(0.212 0.019 322.12);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.92 0.004 286.32);
-  --input: oklch(0.92 0.004 286.32);
-  --ring: oklch(0.705 0.015 286.067);
-  --chart-1: oklch(0.808 0.114 19.571);
-  --chart-2: oklch(0.637 0.237 25.331);
-  --chart-3: oklch(0.577 0.245 27.325);
-  --chart-4: oklch(0.505 0.213 27.518);
-  --chart-5: oklch(0.444 0.177 26.899);
+  --border: oklch(0.922 0.005 325.62);
+  --input: oklch(0.922 0.005 325.62);
+  --ring: oklch(0.711 0.019 323.02);
+  --chart-1: oklch(0.823 0.12 346.018);
+  --chart-2: oklch(0.656 0.241 354.308);
+  --chart-3: oklch(0.592 0.249 0.584);
+  --chart-4: oklch(0.525 0.223 3.958);
+  --chart-5: oklch(0.459 0.187 3.815);
   --radius: 0.625rem;
   --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.141 0.005 285.823);
-  --sidebar-primary: oklch(0.577 0.245 27.325);
-  --sidebar-primary-foreground: oklch(0.971 0.013 17.38);
-  --sidebar-accent: oklch(0.967 0.001 286.375);
-  --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
-  --sidebar-border: oklch(0.92 0.004 286.32);
-  --sidebar-ring: oklch(0.705 0.015 286.067);
+  --sidebar-foreground: oklch(0.145 0.008 326);
+  --sidebar-primary: oklch(0.586 0.253 17.585);
+  --sidebar-primary-foreground: oklch(0.969 0.015 12.422);
+  --sidebar-accent: oklch(0.96 0.003 325.6);
+  --sidebar-accent-foreground: oklch(0.212 0.019 322.12);
+  --sidebar-border: oklch(0.922 0.005 325.62);
+  --sidebar-ring: oklch(0.711 0.019 323.02);
 }
 
 .dark {
-  --background: oklch(0.141 0.005 285.823);
+  --background: oklch(0.145 0.008 326);
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.21 0.006 285.885);
+  --card: oklch(0.212 0.019 322.12);
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.21 0.006 285.885);
+  --popover: oklch(0.212 0.019 322.12);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.444 0.177 26.899);
-  --primary-foreground: oklch(0.971 0.013 17.38);
+  --primary: oklch(0.455 0.188 13.697);
+  --primary-foreground: oklch(0.969 0.015 12.422);
   --secondary: oklch(0.274 0.006 286.033);
   --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.274 0.006 286.033);
-  --muted-foreground: oklch(0.705 0.015 286.067);
-  --accent: oklch(0.274 0.006 286.033);
+  --muted: oklch(0.263 0.024 320.12);
+  --muted-foreground: oklch(0.711 0.019 323.02);
+  --accent: oklch(0.263 0.024 320.12);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.552 0.016 285.938);
-  --chart-1: oklch(0.808 0.114 19.571);
-  --chart-2: oklch(0.637 0.237 25.331);
-  --chart-3: oklch(0.577 0.245 27.325);
-  --chart-4: oklch(0.505 0.213 27.518);
-  --chart-5: oklch(0.444 0.177 26.899);
+  --ring: oklch(0.542 0.034 322.5);
+  --chart-1: oklch(0.823 0.12 346.018);
+  --chart-2: oklch(0.656 0.241 354.308);
+  --chart-3: oklch(0.592 0.249 0.584);
+  --chart-4: oklch(0.525 0.223 3.958);
+  --chart-5: oklch(0.459 0.187 3.815);
   --sidebar: oklch(0.21 0.006 285.885);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.637 0.237 25.331);
-  --sidebar-primary-foreground: oklch(0.971 0.013 17.38);
-  --sidebar-accent: oklch(0.274 0.006 286.033);
+  --sidebar-primary: oklch(0.645 0.246 16.439);
+  --sidebar-primary-foreground: oklch(0.969 0.015 12.422);
+  --sidebar-accent: oklch(0.263 0.024 320.12);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.552 0.016 285.938);
+  --sidebar-ring: oklch(0.542 0.034 322.5);
 }
 
 @layer base {
@@ -134,60 +135,176 @@
   }
 }
 
-::-webkit-scrollbar { width: 10px; }
-::-webkit-scrollbar-track { background: var(--background); }
-::-webkit-scrollbar-thumb { background: #555; border-radius: 5px; }
-::-webkit-scrollbar-thumb:hover { background: #444; }
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #555;
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #444;
+}
 
 /* Hides scrollbar visually while preserving scroll behaviour. */
-.no-scrollbar { scrollbar-width: none; }
-.no-scrollbar::-webkit-scrollbar { display: none; }
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
 
 /* Navbar dropdown panels: scroll on mobile, expand to fit on desktop.
    Overrides the dropdown content's available-height cap with !important. */
-.panel-fit { max-height: 80svh; overflow-y: auto; scrollbar-width: none; }
-.panel-fit::-webkit-scrollbar { display: none; }
-@media (min-width: 640px) { .panel-fit { max-height: none !important; overflow: visible; } }
+
+.panel-fit {
+  max-height: 80svh;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.panel-fit::-webkit-scrollbar {
+  display: none;
+}
+
+@media (min-width: 640px) {
+  .panel-fit {
+    max-height: none !important;
+    overflow: visible;
+  }
+}
 
 /* api-md scopes the goldmark-rendered description HTML on the API docs
    page. Tailwind's typography plugin isn't in the build, so the
    per-element rules live here (Redoc-like typography: headings, lists,
    inline code, bold). */
-.api-md            { line-height: 1.55; }
+
+.api-md {
+  line-height: 1.55;
+}
+
 .api-md h1, .api-md h2, .api-md h3, .api-md h4 {
-                     font-weight: 600;
-                     color: var(--foreground);
-                     margin: 1em 0 .4em; }
-.api-md h1         { font-size: 1.125rem; }
-.api-md h2         { font-size: 1rem; }
-.api-md h3, .api-md h4 { font-size: .9375rem; }
-.api-md p          { margin: .6em 0; }
-.api-md p:first-child { margin-top: 0; }
-.api-md p:last-child  { margin-bottom: 0; }
-.api-md ul, .api-md ol { margin: .5em 0; padding-left: 1.25rem; }
-.api-md ul         { list-style: disc; }
-.api-md ol         { list-style: decimal; }
-.api-md li         { margin: .15em 0; }
-.api-md strong     { color: var(--foreground); font-weight: 600; }
-.api-md em         { font-style: italic; }
-.api-md a          { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
-.api-md a:hover    { text-decoration-thickness: 2px; }
-.api-md code       { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-                     font-size: .875em;
-                     background: color-mix(in oklab, var(--muted) 60%, transparent);
-                     padding: 0 .3em;
-                     border-radius: .25rem; }
-.api-md pre        { background: var(--muted);
-                     border: 1px solid var(--border);
-                     border-radius: .375rem;
-                     padding: .75rem;
-                     overflow-x: auto;
-                     margin: .6em 0; }
-.api-md pre code   { background: transparent; padding: 0; }
-.api-md blockquote { border-left: 3px solid var(--border);
-                     padding-left: .75rem;
-                     color: var(--muted-foreground); }
-.api-md hr         { border: 0; border-top: 1px solid var(--border); margin: 1em 0; }
-.api-md table      { width: 100%; border-collapse: collapse; font-size: .8125rem; margin: .6em 0; }
-.api-md th, .api-md td { border: 1px solid var(--border); padding: .35rem .5rem; text-align: left; }
-.api-md th         { background: color-mix(in oklab, var(--muted) 40%, transparent); font-weight: 600; }
+  font-weight: 600;
+  color: var(--foreground);
+  margin: 1em 0 .4em;
+}
+
+.api-md h1 {
+  font-size: 1.125rem;
+}
+
+.api-md h2 {
+  font-size: 1rem;
+}
+
+.api-md h3, .api-md h4 {
+  font-size: .9375rem;
+}
+
+.api-md p {
+  margin: .6em 0;
+}
+
+.api-md p:first-child {
+  margin-top: 0;
+}
+
+.api-md p:last-child {
+  margin-bottom: 0;
+}
+
+.api-md ul, .api-md ol {
+  margin: .5em 0;
+  padding-left: 1.25rem;
+}
+
+.api-md ul {
+  list-style: disc;
+}
+
+.api-md ol {
+  list-style: decimal;
+}
+
+.api-md li {
+  margin: .15em 0;
+}
+
+.api-md strong {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.api-md em {
+  font-style: italic;
+}
+
+.api-md a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.api-md a:hover {
+  text-decoration-thickness: 2px;
+}
+
+.api-md code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .875em;
+  background: color-mix(in oklab, var(--muted) 60%, transparent);
+  padding: 0 .3em;
+  border-radius: .25rem;
+}
+
+.api-md pre {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: .375rem;
+  padding: .75rem;
+  overflow-x: auto;
+  margin: .6em 0;
+}
+
+.api-md pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.api-md blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: .75rem;
+  color: var(--muted-foreground);
+}
+
+.api-md hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 1em 0;
+}
+
+.api-md table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .8125rem;
+  margin: .6em 0;
+}
+
+.api-md th, .api-md td {
+  border: 1px solid var(--border);
+  padding: .35rem .5rem;
+  text-align: left;
+}
+
+.api-md th {
+  background: color-mix(in oklab, var(--muted) 40%, transparent);
+  font-weight: 600;
+}

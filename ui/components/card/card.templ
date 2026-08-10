@@ -67,7 +67,7 @@ templ Card(props ...Props) {
 		}
 		data-slot="card"
 		data-size={ string(p.Size) }
-		class={ utils.CN("ring-foreground/10 bg-card text-card-foreground gap-(--card-spacing) overflow-hidden rounded-lg py-(--card-spacing) text-xs/relaxed ring-1 [--card-spacing:--spacing(4)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(3)] *:[img:first-child]:rounded-t-lg *:[img:last-child]:rounded-b-lg group/card flex flex-col", p.Class) }
+		class={ utils.CN("bg-card text-card-foreground ring-foreground/5 gap-(--card-spacing) overflow-hidden py-(--card-spacing) text-sm shadow-sm ring-1 [--card-spacing:--spacing(8)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(5)] *:[img:first-child]:rounded-none *:[img:last-child]:rounded-none group/card flex flex-col", p.Class) }
 		{ p.Attributes... }
 	>
 		{ children... }
@@ -86,7 +86,7 @@ templ Header(props ...HeaderProps) {
 		data-slot="card-header"
 		class={
 			utils.CN(
-				"gap-1 rounded-t-lg px-(--card-spacing) [.border-b]:pb-(--card-spacing) group/card-header @container/card-header grid auto-rows-min items-start has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-description]:grid-rows-[auto_auto]",
+				"gap-1.5 rounded-none px-(--card-spacing) [.border-b]:pb-(--card-spacing) group/card-header @container/card-header grid auto-rows-min items-start has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-description]:grid-rows-[auto_auto]",
 				p.Class,
 			),
 		}
@@ -106,7 +106,7 @@ templ Title(props ...TitleProps) {
 			id={ p.ID }
 		}
 		data-slot="card-title"
-		class={ utils.CN("text-sm font-medium", p.Class) }
+		class={ utils.CN("text-lg font-semibold tracking-wider uppercase", p.Class) }
 		{ p.Attributes... }
 	>
 		{ children... }
@@ -123,7 +123,7 @@ templ Description(props ...DescriptionProps) {
 			id={ p.ID }
 		}
 		data-slot="card-description"
-		class={ utils.CN("text-muted-foreground text-xs/relaxed", p.Class) }
+		class={ utils.CN("text-muted-foreground text-sm leading-relaxed", p.Class) }
 		{ p.Attributes... }
 	>
 		{ children... }
@@ -180,7 +180,7 @@ templ Footer(props ...FooterProps) {
 			id={ p.ID }
 		}
 		data-slot="card-footer"
-		class={ utils.CN("rounded-b-lg px-(--card-spacing) [.border-t]:pt-(--card-spacing) flex items-center", p.Class) }
+		class={ utils.CN("px-(--card-spacing) [.border-t]:pt-(--card-spacing) flex items-center", p.Class) }
 		{ p.Attributes... }
 	>
 		{ children... }
