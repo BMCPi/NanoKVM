@@ -142,7 +142,7 @@ func PasswordPage(loggedIn bool) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div><p id=\"pw-error\" class=\"text-sm text-destructive min-h-[1.25rem]\"></p><div class=\"flex gap-2\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div><p id=\"pw-error\" class=\"text-sm text-destructive min-h-5\"></p><div class=\"flex gap-2\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

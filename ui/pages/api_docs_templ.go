@@ -457,7 +457,7 @@ func apiDocsSidebarMethodTag(method string) templ.Component {
 			templ_7745c5c3_Var17 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		var templ_7745c5c3_Var18 = []any{"inline-flex items-center justify-center rounded px-1 text-[0.625rem] font-mono font-semibold uppercase tracking-tight w-9 shrink-0", MethodColorClass(method)}
+		var templ_7745c5c3_Var18 = []any{"inline-flex items-center justify-center rounded px-1 text-2xs font-mono font-semibold uppercase tracking-tight w-9 shrink-0", MethodColorClass(method)}
 		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var18...)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -851,7 +851,7 @@ func apiDocsOperation(op APIDocsOperation) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-[0.6875rem]"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var37), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-xs"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var37), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1014,7 +1014,7 @@ func apiDocsResponseSamples(sample APIDocsResponse) templ.Component {
 			templ_7745c5c3_Var40 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "<div class=\"rounded-md border border-border bg-muted/20 overflow-hidden\"><div class=\"flex items-center justify-between gap-2 px-3 py-2 border-b border-border\"><span class=\"text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground\">Response sample</span>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "<div class=\"rounded-md border border-border bg-muted/20 overflow-hidden\"><div class=\"flex items-center justify-between gap-2 px-3 py-2 border-b border-border\"><span class=\"text-xs font-semibold uppercase tracking-wider text-muted-foreground\">Response sample</span>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1087,14 +1087,14 @@ func apiDocsSubheading(label string) templ.Component {
 			templ_7745c5c3_Var44 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "<h4 class=\"text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "<h4 class=\"text-xs font-semibold uppercase tracking-wider text-muted-foreground\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var45 string
 		templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/pages/api_docs.templ`, Line: 287, Col: 98}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/pages/api_docs.templ`, Line: 287, Col: 89}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 		if templ_7745c5c3_Err != nil {
@@ -1248,7 +1248,7 @@ func apiDocsParameters(params []APIDocsParam) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 65, "</code><div class=\"text-[0.6875rem] text-muted-foreground\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 65, "</code><div class=\"text-xs text-muted-foreground\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1359,7 +1359,7 @@ func apiDocsRequestBody(b APIDocsBody) templ.Component {
 			}
 		}
 		if b.Example != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 76, "<details class=\"rounded-md border border-border bg-muted/30\"><summary class=\"cursor-pointer px-3 py-1.5 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/40 transition-colors\">Example</summary><pre class=\"overflow-x-auto p-3 text-xs border-t border-border\"><code class=\"font-mono\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 76, "<details class=\"rounded-md border border-border bg-muted/30\"><summary class=\"cursor-pointer px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/40 transition-colors\">Example</summary><pre class=\"overflow-x-auto p-3 text-xs border-t border-border\"><code class=\"font-mono\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1509,14 +1509,14 @@ func apiDocsResponseRow(r APIDocsResponse, open bool) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if r.ContentType != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 86, "<p class=\"text-[0.6875rem] text-muted-foreground\"><code class=\"font-mono\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 86, "<p class=\"text-xs text-muted-foreground\"><code class=\"font-mono\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var62 string
 				templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.JoinStringErrs(r.ContentType)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/pages/api_docs.templ`, Line: 379, Col: 94}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/pages/api_docs.templ`, Line: 379, Col: 85}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var62))
 				if templ_7745c5c3_Err != nil {
@@ -1615,19 +1615,19 @@ func apiDocsSchemaRoot(s *APIDocsSchema) templ.Component {
 			templ_7745c5c3_Var66 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 92, "<div class=\"rounded-md border border-border bg-card\"><div class=\"flex items-baseline gap-2 px-3 py-1.5 border-b border-border\"><span class=\"text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground\">Schema</span> ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 92, "<div class=\"rounded-md border border-border bg-card\"><div class=\"flex items-baseline gap-2 px-3 py-1.5 border-b border-border\"><span class=\"text-xs font-semibold uppercase tracking-wider text-muted-foreground\">Schema</span> ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if s.RefName != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 93, "<code class=\"font-mono text-[0.6875rem] text-muted-foreground/80\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 93, "<code class=\"font-mono text-xs text-muted-foreground/80\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var67 string
 			templ_7745c5c3_Var67, templ_7745c5c3_Err = templ.JoinStringErrs(s.RefName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/pages/api_docs.templ`, Line: 404, Col: 81}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/pages/api_docs.templ`, Line: 404, Col: 72}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var67))
 			if templ_7745c5c3_Err != nil {
@@ -1860,7 +1860,7 @@ func apiDocsSchemaProp(p APIDocsSchemaProp, depth int) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if p.Required {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 111, "<span class=\"text-[0.625rem] text-destructive\">required</span>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 111, "<span class=\"text-2xs text-destructive\">required</span>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1918,7 +1918,7 @@ func apiDocsSchemaProp(p APIDocsSchemaProp, depth int) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if p.Required {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 119, "<span class=\"text-[0.625rem] text-destructive\">required</span>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 119, "<span class=\"text-2xs text-destructive\">required</span>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1975,7 +1975,7 @@ func apiDocsSchemaArray(s *APIDocsSchema, depth int) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 123, "<div class=\"flex items-baseline gap-2 flex-wrap\"><span class=\"text-[0.6875rem] uppercase tracking-wider text-muted-foreground\">items</span>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 123, "<div class=\"flex items-baseline gap-2 flex-wrap\"><span class=\"text-xs uppercase tracking-wider text-muted-foreground\">items</span>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -2031,7 +2031,7 @@ func apiDocsSchemaOneOf(s *APIDocsSchema, depth int) templ.Component {
 			templ_7745c5c3_Var74 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 128, "<div class=\"space-y-1\"><span class=\"text-[0.6875rem] uppercase tracking-wider text-muted-foreground\">one of</span><div class=\"space-y-1.5\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 128, "<div class=\"space-y-1\"><span class=\"text-xs uppercase tracking-wider text-muted-foreground\">one of</span><div class=\"space-y-1.5\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -2144,19 +2144,19 @@ func apiDocsSchemaMeta(s *APIDocsSchema) templ.Component {
 		ctx = templ.ClearChildren(ctx)
 		if s != nil {
 			if len(s.Enum) > 0 {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 136, "<div class=\"flex items-baseline gap-1.5 flex-wrap mt-0.5\"><span class=\"text-[0.6875rem] text-muted-foreground/70\">enum:</span> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 136, "<div class=\"flex items-baseline gap-1.5 flex-wrap mt-0.5\"><span class=\"text-xs text-muted-foreground/70\">enum:</span> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				for _, v := range s.Enum {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 137, "<code class=\"font-mono text-[0.6875rem] rounded bg-muted/60 px-1.5 py-0.5\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 137, "<code class=\"font-mono text-xs rounded bg-muted/60 px-1.5 py-0.5\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var78 string
 					templ_7745c5c3_Var78, templ_7745c5c3_Err = templ.JoinStringErrs(v)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/pages/api_docs.templ`, Line: 562, Col: 83}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/pages/api_docs.templ`, Line: 562, Col: 74}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var78))
 					if templ_7745c5c3_Err != nil {
@@ -2177,7 +2177,7 @@ func apiDocsSchemaMeta(s *APIDocsSchema) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if s.Default != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 141, "<div class=\"text-[0.6875rem] text-muted-foreground/70\"><span>default:</span> <code class=\"font-mono\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 141, "<div class=\"text-xs text-muted-foreground/70\"><span>default:</span> <code class=\"font-mono\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -2200,7 +2200,7 @@ func apiDocsSchemaMeta(s *APIDocsSchema) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if s.Example != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 144, "<div class=\"text-[0.6875rem] text-muted-foreground/70\"><span>example:</span> <code class=\"font-mono break-all\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 144, "<div class=\"text-xs text-muted-foreground/70\"><span>example:</span> <code class=\"font-mono break-all\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -2247,7 +2247,7 @@ func apiDocsTypeBadge(s *APIDocsSchema) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		if s != nil {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 146, "<span class=\"font-mono text-[0.6875rem] text-muted-foreground/80\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 146, "<span class=\"font-mono text-xs text-muted-foreground/80\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

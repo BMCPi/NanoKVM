@@ -65,7 +65,6 @@ func ConsoleToolbar() templ.Component {
 		templ_7745c5c3_Err = badge.Badge(badge.Props{
 			ID:      "conn-status-disconnected",
 			Variant: badge.VariantDestructive,
-			Class:   "text-[0.6875rem]",
 		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -91,7 +90,7 @@ func ConsoleToolbar() templ.Component {
 		templ_7745c5c3_Err = badge.Badge(badge.Props{
 			ID:         "conn-status-connecting",
 			Variant:    badge.VariantSecondary,
-			Class:      "text-[0.6875rem] bg-yellow-500/15 text-yellow-500",
+			Class:      "bg-yellow-500/15 text-yellow-500",
 			Attributes: templ.Attributes{"hidden": true},
 		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
@@ -118,7 +117,7 @@ func ConsoleToolbar() templ.Component {
 		templ_7745c5c3_Err = badge.Badge(badge.Props{
 			ID:         "conn-status-connected",
 			Variant:    badge.VariantSecondary,
-			Class:      "text-[0.6875rem] bg-green-500/15 text-green-500",
+			Class:      "bg-green-500/15 text-green-500",
 			Attributes: templ.Attributes{"hidden": true},
 		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
@@ -351,7 +350,7 @@ func ConsoleSearchBar() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</div><span id=\"search-count\" class=\"min-w-[3rem] text-center text-xs text-muted-foreground select-none\"></span><div class=\"ml-auto flex items-center gap-2\"><label class=\"flex items-center gap-1 text-xs text-muted-foreground cursor-pointer select-none\" title=\"Case sensitive\" onchange=\"onSearchInput()\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</div><span id=\"search-count\" class=\"min-w-12 text-center text-xs text-muted-foreground select-none\"></span><div class=\"ml-auto flex items-center gap-2\"><label class=\"flex items-center gap-1 text-xs text-muted-foreground cursor-pointer select-none\" title=\"Case sensitive\" onchange=\"onSearchInput()\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

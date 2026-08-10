@@ -47,11 +47,15 @@ templ PowerMenu() {
 			@icon.ChevronDown()
 		}
 		@dropdownmenu.Content(dropdownmenu.ContentProps{Class: "w-72 panel-fit"}) {
-			<div class="p-2 space-y-2">
+			// Spacing follows the settings dialog's rhythm on the 4px grid, at
+			// popup density: p-3 panel, space-y-3 sections, space-y-2 / gap-2
+			// within a section, and the field.Legend header type (text-xs
+			// font-semibold uppercase) — no off-scale sizes or stray indents.
+			<div class="p-3 space-y-3">
 				// Power actions: 2×2 compact grid + full-width recovery row.
 				<div>
-					<p class="px-1 pb-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">Power</p>
-					<div class="grid grid-cols-2 gap-1">
+					<p class={ SectionLabelClass, "mb-2" }>Power</p>
+					<div class="grid grid-cols-2 gap-2">
 						@powerGridBtn("on", "", icon.Power, "Power On", nil)
 						@powerGridBtn("off", "", icon.PowerOff, "Power Off", nil)
 						@powerGridBtn("reset", "", icon.RefreshCw, "Reset", nil)
@@ -75,13 +79,13 @@ templ PowerMenu() {
 				// the shadcn-templ Select portals its popup to <body>, and the
 				// dropdown menu treats pointerdowns there as outside clicks, so
 				// a composed Select would close the menu on first use.
-				<form class="space-y-1.5" hx-post="/ui/overview/boot-override" hx-swap="none">
-					<p class="px-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">Boot Override</p>
-					<div class="grid grid-cols-2 gap-1">
+				<form class="space-y-2" hx-post="/ui/overview/boot-override" hx-swap="none">
+					<p class={ SectionLabelClass }>Boot Override</p>
+					<div class="grid grid-cols-2 gap-2">
 						@bootDeviceSelect()
 						@bootPersistSelect()
 					</div>
-					<div class="flex gap-1">
+					<div class="flex gap-2">
 						@button.Button(button.Props{
 							Size:  button.SizeSm,
 							Class: "flex-1",

@@ -156,7 +156,7 @@ templ apiDocsSidebarTag(tag APIDocsTag, ops []APIDocsOperation) {
 // the sidebar — narrower than the inline method badge so long operation
 // names fit without wrapping.
 templ apiDocsSidebarMethodTag(method string) {
-	<span class={ "inline-flex items-center justify-center rounded px-1 text-[0.625rem] font-mono font-semibold uppercase tracking-tight w-9 shrink-0", MethodColorClass(method) }>
+	<span class={ "inline-flex items-center justify-center rounded px-1 text-2xs font-mono font-semibold uppercase tracking-tight w-9 shrink-0", MethodColorClass(method) }>
 		{ shortMethod(method) }
 	</span>
 }
@@ -221,7 +221,7 @@ templ apiDocsOperation(op APIDocsOperation) {
 						<h3 class="text-xl font-semibold font-mono">{ op.Method } { op.Path }</h3>
 					}
 					if op.PublicAuth {
-						@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-[0.6875rem]"}) {
+						@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-xs"}) {
 							public
 						}
 					}
@@ -274,7 +274,7 @@ templ apiDocsEndpointBar(op APIDocsOperation) {
 templ apiDocsResponseSamples(sample APIDocsResponse) {
 	<div class="rounded-md border border-border bg-muted/20 overflow-hidden">
 		<div class="flex items-center justify-between gap-2 px-3 py-2 border-b border-border">
-			<span class="text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground">Response sample</span>
+			<span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Response sample</span>
 			@badge.Badge(badge.Props{Class: StatusColorClass(sample.Status) + " font-mono text-xs px-2"}) {
 				{ sample.Status }
 			}
@@ -284,7 +284,7 @@ templ apiDocsResponseSamples(sample APIDocsResponse) {
 }
 
 templ apiDocsSubheading(label string) {
-	<h4 class="text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground">{ label }</h4>
+	<h4 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ label }</h4>
 }
 
 // apiDocsMethodBadge — coloured tag for the HTTP verb. We use a Badge with
@@ -314,7 +314,7 @@ templ apiDocsParameters(params []APIDocsParam) {
 			<div class="grid grid-cols-[minmax(8rem,auto)_1fr] items-baseline gap-x-4 gap-y-1 border-b border-border/40 pb-2 last:border-b-0">
 				<div class="space-y-0.5">
 					<code class="font-mono text-xs font-semibold">{ p.Name }</code>
-					<div class="text-[0.6875rem] text-muted-foreground">
+					<div class="text-xs text-muted-foreground">
 						if p.Type != "" {
 							<span>{ p.Type }</span>
 						}
@@ -343,7 +343,7 @@ templ apiDocsRequestBody(b APIDocsBody) {
 		}
 		if b.Example != "" {
 			<details class="rounded-md border border-border bg-muted/30">
-				<summary class="cursor-pointer px-3 py-1.5 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/40 transition-colors">Example</summary>
+				<summary class="cursor-pointer px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/40 transition-colors">Example</summary>
 				<pre class="overflow-x-auto p-3 text-xs border-t border-border"><code class="font-mono">{ b.Example }</code></pre>
 			</details>
 		}
@@ -376,7 +376,7 @@ templ apiDocsResponseRow(r APIDocsResponse, open bool) {
 			</summary>
 			<div class="border-t border-border px-3 py-3 space-y-3">
 				if r.ContentType != "" {
-					<p class="text-[0.6875rem] text-muted-foreground"><code class="font-mono">{ r.ContentType }</code></p>
+					<p class="text-xs text-muted-foreground"><code class="font-mono">{ r.ContentType }</code></p>
 				}
 				if r.Schema != nil {
 					@apiDocsSchemaRoot(r.Schema)
@@ -399,9 +399,9 @@ templ apiDocsResponseRow(r APIDocsResponse, open bool) {
 templ apiDocsSchemaRoot(s *APIDocsSchema) {
 	<div class="rounded-md border border-border bg-card">
 		<div class="flex items-baseline gap-2 px-3 py-1.5 border-b border-border">
-			<span class="text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground">Schema</span>
+			<span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Schema</span>
 			if s.RefName != "" {
-				<code class="font-mono text-[0.6875rem] text-muted-foreground/80">{ s.RefName }</code>
+				<code class="font-mono text-xs text-muted-foreground/80">{ s.RefName }</code>
 			}
 			@apiDocsTypeBadge(s)
 		</div>
@@ -474,7 +474,7 @@ templ apiDocsSchemaProp(p APIDocsSchemaProp, depth int) {
 					<code class="font-mono text-xs font-semibold">{ p.Name }</code>
 					@apiDocsTypeBadge(p.Schema)
 					if p.Required {
-						<span class="text-[0.625rem] text-destructive">required</span>
+						<span class="text-2xs text-destructive">required</span>
 					}
 				</div>
 				if p.Schema != nil && p.Schema.Description != "" {
@@ -493,7 +493,7 @@ templ apiDocsSchemaProp(p APIDocsSchemaProp, depth int) {
 				<code class="font-mono text-xs font-semibold">{ p.Name }</code>
 				@apiDocsTypeBadge(p.Schema)
 				if p.Required {
-					<span class="text-[0.625rem] text-destructive">required</span>
+					<span class="text-2xs text-destructive">required</span>
 				}
 			</div>
 			if p.Schema != nil {
@@ -511,7 +511,7 @@ templ apiDocsSchemaArray(s *APIDocsSchema, depth int) {
 			@apiDocsMarkdown(s.Description, "text-xs")
 		}
 		<div class="flex items-baseline gap-2 flex-wrap">
-			<span class="text-[0.6875rem] uppercase tracking-wider text-muted-foreground">items</span>
+			<span class="text-xs uppercase tracking-wider text-muted-foreground">items</span>
 			@apiDocsTypeBadge(s.Items)
 		</div>
 		if needsRecursion(s.Items) {
@@ -525,7 +525,7 @@ templ apiDocsSchemaArray(s *APIDocsSchema, depth int) {
 // apiDocsSchemaOneOf shows each variant as a collapsible block.
 templ apiDocsSchemaOneOf(s *APIDocsSchema, depth int) {
 	<div class="space-y-1">
-		<span class="text-[0.6875rem] uppercase tracking-wider text-muted-foreground">one of</span>
+		<span class="text-xs uppercase tracking-wider text-muted-foreground">one of</span>
 		<div class="space-y-1.5">
 			for i, v := range s.OneOf {
 				<details class="border-l-2 border-border/60 pl-3" open?={ i == 0 }>
@@ -557,19 +557,19 @@ templ apiDocsSchemaMeta(s *APIDocsSchema) {
 	if s != nil {
 		if len(s.Enum) > 0 {
 			<div class="flex items-baseline gap-1.5 flex-wrap mt-0.5">
-				<span class="text-[0.6875rem] text-muted-foreground/70">enum:</span>
+				<span class="text-xs text-muted-foreground/70">enum:</span>
 				for _, v := range s.Enum {
-					<code class="font-mono text-[0.6875rem] rounded bg-muted/60 px-1.5 py-0.5">{ v }</code>
+					<code class="font-mono text-xs rounded bg-muted/60 px-1.5 py-0.5">{ v }</code>
 				}
 			</div>
 		}
 		if s.Default != "" {
-			<div class="text-[0.6875rem] text-muted-foreground/70">
+			<div class="text-xs text-muted-foreground/70">
 				<span>default:</span> <code class="font-mono">{ s.Default }</code>
 			</div>
 		}
 		if s.Example != "" {
-			<div class="text-[0.6875rem] text-muted-foreground/70">
+			<div class="text-xs text-muted-foreground/70">
 				<span>example:</span> <code class="font-mono break-all">{ s.Example }</code>
 			</div>
 		}
@@ -580,7 +580,7 @@ templ apiDocsSchemaMeta(s *APIDocsSchema) {
 // "array of object", etc.). Includes nullable/format hints when set.
 templ apiDocsTypeBadge(s *APIDocsSchema) {
 	if s != nil {
-		<span class="font-mono text-[0.6875rem] text-muted-foreground/80">
+		<span class="font-mono text-xs text-muted-foreground/80">
 			{ typeLabel(s) }
 		</span>
 	}

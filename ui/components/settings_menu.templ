@@ -69,15 +69,15 @@ templ SettingsDialogTrigger() {
 // dialog.TriggerFor("settings-dialog").
 templ SettingsDialog() {
 	@dialog.Dialog(dialog.Props{ID: "settings-dialog"}) {
-		// bg-background (darker than bg-card in this theme) is what makes the
-		// panel and nav cards read as raised surfaces, like the reference pane.
+		// The backdrop keeps its normal dim + blur (like every other dialog —
+		// no OverlayClass override here). It's this outer wrapper's OWN fill
+		// that goes transparent, like the reference pane: the blurred page
+		// shows through the gap around the nav rail and content card, while
+		// each of those keeps its own bg-card/bg-muted surface (from card.Card
+		// below) so they still read as distinct raised panels.
 		@dialog.Content(dialog.ContentProps{
 			HideCloseButton: true,
-			Class:           "bg-background flex flex-col gap-0 p-3 sm:max-w-3xl lg:max-w-5xl h-[min(46rem,calc(100svh-3rem))]",
-			// Requested: no dimming behind the settings dialog specifically —
-			// every other dialog (EEPROM, confirm, forgot-password) keeps the
-			// default backdrop.
-			OverlayClass: "bg-transparent supports-backdrop-filter:backdrop-blur-none",
+			Class:           "bg-transparent shadow-none ring-0 flex flex-col gap-0 p-3 sm:max-w-3xl lg:max-w-5xl h-[min(46rem,calc(100svh-3rem))]",
 		}) {
 			// The visible headings live in each panel, so the dialog's own
 			// title/description — what aria-labelledby/-describedby point at —

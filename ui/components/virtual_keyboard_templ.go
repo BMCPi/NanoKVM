@@ -742,7 +742,7 @@ func vkStatusBar() templ.Component {
 			templ_7745c5c3_Var19 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<div class=\"flex items-center justify-between gap-2 border-t border-border px-3 py-1 text-[0.6875rem] text-muted-foreground\"><div class=\"flex min-w-0 items-center gap-1\"><span class=\"select-none\">Keys:</span> <span id=\"vk-keys-display\" class=\"truncate font-mono text-foreground\"></span></div><div class=\"flex items-center select-none\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<div class=\"flex items-center justify-between gap-2 border-t border-border px-3 py-1 text-xs text-muted-foreground\"><div class=\"flex min-w-0 items-center gap-1\"><span class=\"select-none\">Keys:</span> <span id=\"vk-keys-display\" class=\"truncate font-mono text-foreground\"></span></div><div class=\"flex items-center select-none\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

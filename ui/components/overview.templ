@@ -91,7 +91,10 @@ templ overviewSidebarStyles() {
 			display: flex;
 			flex-direction: column;
 		}
-		.ov-row { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .375rem 0; border-bottom: 1px solid var(--border); }
+		/* Same row shape as the settings dialog's network-status rows
+		   (settingsStatusRow: py-1, border-border/50) so label/value readouts
+		   share one rhythm everywhere. */
+		.ov-row { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .25rem 0; border-bottom: 1px solid color-mix(in oklab, var(--border) 50%, transparent); }
 		.ov-row:last-child { border-bottom: none; }
 		.ov-label { font-size: .75rem; color: var(--muted-foreground); flex-shrink: 0; }
 		.ov-value { font-size: .75rem; font-family: var(--font-mono); text-align: right; word-break: break-all; min-width: 0; }
@@ -133,7 +136,7 @@ templ OverviewServerBody(m OverviewServer) {
 	}
 	// The service merges SMBIOS over the U-Boot env and reports which won
 	// in Oem.NanoKVM.InventorySource, so the footer names the actual source.
-	@card.Footer(card.FooterProps{Class: "pt-2 text-[0.6875rem] text-muted-foreground"}) {
+	@card.Footer(card.FooterProps{Class: "pt-2 text-xs text-muted-foreground"}) {
 		// templ trims text nodes, so spacing around the injected span and
 		// the link comes from margin utilities.
 		Read from
@@ -444,7 +447,7 @@ templ OverviewKernelsBody(m OverviewKernels) {
 			}
 		}
 		if sel, ok := m.SelectedKernel(); ok && sel.Active {
-			<div class="text-[0.6875rem] text-muted-foreground">★ Active</div>
+			<div class="text-xs text-muted-foreground">★ Active</div>
 		}
 	}
 	@card.Footer(card.FooterProps{Class: "pt-2 flex flex-col gap-2 w-full"}) {

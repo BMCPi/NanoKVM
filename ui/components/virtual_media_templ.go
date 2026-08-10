@@ -214,8 +214,7 @@ func VMMenuBody(files []string, inserted string) templ.Component {
 		})
 		templ_7745c5c3_Err = button.Button(button.Props{
 			Variant:    button.VariantGhost,
-			Size:       button.SizeSm,
-			Class:      "h-7 shrink-0",
+			Class:      "shrink-0",
 			Attributes: templ.Attributes{"data-tui-dropdownmenu-item": true},
 		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var6), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
@@ -282,8 +281,7 @@ func VMMenuBody(files []string, inserted string) templ.Component {
 			})
 			templ_7745c5c3_Err = button.Button(button.Props{
 				Variant: button.VariantDestructive,
-				Size:    button.SizeSm,
-				Class:   "h-7 shrink-0",
+				Class:   "shrink-0",
 				Attributes: templ.Attributes{
 					"hx-post":         "/ui/media/eject",
 					"hx-target":       "#vm-menu-body",
@@ -366,7 +364,7 @@ func VMAddBody(files []string) templ.Component {
 			templ_7745c5c3_Var10 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<div class=\"p-3 space-y-2\"><div class=\"flex items-center justify-between gap-2\"><div class=\"text-sm font-semibold\">Add New Media</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<div class=\"p-3 space-y-3\"><div class=\"flex items-center justify-between gap-2\"><div class=\"text-sm font-semibold\">Add New Media</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -398,8 +396,6 @@ func VMAddBody(files []string) templ.Component {
 		})
 		templ_7745c5c3_Err = button.Button(button.Props{
 			Variant: button.VariantGhost,
-			Size:    button.SizeSm,
-			Class:   "h-7",
 			Attributes: templ.Attributes{
 				"hx-get":    "/ui/media",
 				"hx-target": "#vm-menu-body",
@@ -560,7 +556,7 @@ func VMAddBody(files []string) templ.Component {
 						var templ_7745c5c3_Var19 string
 						templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(f)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 180, Col: 24}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 177, Col: 24}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 						if templ_7745c5c3_Err != nil {
@@ -573,7 +569,7 @@ func VMAddBody(files []string) templ.Component {
 						var templ_7745c5c3_Var20 string
 						templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(f)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 180, Col: 30}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 177, Col: 30}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 						if templ_7745c5c3_Err != nil {
@@ -818,7 +814,7 @@ func VMFetchProgress(name string, loaded, total int64) templ.Component {
 		var templ_7745c5c3_Var27 string
 		templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 262, Col: 61}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 259, Col: 61}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 		if templ_7745c5c3_Err != nil {
@@ -841,7 +837,7 @@ func VMFetchProgress(name string, loaded, total int64) templ.Component {
 			var templ_7745c5c3_Var28 string
 			templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(formatBytes(loaded))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 266, Col: 67}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 263, Col: 67}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 			if templ_7745c5c3_Err != nil {
@@ -854,7 +850,7 @@ func VMFetchProgress(name string, loaded, total int64) templ.Component {
 			var templ_7745c5c3_Var29 string
 			templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(formatBytes(total))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 266, Col: 92}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 263, Col: 92}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 			if templ_7745c5c3_Err != nil {
@@ -876,7 +872,7 @@ func VMFetchProgress(name string, loaded, total int64) templ.Component {
 			var templ_7745c5c3_Var30 string
 			templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(formatBytes(loaded))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 270, Col: 25}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 267, Col: 25}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 			if templ_7745c5c3_Err != nil {

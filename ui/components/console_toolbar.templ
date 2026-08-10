@@ -30,14 +30,13 @@ templ ConsoleToolbar() {
 			@badge.Badge(badge.Props{
 				ID:      "conn-status-disconnected",
 				Variant: badge.VariantDestructive,
-				Class:   "text-[0.6875rem]",
 			}) {
 				Disconnected
 			}
 			@badge.Badge(badge.Props{
 				ID:         "conn-status-connecting",
 				Variant:    badge.VariantSecondary,
-				Class:      "text-[0.6875rem] bg-yellow-500/15 text-yellow-500",
+				Class:      "bg-yellow-500/15 text-yellow-500",
 				Attributes: templ.Attributes{"hidden": true},
 			}) {
 				Connecting…
@@ -45,7 +44,7 @@ templ ConsoleToolbar() {
 			@badge.Badge(badge.Props{
 				ID:         "conn-status-connected",
 				Variant:    badge.VariantSecondary,
-				Class:      "text-[0.6875rem] bg-green-500/15 text-green-500",
+				Class:      "bg-green-500/15 text-green-500",
 				Attributes: templ.Attributes{"hidden": true},
 			}) {
 				Connected
@@ -135,7 +134,7 @@ templ ConsoleSearchBar() {
 				Attributes:  templ.Attributes{"autocomplete": "off", "spellcheck": "false", "oninput": "onSearchInput()", "onkeydown": "onSearchKeydown(event)"},
 			})
 		</div>
-		<span id="search-count" class="min-w-[3rem] text-center text-xs text-muted-foreground select-none"></span>
+		<span id="search-count" class="min-w-12 text-center text-xs text-muted-foreground select-none"></span>
 		<div class="ml-auto flex items-center gap-2">
 			// change fires on the checkbox's hidden input and bubbles to the
 			// label; the ids stay on the inputs so buildSearchOpts reads

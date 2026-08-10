@@ -165,7 +165,7 @@ func overviewSidebarStyles() templ.Component {
 			templ_7745c5c3_Var4 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<style>\n\t\t.ov-sidebar {\n\t\t\twidth: 0;\n\t\t\tflex-shrink: 0;\n\t\t\toverflow: hidden;\n\t\t\tborder-left: 1px solid var(--border);\n\t\t\tbackground: var(--card);\n\t\t\tdisplay: flex;\n\t\t\tflex-direction: column;\n\t\t\ttransition: width 0.2s ease;\n\t\t}\n\t\t.ov-sidebar[data-state=\"open\"] { width: 24rem; }\n\t\t@media (max-width: 640px) {\n\t\t\t.ov-sidebar[data-state=\"open\"] { width: 100%; }\n\t\t}\n\t\t/* Inner wrapper keeps content at a stable width during the width\n\t\t   animation so nothing reflows mid-transition. */\n\t\t.ov-sidebar-inner {\n\t\t\twidth: 24rem;\n\t\t\tmax-width: 100vw;\n\t\t\theight: 100%;\n\t\t\tdisplay: flex;\n\t\t\tflex-direction: column;\n\t\t}\n\t\t.ov-row { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .375rem 0; border-bottom: 1px solid var(--border); }\n\t\t.ov-row:last-child { border-bottom: none; }\n\t\t.ov-label { font-size: .75rem; color: var(--muted-foreground); flex-shrink: 0; }\n\t\t.ov-value { font-size: .75rem; font-family: var(--font-mono); text-align: right; word-break: break-all; min-width: 0; }\n\t</style>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<style>\n\t\t.ov-sidebar {\n\t\t\twidth: 0;\n\t\t\tflex-shrink: 0;\n\t\t\toverflow: hidden;\n\t\t\tborder-left: 1px solid var(--border);\n\t\t\tbackground: var(--card);\n\t\t\tdisplay: flex;\n\t\t\tflex-direction: column;\n\t\t\ttransition: width 0.2s ease;\n\t\t}\n\t\t.ov-sidebar[data-state=\"open\"] { width: 24rem; }\n\t\t@media (max-width: 640px) {\n\t\t\t.ov-sidebar[data-state=\"open\"] { width: 100%; }\n\t\t}\n\t\t/* Inner wrapper keeps content at a stable width during the width\n\t\t   animation so nothing reflows mid-transition. */\n\t\t.ov-sidebar-inner {\n\t\t\twidth: 24rem;\n\t\t\tmax-width: 100vw;\n\t\t\theight: 100%;\n\t\t\tdisplay: flex;\n\t\t\tflex-direction: column;\n\t\t}\n\t\t/* Same row shape as the settings dialog's network-status rows\n\t\t   (settingsStatusRow: py-1, border-border/50) so label/value readouts\n\t\t   share one rhythm everywhere. */\n\t\t.ov-row { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .25rem 0; border-bottom: 1px solid color-mix(in oklab, var(--border) 50%, transparent); }\n\t\t.ov-row:last-child { border-bottom: none; }\n\t\t.ov-label { font-size: .75rem; color: var(--muted-foreground); flex-shrink: 0; }\n\t\t.ov-value { font-size: .75rem; font-family: var(--font-mono); text-align: right; word-break: break-all; min-width: 0; }\n\t</style>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -414,7 +414,7 @@ func OverviewServerBody(m OverviewServer) templ.Component {
 				var templ_7745c5c3_Var13 string
 				templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(m.InventorySource)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 141, Col: 41}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 144, Col: 41}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 				if templ_7745c5c3_Err != nil {
@@ -436,7 +436,7 @@ func OverviewServerBody(m OverviewServer) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = card.Footer(card.FooterProps{Class: "pt-2 text-[0.6875rem] text-muted-foreground"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var12), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = card.Footer(card.FooterProps{Class: "pt-2 text-xs text-muted-foreground"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var12), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -570,7 +570,7 @@ func overviewBmcCard() templ.Component {
 					var templ_7745c5c3_Var20 string
 					templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(v)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 169, Col: 10}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 172, Col: 10}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 					if templ_7745c5c3_Err != nil {
@@ -692,7 +692,7 @@ func OverviewAppUpdateBody(m OverviewUpdateCheck) templ.Component {
 				var templ_7745c5c3_Var24 string
 				templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(versionDisplay(m.Latest))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 208, Col: 40}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 211, Col: 40}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 				if templ_7745c5c3_Err != nil {
@@ -920,7 +920,7 @@ func OverviewBiosBody(m OverviewBios) templ.Component {
 				var templ_7745c5c3_Var33 string
 				templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(v)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 248, Col: 9}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 251, Col: 9}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 				if templ_7745c5c3_Err != nil {
@@ -956,7 +956,7 @@ func OverviewBiosBody(m OverviewBios) templ.Component {
 					var templ_7745c5c3_Var35 string
 					templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(versionDisplay(m.UBoot.Latest))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 268, Col: 49}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 271, Col: 49}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
 					if templ_7745c5c3_Err != nil {
@@ -1864,7 +1864,7 @@ func OverviewKernelsBody(m OverviewKernels) templ.Component {
 							var templ_7745c5c3_Var70 string
 							templ_7745c5c3_Var70, templ_7745c5c3_Err = templ.JoinStringErrs(k.Kernel)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 436, Col: 22}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 439, Col: 22}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var70))
 							if templ_7745c5c3_Err != nil {
@@ -1877,7 +1877,7 @@ func OverviewKernelsBody(m OverviewKernels) templ.Component {
 							var templ_7745c5c3_Var71 string
 							templ_7745c5c3_Var71, templ_7745c5c3_Err = templ.JoinStringErrs(k.UBoot)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 436, Col: 45}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 439, Col: 45}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var71))
 							if templ_7745c5c3_Err != nil {
@@ -1922,7 +1922,7 @@ func OverviewKernelsBody(m OverviewKernels) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if sel, ok := m.SelectedKernel(); ok && sel.Active {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 90, "<div class=\"text-[0.6875rem] text-muted-foreground\">★ Active</div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 90, "<div class=\"text-xs text-muted-foreground\">★ Active</div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -2120,7 +2120,7 @@ func ovRow(label, value string) templ.Component {
 		var templ_7745c5c3_Var77 string
 		templ_7745c5c3_Var77, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 517, Col: 32}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 520, Col: 32}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var77))
 		if templ_7745c5c3_Err != nil {
@@ -2134,7 +2134,7 @@ func ovRow(label, value string) templ.Component {
 			var templ_7745c5c3_Var78 string
 			templ_7745c5c3_Var78, templ_7745c5c3_Err = templ.JoinStringErrs(value)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 520, Col: 11}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 523, Col: 11}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var78))
 			if templ_7745c5c3_Err != nil {

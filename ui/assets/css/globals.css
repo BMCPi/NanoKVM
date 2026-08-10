@@ -12,6 +12,10 @@
 
 @theme inline {
   --font-heading: var(--font-sans);
+  /* Annotation tier below text-xs, for dense readouts (EEPROM preview, API
+     docs metadata). A named step so the scale stays 2xs/xs/sm/base instead of
+     arbitrary text-[…] values drifting apart across templates. */
+  --text-2xs: 0.625rem;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);

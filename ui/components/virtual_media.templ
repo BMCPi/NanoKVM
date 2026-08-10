@@ -79,10 +79,10 @@ templ VMMenuBody(files []string, inserted string) {
 			// data-tui-dropdownmenu-item is the component's close-on-click
 			// contract: dropdownmenu.js closes the containing menu when a
 			// carrier of it is clicked.
+			// Default size IS h-7 — no Size + height override needed.
 			@button.Button(button.Props{
 				Variant:    button.VariantGhost,
-				Size:       button.SizeSm,
-				Class:      "h-7 shrink-0",
+				Class:      "shrink-0",
 				Attributes: templ.Attributes{"data-tui-dropdownmenu-item": true},
 			}) {
 				Close
@@ -104,8 +104,7 @@ templ VMMenuBody(files []string, inserted string) {
 			if inserted != "" {
 				@button.Button(button.Props{
 					Variant: button.VariantDestructive,
-					Size:    button.SizeSm,
-					Class:   "h-7 shrink-0",
+					Class:   "shrink-0",
 					Attributes: templ.Attributes{
 						"hx-post":         "/ui/media/eject",
 						"hx-target":       "#vm-menu-body",
@@ -137,13 +136,11 @@ templ VMMenuBody(files []string, inserted string) {
 // so height stays fixed. Mutations re-render this view (fresh file list);
 // a successful mount answers with VMMenuBody instead.
 templ VMAddBody(files []string) {
-	<div class="p-3 space-y-2">
+	<div class="p-3 space-y-3">
 		<div class="flex items-center justify-between gap-2">
 			<div class="text-sm font-semibold">Add New Media</div>
 			@button.Button(button.Props{
 				Variant: button.VariantGhost,
-				Size:    button.SizeSm,
-				Class:   "h-7",
 				Attributes: templ.Attributes{
 					"hx-get":    "/ui/media",
 					"hx-target": "#vm-menu-body",
