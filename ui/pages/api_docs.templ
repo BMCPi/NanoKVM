@@ -1,0 +1,518 @@
+package pages
+
+import (
+	"strconv"
+
+	"github.com/pi-bmc/nanokvm-app/ui/components/badge"
+	"github.com/pi-bmc/nanokvm-app/ui/layouts"
+)
+
+// APIDocsPage renders the OpenAPI-derived Redfish API reference in a
+// UniFi-style three-column layout:
+//
+//	[ tag/op sidebar ] [ operation prose ] [ method+path + samples ]
+//
+// Page is reached via /docs (public, no auth — discovery should be open
+// for clients like bmclib that want to introspect the surface first).
+templ APIDocsPage(m APIDocsModel) {
+	@layouts.Base("NanoKVM BMC - API Docs", true, true) {
+		<div class="flex h-full min-h-0 w-full">
+			@apiDocsSidebar(m)
+			<main class="flex-1 min-w-0 overflow-y-auto">
+				<div class="px-8 py-8 space-y-12 max-w-[120rem] mx-auto">
+					@apiDocsHeader(m)
+					for _, tag := range m.Tags {
+						if len(m.ByTag[tag.Name]) > 0 {
+							@apiDocsTagSection(tag, m.ByTag[tag.Name])
+						}
+					}
+				</div>
+			</main>
+		</div>
+	}
+}
+
+// apiDocsSidebar is the left rail. Each tag is a <details> with its
+// operations nested as method-badge + summary links. Using the native
+// <details>/<summary> element means no JS — the browser handles
+// expand/collapse and remembers open state across same-page navigation.
+templ apiDocsSidebar(m APIDocsModel) {
+	<aside class="w-64 flex-shrink-0 border-r border-border bg-card overflow-y-auto">
+		<div class="p-4 border-b border-border space-y-0.5">
+			<h2 class="text-sm font-semibold">{ m.Title }</h2>
+			<p class="text-xs text-muted-foreground">v{ m.Version }</p>
+		</div>
+		<nav class="p-2 space-y-0.5">
+			for _, tag := range m.Tags {
+				if len(m.ByTag[tag.Name]) > 0 {
+					@apiDocsSidebarTag(tag, m.ByTag[tag.Name])
+				}
+			}
+		</nav>
+	</aside>
+}
+
+// apiDocsSidebarTag is one collapsible tag group with its operations
+// nested as method-badge + summary links.
+templ apiDocsSidebarTag(tag APIDocsTag, ops []APIDocsOperation) {
+	<details class="group">
+		<summary class="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer hover:bg-accent transition-colors list-none [&::-webkit-details-marker]:hidden">
+			<a href={ templ.URL("#" + tag.Anchor) } class="flex-1 truncate">{ tag.Name }</a>
+			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5 text-muted-foreground transition-transform group-open:rotate-90">
+				<polyline points="9 18 15 12 9 6"></polyline>
+			</svg>
+		</summary>
+		<div class="ml-1 mt-0.5 mb-1 space-y-0.5 border-l border-border/60 pl-2">
+			for _, op := range ops {
+				<a
+					href={ templ.URL("#" + op.Anchor) }
+					class="flex items-center gap-2 rounded-md px-2 py-1 text-xs hover:bg-accent transition-colors"
+				>
+					@apiDocsSidebarMethodTag(op.Method)
+					<span class="truncate flex-1">
+						if op.Summary != "" {
+							{ op.Summary }
+						} else {
+							{ op.Path }
+						}
+					</span>
+				</a>
+			}
+		</div>
+	</details>
+	<span class="sr-only">{ strconv.Itoa(tag.Count) }</span>
+}
+
+// apiDocsSidebarMethodTag is the compact (4-letter) method tag used in
+// the sidebar — narrower than the inline method badge so long operation
+// names fit without wrapping.
+templ apiDocsSidebarMethodTag(method string) {
+	<span class={ "inline-flex items-center justify-center rounded px-1 text-[0.625rem] font-mono font-semibold uppercase tracking-tight w-9 shrink-0", MethodColorClass(method) }>
+		{ shortMethod(method) }
+	</span>
+}
+
+// apiDocsHeader is the page banner: title, version, summary, description.
+templ apiDocsHeader(m APIDocsModel) {
+	<section>
+		<div class="flex items-baseline gap-2">
+			<h1 class="text-2xl font-bold">{ m.Title }</h1>
+			@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-xs"}) {
+				v{ m.Version }
+			}
+		</div>
+		if m.Summary != "" {
+			<p class="mt-2 text-sm text-muted-foreground">{ m.Summary }</p>
+		}
+		if m.Description != "" {
+			@apiDocsMarkdown(m.Description, "mt-4")
+		}
+	</section>
+}
+
+// apiDocsMarkdown renders a description string as HTML inside a scoped
+// `.api-md` container. The .api-md styles live in globals.css/output.css
+// and apply Redoc-like typography (headings, lists, inline code, bold)
+// to whatever goldmark emits.
+templ apiDocsMarkdown(s string, extraClass string) {
+	<div class={ "api-md text-sm text-muted-foreground", extraClass }>
+		@templ.Raw(RenderMarkdown(s))
+	</div>
+}
+
+// apiDocsTagSection is one tag (e.g. "Bios") with a section heading +
+// description, followed by every operation under it.
+templ apiDocsTagSection(tag APIDocsTag, ops []APIDocsOperation) {
+	<section id={ tag.Anchor } class="space-y-8 scroll-mt-4">
+		<div class="border-b border-border pb-3">
+			<h2 class="text-2xl font-bold">{ tag.Name }</h2>
+			if tag.Description != "" {
+				@apiDocsMarkdown(tag.Description, "mt-2")
+			}
+		</div>
+		for _, op := range ops {
+			@apiDocsOperation(op)
+		}
+	</section>
+}
+
+// apiDocsOperation renders one operation as a two-column row: prose on
+// the left (description, parameters, request body, responses), and the
+// method+path summary plus response sample on the right. The right
+// column is sticky within the operation block so the endpoint header
+// stays visible while the operator scrolls through long parameter lists.
+templ apiDocsOperation(op APIDocsOperation) {
+	<article id={ op.Anchor } class="grid grid-cols-1 lg:grid-cols-[1fr_28rem] gap-x-10 gap-y-4 scroll-mt-4 pb-8 border-b border-border/40 last:border-b-0">
+		<div class="min-w-0 space-y-5">
+			<div>
+				<div class="flex items-center gap-2 flex-wrap mb-2">
+					if op.Summary != "" {
+						<h3 class="text-xl font-semibold">{ op.Summary }</h3>
+					} else {
+						<h3 class="text-xl font-semibold font-mono">{ op.Method } { op.Path }</h3>
+					}
+					if op.PublicAuth {
+						@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-[0.6875rem]"}) {
+							public
+						}
+					}
+				</div>
+				if op.Description != "" {
+					@apiDocsMarkdown(op.Description, "")
+				}
+			</div>
+			if hasParamsIn(op.Parameters, "path") {
+				@apiDocsParamGroup("Path parameters", filterParams(op.Parameters, "path"))
+			}
+			if hasParamsIn(op.Parameters, "query") {
+				@apiDocsParamGroup("Query parameters", filterParams(op.Parameters, "query"))
+			}
+			if hasParamsIn(op.Parameters, "header") {
+				@apiDocsParamGroup("Header parameters", filterParams(op.Parameters, "header"))
+			}
+			if op.RequestBody != nil {
+				@apiDocsSubheading("Request body")
+				@apiDocsRequestBody(*op.RequestBody)
+			}
+			if len(op.Responses) > 0 {
+				@apiDocsSubheading("Responses")
+				@apiDocsResponses(op.Responses)
+			}
+		</div>
+		<aside class="min-w-0">
+			<div class="lg:sticky lg:top-4 space-y-3">
+				@apiDocsEndpointBar(op)
+				if sample := op.FirstResponseSample(); sample.Example != "" {
+					@apiDocsResponseSamples(sample)
+				}
+			</div>
+		</aside>
+	</article>
+}
+
+// apiDocsEndpointBar is the small framed strip at the top of the right
+// column that mirrors the operation's method + path. Acts as a visual
+// anchor when long operations push the heading off-screen.
+templ apiDocsEndpointBar(op APIDocsOperation) {
+	<div class="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
+		@apiDocsMethodBadge(op.Method)
+		<code class="font-mono text-xs break-all flex-1 min-w-0">{ op.Path }</code>
+	</div>
+}
+
+// apiDocsResponseSamples renders the "Response samples" panel: heading,
+// a status badge, and the JSON example in a scrollable code block.
+templ apiDocsResponseSamples(sample APIDocsResponse) {
+	<div class="rounded-md border border-border bg-muted/20 overflow-hidden">
+		<div class="flex items-center justify-between gap-2 px-3 py-2 border-b border-border">
+			<span class="text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground">Response sample</span>
+			@badge.Badge(badge.Props{Class: StatusColorClass(sample.Status) + " font-mono text-xs px-2"}) {
+				{ sample.Status }
+			}
+		</div>
+		<pre class="overflow-x-auto p-3 text-xs leading-relaxed max-h-[28rem]"><code class="font-mono">{ sample.Example }</code></pre>
+	</div>
+}
+
+templ apiDocsSubheading(label string) {
+	<h4 class="text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground">{ label }</h4>
+}
+
+// apiDocsMethodBadge — coloured tag for the HTTP verb. We use a Badge with
+// the colour class supplied by MethodColorClass so we don't have to fight
+// Badge's built-in variant palette.
+templ apiDocsMethodBadge(method string) {
+	@badge.Badge(badge.Props{
+		Class: MethodColorClass(method) + " font-mono font-semibold text-xs px-2",
+	}) {
+		{ method }
+	}
+}
+
+// apiDocsParamGroup renders a labelled parameter table (one group per
+// `in` location, e.g. all `path` params under "Path parameters").
+templ apiDocsParamGroup(label string, params []APIDocsParam) {
+	<div class="space-y-2">
+		@apiDocsSubheading(label)
+		@apiDocsParameters(params)
+	</div>
+}
+
+// apiDocsParameters is a small three-column grid: name + meta / description.
+templ apiDocsParameters(params []APIDocsParam) {
+	<div class="space-y-1.5 text-sm">
+		for _, p := range params {
+			<div class="grid grid-cols-[minmax(8rem,auto)_1fr] items-baseline gap-x-4 gap-y-1 border-b border-border/40 pb-2 last:border-b-0">
+				<div class="space-y-0.5">
+					<code class="font-mono text-xs font-semibold">{ p.Name }</code>
+					<div class="text-[0.6875rem] text-muted-foreground">
+						if p.Type != "" {
+							<span>{ p.Type }</span>
+						}
+						if p.Required {
+							<span class="ml-1 text-destructive">· required</span>
+						}
+					</div>
+				</div>
+				<span class="text-xs text-muted-foreground">{ p.Description }</span>
+			</div>
+		}
+	</div>
+}
+
+// apiDocsRequestBody renders content type + schema + example.
+templ apiDocsRequestBody(b APIDocsBody) {
+	<div class="space-y-2">
+		<p class="text-xs text-muted-foreground">
+			<code class="font-mono">{ b.ContentType }</code>
+			if b.Required {
+				<span class="ml-1 text-destructive">· required</span>
+			}
+		</p>
+		if b.Schema != nil {
+			@apiDocsSchemaRoot(b.Schema)
+		}
+		if b.Example != "" {
+			<details class="rounded-md border border-border bg-muted/30">
+				<summary class="cursor-pointer px-3 py-1.5 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/40 transition-colors">Example</summary>
+				<pre class="overflow-x-auto p-3 text-xs border-t border-border"><code class="font-mono">{ b.Example }</code></pre>
+			</details>
+		}
+	</div>
+}
+
+// apiDocsResponses renders each response with status badge, description,
+// and (when the response has a schema/example) a collapsible body. We
+// open the first 2xx by default so the success shape is visible without
+// a click.
+templ apiDocsResponses(rs []APIDocsResponse) {
+	<div class="space-y-2">
+		for i, r := range rs {
+			@apiDocsResponseRow(r, i == 0)
+		}
+	</div>
+}
+
+templ apiDocsResponseRow(r APIDocsResponse, open bool) {
+	if r.Schema != nil || r.Example != "" {
+		<details class="rounded-md border border-border bg-muted/20" open?={ open }>
+			<summary class="flex items-baseline gap-2 cursor-pointer px-3 py-2 text-sm hover:bg-accent/40 transition-colors">
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5 text-muted-foreground transition-transform [details[open]>summary>&]:rotate-90 shrink-0 mt-0.5">
+					<polyline points="9 18 15 12 9 6"></polyline>
+				</svg>
+				@badge.Badge(badge.Props{Class: StatusColorClass(r.Status) + " font-mono text-xs px-2"}) {
+					{ r.Status }
+				}
+				<span class="text-sm text-muted-foreground flex-1">{ r.Description }</span>
+			</summary>
+			<div class="border-t border-border px-3 py-3 space-y-3">
+				if r.ContentType != "" {
+					<p class="text-[0.6875rem] text-muted-foreground"><code class="font-mono">{ r.ContentType }</code></p>
+				}
+				if r.Schema != nil {
+					@apiDocsSchemaRoot(r.Schema)
+				}
+			</div>
+		</details>
+	} else {
+		<div class="flex items-baseline gap-2 text-sm rounded-md border border-border/40 bg-muted/10 px-3 py-2">
+			@badge.Badge(badge.Props{Class: StatusColorClass(r.Status) + " font-mono text-xs px-2"}) {
+				{ r.Status }
+			}
+			<span class="text-sm text-muted-foreground flex-1">{ r.Description }</span>
+		</div>
+	}
+}
+
+// apiDocsSchemaRoot is the entry point for rendering a schema tree.
+// Wraps the inner @apiDocsSchema call in a labelled frame so the user
+// sees "Schema" + (when present) the component name.
+templ apiDocsSchemaRoot(s *APIDocsSchema) {
+	<div class="rounded-md border border-border bg-card">
+		<div class="flex items-baseline gap-2 px-3 py-1.5 border-b border-border">
+			<span class="text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground">Schema</span>
+			if s.RefName != "" {
+				<code class="font-mono text-[0.6875rem] text-muted-foreground/80">{ s.RefName }</code>
+			}
+			@apiDocsTypeBadge(s)
+		</div>
+		<div class="px-3 py-2">
+			@apiDocsSchema(s, 0)
+		</div>
+	</div>
+}
+
+// apiDocsSchema dispatches a schema node to the right sub-renderer.
+// `depth` is used to cap recursion in the template (defence-in-depth on
+// top of the loader's maxSchemaDepth).
+templ apiDocsSchema(s *APIDocsSchema, depth int) {
+	if s == nil {
+		<span class="text-xs text-muted-foreground italic">(unspecified)</span>
+	} else if depth > 12 {
+		<span class="text-xs text-muted-foreground italic">…</span>
+	} else if s.Type == "object" || len(s.Properties) > 0 || s.AdditionalProperties != nil {
+		@apiDocsSchemaObject(s, depth)
+	} else if s.Type == "array" || s.Items != nil {
+		@apiDocsSchemaArray(s, depth)
+	} else if len(s.OneOf) > 0 {
+		@apiDocsSchemaOneOf(s, depth)
+	} else {
+		@apiDocsSchemaLeaf(s)
+	}
+}
+
+// apiDocsSchemaObject lists each property as a row. Nested
+// object/array values render inline indented to make the structure
+// scannable like Redoc; primitives just show name + type + description.
+templ apiDocsSchemaObject(s *APIDocsSchema, depth int) {
+	<div class="space-y-1.5">
+		if s.Description != "" && depth == 0 {
+			@apiDocsMarkdown(s.Description, "text-xs mb-2")
+		}
+		for _, p := range s.Properties {
+			@apiDocsSchemaProp(p, depth)
+		}
+		if s.AdditionalProperties != nil {
+			<div class="flex flex-col gap-1 py-1.5 border-l-2 border-border/60 pl-3">
+				<div class="flex items-baseline gap-2 flex-wrap">
+					<code class="font-mono text-xs italic text-muted-foreground">[additional property]</code>
+					@apiDocsTypeBadge(s.AdditionalProperties)
+				</div>
+				if needsRecursion(s.AdditionalProperties) {
+					<div class="pt-1">
+						@apiDocsSchema(s.AdditionalProperties, depth+1)
+					</div>
+				}
+			</div>
+		}
+		if len(s.Properties) == 0 && s.AdditionalProperties == nil {
+			<span class="text-xs text-muted-foreground italic">(no properties)</span>
+		}
+	</div>
+}
+
+// apiDocsSchemaProp renders one named property row. Object/array
+// children get an inline <details> so the user can drill in without
+// leaving the page.
+templ apiDocsSchemaProp(p APIDocsSchemaProp, depth int) {
+	if needsRecursion(p.Schema) {
+		<details class="border-l-2 border-border/60 pl-3" open?={ depth == 0 }>
+			<summary class="cursor-pointer py-1.5 list-none [&::-webkit-details-marker]:hidden">
+				<div class="flex items-baseline gap-2 flex-wrap">
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3 text-muted-foreground transition-transform [details[open]>summary>&]:rotate-90 inline-block">
+						<polyline points="9 18 15 12 9 6"></polyline>
+					</svg>
+					<code class="font-mono text-xs font-semibold">{ p.Name }</code>
+					@apiDocsTypeBadge(p.Schema)
+					if p.Required {
+						<span class="text-[0.625rem] text-destructive">required</span>
+					}
+				</div>
+				if p.Schema != nil && p.Schema.Description != "" {
+					<div class="pl-5 mt-0.5">
+						@apiDocsMarkdown(p.Schema.Description, "text-xs")
+					</div>
+				}
+			</summary>
+			<div class="pl-5 pt-1 pb-1">
+				@apiDocsSchema(p.Schema, depth+1)
+			</div>
+		</details>
+	} else {
+		<div class="flex flex-col gap-0.5 py-1.5 border-l-2 border-border/60 pl-3">
+			<div class="flex items-baseline gap-2 flex-wrap">
+				<code class="font-mono text-xs font-semibold">{ p.Name }</code>
+				@apiDocsTypeBadge(p.Schema)
+				if p.Required {
+					<span class="text-[0.625rem] text-destructive">required</span>
+				}
+			</div>
+			if p.Schema != nil {
+				@apiDocsSchemaMeta(p.Schema)
+			}
+		</div>
+	}
+}
+
+// apiDocsSchemaArray renders an array schema as "Array of <ItemType>"
+// followed by the recursive item schema.
+templ apiDocsSchemaArray(s *APIDocsSchema, depth int) {
+	<div class="space-y-1">
+		if s.Description != "" && depth == 0 {
+			@apiDocsMarkdown(s.Description, "text-xs")
+		}
+		<div class="flex items-baseline gap-2 flex-wrap">
+			<span class="text-[0.6875rem] uppercase tracking-wider text-muted-foreground">items</span>
+			@apiDocsTypeBadge(s.Items)
+		</div>
+		if needsRecursion(s.Items) {
+			<div class="pl-3 border-l-2 border-border/60 pt-1">
+				@apiDocsSchema(s.Items, depth+1)
+			</div>
+		}
+	</div>
+}
+
+// apiDocsSchemaOneOf shows each variant as a collapsible block.
+templ apiDocsSchemaOneOf(s *APIDocsSchema, depth int) {
+	<div class="space-y-1">
+		<span class="text-[0.6875rem] uppercase tracking-wider text-muted-foreground">one of</span>
+		<div class="space-y-1.5">
+			for i, v := range s.OneOf {
+				<details class="border-l-2 border-border/60 pl-3" open?={ i == 0 }>
+					<summary class="cursor-pointer py-1 list-none [&::-webkit-details-marker]:hidden flex items-baseline gap-2">
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3 text-muted-foreground transition-transform [details[open]>summary>&]:rotate-90 inline-block">
+							<polyline points="9 18 15 12 9 6"></polyline>
+						</svg>
+						<span class="text-xs font-semibold">variant { strconv.Itoa(i + 1) }</span>
+						@apiDocsTypeBadge(v)
+					</summary>
+					<div class="pl-5 pt-1">
+						@apiDocsSchema(v, depth+1)
+					</div>
+				</details>
+			}
+		</div>
+	</div>
+}
+
+// apiDocsSchemaLeaf renders primitive (string/integer/boolean/etc.)
+// schemas — only meta lines (enum / default / example).
+templ apiDocsSchemaLeaf(s *APIDocsSchema) {
+	@apiDocsSchemaMeta(s)
+}
+
+// apiDocsSchemaMeta lists the optional meta lines (enum / default /
+// example) shared by leaves and primitive properties.
+templ apiDocsSchemaMeta(s *APIDocsSchema) {
+	if s != nil {
+		if len(s.Enum) > 0 {
+			<div class="flex items-baseline gap-1.5 flex-wrap mt-0.5">
+				<span class="text-[0.6875rem] text-muted-foreground/70">enum:</span>
+				for _, v := range s.Enum {
+					<code class="font-mono text-[0.6875rem] rounded bg-muted/60 px-1.5 py-0.5">{ v }</code>
+				}
+			</div>
+		}
+		if s.Default != "" {
+			<div class="text-[0.6875rem] text-muted-foreground/70">
+				<span>default:</span> <code class="font-mono">{ s.Default }</code>
+			</div>
+		}
+		if s.Example != "" {
+			<div class="text-[0.6875rem] text-muted-foreground/70">
+				<span>example:</span> <code class="font-mono break-all">{ s.Example }</code>
+			</div>
+		}
+	}
+}
+
+// apiDocsTypeBadge renders the small type pill ("string", "object",
+// "array of object", etc.). Includes nullable/format hints when set.
+templ apiDocsTypeBadge(s *APIDocsSchema) {
+	if s != nil {
+		<span class="font-mono text-[0.6875rem] text-muted-foreground/80">
+			{ typeLabel(s) }
+		</span>
+	}
+}

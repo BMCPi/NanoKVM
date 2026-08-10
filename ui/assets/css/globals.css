@@ -1,0 +1,193 @@
+@import "tailwindcss";
+@import "./tw-animate.css";
+@import "./shadcn-tailwind.css";
+
+/* All templ sources — ui/layouts, ui/pages, and the components
+   (app + vendored shadcn-templ) under ui/components — so every utility
+   class they use lands in output.css. */
+@source "../../../**/*.templ";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.141 0.005 285.823);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.141 0.005 285.823);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.141 0.005 285.823);
+  --primary: oklch(0.505 0.213 27.518);
+  --primary-foreground: oklch(0.971 0.013 17.38);
+  --secondary: oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.21 0.006 285.885);
+  --muted: oklch(0.967 0.001 286.375);
+  --muted-foreground: oklch(0.552 0.016 285.938);
+  --accent: oklch(0.967 0.001 286.375);
+  --accent-foreground: oklch(0.21 0.006 285.885);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.92 0.004 286.32);
+  --input: oklch(0.92 0.004 286.32);
+  --ring: oklch(0.705 0.015 286.067);
+  --chart-1: oklch(0.808 0.114 19.571);
+  --chart-2: oklch(0.637 0.237 25.331);
+  --chart-3: oklch(0.577 0.245 27.325);
+  --chart-4: oklch(0.505 0.213 27.518);
+  --chart-5: oklch(0.444 0.177 26.899);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.141 0.005 285.823);
+  --sidebar-primary: oklch(0.577 0.245 27.325);
+  --sidebar-primary-foreground: oklch(0.971 0.013 17.38);
+  --sidebar-accent: oklch(0.967 0.001 286.375);
+  --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
+  --sidebar-border: oklch(0.92 0.004 286.32);
+  --sidebar-ring: oklch(0.705 0.015 286.067);
+}
+
+.dark {
+  --background: oklch(0.141 0.005 285.823);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.21 0.006 285.885);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.21 0.006 285.885);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.444 0.177 26.899);
+  --primary-foreground: oklch(0.971 0.013 17.38);
+  --secondary: oklch(0.274 0.006 286.033);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.274 0.006 286.033);
+  --muted-foreground: oklch(0.705 0.015 286.067);
+  --accent: oklch(0.274 0.006 286.033);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.552 0.016 285.938);
+  --chart-1: oklch(0.808 0.114 19.571);
+  --chart-2: oklch(0.637 0.237 25.331);
+  --chart-3: oklch(0.577 0.245 27.325);
+  --chart-4: oklch(0.505 0.213 27.518);
+  --chart-5: oklch(0.444 0.177 26.899);
+  --sidebar: oklch(0.21 0.006 285.885);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.637 0.237 25.331);
+  --sidebar-primary-foreground: oklch(0.971 0.013 17.38);
+  --sidebar-accent: oklch(0.274 0.006 286.033);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.552 0.016 285.938);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+}
+
+::-webkit-scrollbar { width: 10px; }
+::-webkit-scrollbar-track { background: var(--background); }
+::-webkit-scrollbar-thumb { background: #555; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #444; }
+
+/* Hides scrollbar visually while preserving scroll behaviour. */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+/* Navbar dropdown panels: scroll on mobile, expand to fit on desktop.
+   Overrides the dropdown content's available-height cap with !important. */
+.panel-fit { max-height: 80svh; overflow-y: auto; scrollbar-width: none; }
+.panel-fit::-webkit-scrollbar { display: none; }
+@media (min-width: 640px) { .panel-fit { max-height: none !important; overflow: visible; } }
+
+/* api-md scopes the goldmark-rendered description HTML on the API docs
+   page. Tailwind's typography plugin isn't in the build, so the
+   per-element rules live here (Redoc-like typography: headings, lists,
+   inline code, bold). */
+.api-md            { line-height: 1.55; }
+.api-md h1, .api-md h2, .api-md h3, .api-md h4 {
+                     font-weight: 600;
+                     color: var(--foreground);
+                     margin: 1em 0 .4em; }
+.api-md h1         { font-size: 1.125rem; }
+.api-md h2         { font-size: 1rem; }
+.api-md h3, .api-md h4 { font-size: .9375rem; }
+.api-md p          { margin: .6em 0; }
+.api-md p:first-child { margin-top: 0; }
+.api-md p:last-child  { margin-bottom: 0; }
+.api-md ul, .api-md ol { margin: .5em 0; padding-left: 1.25rem; }
+.api-md ul         { list-style: disc; }
+.api-md ol         { list-style: decimal; }
+.api-md li         { margin: .15em 0; }
+.api-md strong     { color: var(--foreground); font-weight: 600; }
+.api-md em         { font-style: italic; }
+.api-md a          { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
+.api-md a:hover    { text-decoration-thickness: 2px; }
+.api-md code       { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                     font-size: .875em;
+                     background: color-mix(in oklab, var(--muted) 60%, transparent);
+                     padding: 0 .3em;
+                     border-radius: .25rem; }
+.api-md pre        { background: var(--muted);
+                     border: 1px solid var(--border);
+                     border-radius: .375rem;
+                     padding: .75rem;
+                     overflow-x: auto;
+                     margin: .6em 0; }
+.api-md pre code   { background: transparent; padding: 0; }
+.api-md blockquote { border-left: 3px solid var(--border);
+                     padding-left: .75rem;
+                     color: var(--muted-foreground); }
+.api-md hr         { border: 0; border-top: 1px solid var(--border); margin: 1em 0; }
+.api-md table      { width: 100%; border-collapse: collapse; font-size: .8125rem; margin: .6em 0; }
+.api-md th, .api-md td { border: 1px solid var(--border); padding: .35rem .5rem; text-align: left; }
+.api-md th         { background: color-mix(in oklab, var(--muted) 40%, transparent); font-weight: 600; }

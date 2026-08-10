@@ -177,8 +177,8 @@ linters:
       - _templ\.go$
       # Vendored shadcn-templ sources (updated via `shadcn-templ add
       # --overwrite`); local style fixes would drift from upstream.
-      - server/components/
-      - server/utils/shadcn-templ.go
+      - ui/components/
+      - ui/utils/
       - third_party$
       - builtin$
       - examples$
@@ -194,8 +194,8 @@ formatters:
     generated: lax
     paths:
       - _templ\.go$
-      - server/components/
-      - server/utils/shadcn-templ.go
+      - ui/components/
+      - ui/utils/
       - third_party$
       - builtin$
       - examples$

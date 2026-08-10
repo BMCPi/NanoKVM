@@ -11,7 +11,7 @@ package redfish
 //   GET /redfish/v1/openapi.json — same spec, converted to JSON
 //
 // A custom templui-based docs page is served at /docs (see
-// server/pages/api_docs.templ); SwaggerUI is no longer used.
+// ui/pages/api_docs.templ); SwaggerUI is no longer used.
 //
 // Both endpoints are public (no auth) so a tool can discover the
 // surface before authenticating.

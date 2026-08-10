@@ -192,10 +192,8 @@ func run() {
 		r.Use(cors.Default())
 	}
 
-	// Configure templ renderer with fallback to Gin's default HTML renderer.
-	ginHtmlRenderer := r.HTMLRender
-	r.HTMLRender = &router.HTMLTemplRenderer{FallbackHtmlRenderer: ginHtmlRenderer}
-
+	// router.Init wires the UI (which installs the templ HTML renderer with
+	// gin's default as fallback) and every API route group.
 	router.Init(r)
 
 	httpAddr := fmt.Sprintf(":%d", conf.Port.Http)

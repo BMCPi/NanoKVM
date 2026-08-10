@@ -1,0 +1,120 @@
+package components
+
+import (
+	"github.com/pi-bmc/nanokvm-app/ui/components/button"
+	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
+)
+
+// Navbar is a single top bar. The Serial Console panel below acts as the
+// contextual second bar (mirrors JetKVM / PiKVM's dual-bar pattern).
+//
+// Left cluster:  brand → Power ▾ → Virtual Media ▾ → divider → Server Overview
+// Right cluster: API Docs → Settings → Logout
+templ Navbar(onDocsPage bool) {
+	@navbarStyles()
+	<header class="flex items-center justify-between border-b border-border bg-card px-3 gap-1 shrink-0" style="height:2.75rem">
+		// Left cluster
+		<div class="flex items-center gap-0.5">
+			<a href="/" class="flex items-center mr-2 shrink-0" title="NanoKVM BMC" aria-label="NanoKVM BMC">
+				<img src="/img/favicon.ico" alt="NanoKVM BMC" class="size-5"/>
+			</a>
+			@PowerMenu()
+			@VirtualMediaMenu()
+			<div class="w-px h-3.5 bg-border mx-1 shrink-0"></div>
+			<button class="nav-item" onclick="toggleOverview()" aria-label="Server Overview" title="Server Overview">
+				@icon.MonitorSpeaker()
+				<span class="hidden sm:inline">Server Overview</span>
+			</button>
+			if !onDocsPage {
+				// Toggles the slide-up BMC shell drawer (BMCTerminalPanel).
+				// Docs pages don't render the drawer, so the button is omitted there.
+				<button
+					id="btn-bmc-terminal"
+					class="nav-item"
+					onclick="toggleBmcTerminal()"
+					aria-label="BMC Terminal"
+					aria-expanded="false"
+					title="Shell on the BMC"
+				>
+					@icon.SquareTerminal()
+					<span class="hidden sm:inline">BMC Terminal</span>
+				</button>
+			}
+		</div>
+		// Right cluster
+		<div class="flex items-center gap-0.5 shrink-0">
+			if onDocsPage {
+				@button.Button(button.Props{
+					Variant: button.VariantGhost,
+					Size:    button.SizeSm,
+					Href:    "/",
+					Attributes: templ.Attributes{
+						"aria-label": "Dashboard",
+						"title":      "Back to dashboard",
+					},
+				}) {
+					@icon.LayoutDashboard()
+					<span class="hidden sm:inline">Dashboard</span>
+				}
+			} else {
+				@button.Button(button.Props{
+					Variant: button.VariantGhost,
+					Size:    button.SizeSm,
+					Href:    "/docs",
+					Attributes: templ.Attributes{
+						"target":     "_blank",
+						"rel":        "noopener noreferrer",
+						"aria-label": "API Docs",
+						"title":      "Redfish API documentation",
+					},
+				}) {
+					@icon.BookOpen()
+					<span class="hidden sm:inline">API Docs</span>
+				}
+			}
+			@SettingsDialogTrigger()
+			@button.Button(button.Props{
+				Variant:    button.VariantGhost,
+				Size:       button.SizeIcon,
+				Attributes: templ.Attributes{"onclick": "doLogout()", "aria-label": "Logout", "title": "Logout"},
+			}) {
+				@icon.LogOut()
+			}
+		</div>
+	</header>
+	@navbarScript()
+}
+
+templ navbarStyles() {
+	<style>
+		/* Flat toolbar button — matches JetKVM / PiKVM action bar style. */
+		.nav-item {
+			display: inline-flex;
+			align-items: center;
+			gap: 0.375rem;
+			padding: 0.25rem 0.5rem;
+			font-size: 0.8125rem;
+			color: var(--muted-foreground);
+			border-radius: 0.25rem;
+			border: none;
+			background: transparent;
+			cursor: pointer;
+			white-space: nowrap;
+			transition: color 0.1s ease, background-color 0.1s ease;
+			line-height: 1;
+			height: 1.75rem;
+		}
+		.nav-item:hover { color: var(--foreground); background-color: var(--accent); }
+		.nav-item svg { flex-shrink: 0; width: 0.875rem; height: 0.875rem; }
+	</style>
+}
+
+templ navbarScript() {
+	<script>
+		async function doLogout() {
+			try { await apiPost('/api/auth/logout'); } catch(e) {}
+			document.cookie = 'nano-kvm-token=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
+			window.location.replace('/auth/login');
+		}
+	</script>
+}
