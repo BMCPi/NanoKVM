@@ -23,32 +23,8 @@ templ OverviewDataScript() {
 			if (el) el.textContent = value || '—';
 		}
 
-		// ── /api/vm/info → BMC identity ────────────────────────────────────
-		// The BMC's own image/hardware/address have no Redfish surface here:
-		// Managers/1 carries only FirmwareVersion (the same build version
-		// /api/application/version reports, with the update check attached)
-		// and NetworkInterfaces is not implemented.
-		(async function() {
-			try {
-				const data = await apiGet('/api/vm/info');
-				if (data.code !== 0) return;
-				const i = data.data;
-				setRow('info-app', i.application);
-				setRow('info-image', i.image);
-				// ips is [{name, addr, version, type}] — prefer the first
-				// routable IPv4, else whatever the device reported first.
-				const ips = i.ips || [];
-				const ip = ips.find(x => x.version === 'ipv4' && x.addr && !x.addr.startsWith('127.')) || ips[0];
-				setRow('info-ip', ip && ip.addr);
-			} catch(e) {}
-		})();
-
-		(async function() {
-			try {
-				const data = await apiGet('/api/vm/hardware');
-				if (data.code === 0) setRow('info-hw', data.data.version);
-			} catch(e) {}
-		})();
+		// BMC identity rows (info-app / info-image / info-hw / info-ip) are
+		// server-rendered by overviewBmcCard — no /api/vm/info round trip.
 
 		// ── Application version (current vs GitHub latest) ─────────────────
 		async function loadAppVersion() {
@@ -77,7 +53,11 @@ templ OverviewDataScript() {
 
 		window.updateApplication = async function() {
 			const btn = document.getElementById('btn-app-update');
-			if (!confirm('Download and install the latest application? The service will restart.')) return;
+			if (!await uiConfirm({
+				title: 'Update the application?',
+				description: 'Downloads and installs the latest release. The service restarts when it finishes.',
+				confirmLabel: 'Update',
+			})) return;
 			btn.disabled = true;
 			dlProgress.start('app-update', 'Downloading update…');
 			// Simulated tick — service has no progress endpoint, so we just
@@ -261,7 +241,11 @@ templ OverviewDataScript() {
 
 		window.updateBIOS = async function() {
 			const btn = document.getElementById('btn-bios-update');
-			if (!confirm('Download the latest BIOS (U-Boot) firmware? Env files (machine.env, persistent.env, once.env) are preserved.')) return;
+			if (!await uiConfirm({
+				title: 'Update the BIOS (U-Boot)?',
+				description: 'Downloads the latest firmware image. Env files (machine.env, persistent.env, once.env) are preserved.',
+				confirmLabel: 'Update',
+			})) return;
 			btn.disabled = true;
 			dlProgress.start('bios-update', 'Starting update…');
 			try {
@@ -302,8 +286,6 @@ templ OverviewDataScript() {
 
 		window.setBootOverride = async function(persistent) {
 			const target = document.querySelector('input[name="boot-override-select"]').value;
-			const status = document.getElementById('boot-override-status');
-			status.textContent = 'Applying…';
 			try {
 				const r = await fetch('/redfish/v1/Systems/1', {
 					method: 'PATCH',
@@ -314,13 +296,17 @@ templ OverviewDataScript() {
 					} })
 				});
 				if (r.ok) {
-					status.textContent = persistent ? 'Set (persistent)' : 'Set (once)';
+					tui.toast.add({ type: 'success', title: 'Boot override set',
+						description: target + (persistent ? ' (persistent)' : ' (once)') });
 					loadFirmwareInfo();
 				} else {
 					const err = await r.json().catch(() => ({}));
-					status.textContent = 'Error: ' + (err.error?.message || r.statusText);
+					tui.toast.add({ type: 'error', title: 'Boot override failed',
+						description: err.error?.message || r.statusText });
 				}
-			} catch(e) { status.textContent = 'Error: ' + e.message; }
+			} catch(e) {
+				tui.toast.add({ type: 'error', title: 'Boot override failed', description: e.message });
+			}
 		};
 
 		window.downloadFirmware = async function() {
@@ -468,12 +454,14 @@ templ OverviewDataScript() {
 			const kernel = kernelHiddenInput()?.value;
 			if (!kernel) return;
 			const item = selectedKernelItem();
-			const ubootVer = item ? item.textContent.match(/U-Boot (\S+)/)?.[1] || kernel : kernel;
 			const isActive = !!item?.dataset.active;
-			const prompt = isActive
-				? `Re-download U-Boot image for Linux ${kernel} (${ubootVer})? It's currently active — the new image will replace the active one (env files preserved).`
-				: `Re-download U-Boot image for Linux ${kernel} (${ubootVer})? The existing cached image will be overwritten.`;
-			if (!confirm(prompt)) return;
+			if (!await uiConfirm({
+				title: `Re-download U-Boot for Linux ${kernel}?`,
+				description: isActive
+					? 'It is currently active — the new image replaces the active one (env files preserved).'
+					: 'The existing cached image will be overwritten.',
+				confirmLabel: 'Re-download',
+			})) return;
 			const rfBtn = document.getElementById('btn-kernel-refresh');
 			rfBtn.disabled = true;
 			dlProgress.start('kernel', isActive ? 'Re-downloading + reactivating…' : 'Re-downloading image…');
@@ -498,32 +486,35 @@ templ OverviewDataScript() {
 		window.activateKernelBIOS = async function() {
 			const kernel = kernelHiddenInput()?.value;
 			if (!kernel) return;
-			if (!confirm(`Activate U-Boot for Linux ${kernel}? Env files (machine.env, persistent.env, once.env) are preserved.`)) return;
+			if (!await uiConfirm({
+				title: `Activate U-Boot for Linux ${kernel}?`,
+				description: 'Env files (machine.env, persistent.env, once.env) are preserved.',
+				confirmLabel: 'Activate',
+			})) return;
 			const actBtn = document.getElementById('btn-kernel-activate');
-			const status = document.getElementById('bios-kernel-status');
 			actBtn.disabled = true;
-			actBtn.textContent = 'Activating…';
-			status.textContent = '';
-			try {
+			const p = (async () => {
 				const r = await fetch(`/api/firmware/bios/kernel/${encodeURIComponent(kernel)}/activate`, {
 					method: 'POST', headers: getAuthHeaders()
 				});
-				if (r.ok) {
-					status.textContent = '★ Activated';
-					actBtn.classList.add('hidden');
-					loadFirmwareInfo();
-					loadBIOSVersion();
-					await loadKernelVersions();
-				} else {
+				if (!r.ok) {
 					const err = await r.json().catch(() => ({}));
-					status.textContent = 'Error: ' + (err.error || r.statusText);
-					actBtn.disabled = false;
-					actBtn.textContent = 'Activate';
+					throw new Error(err.error || r.statusText);
 				}
+			})();
+			tui.toast.promise(p, {
+				loading: 'Activating…',
+				success: `U-Boot for Linux ${kernel} activated`,
+				error: e => 'Activation failed: ' + e.message,
+			});
+			try {
+				await p;
+				actBtn.classList.add('hidden');
+				loadFirmwareInfo();
+				loadBIOSVersion();
+				await loadKernelVersions();
 			} catch(e) {
-				status.textContent = 'Error: ' + e.message;
 				actBtn.disabled = false;
-				actBtn.textContent = 'Activate';
 			}
 		};
 	</script>

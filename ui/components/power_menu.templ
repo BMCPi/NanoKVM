@@ -1,12 +1,22 @@
 package components
 
 import (
-	"github.com/pi-bmc/nanokvm-app/ui/components/badge"
+	"github.com/pi-bmc/nanokvm-app/pkg/power"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/dropdownmenu"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
 	"github.com/pi-bmc/nanokvm-app/ui/utils"
 )
+
+// initialPowerState reads the host power state at render time so the navbar
+// pill paints correctly on first load; the SSE stream keeps it fresh after.
+// known is false when the controller cannot read the state (e.g. dev host),
+// in which case the pill falls back to the neutral "Checking…" look until
+// the stream delivers.
+func initialPowerState() (on bool, known bool) {
+	s, err := power.GetController().State()
+	return s, err == nil
+}
 
 // PowerMenu is the navbar power-state pill and the dropdown holding power
 // actions + boot-device override. Polled by the inline script below; clicks
@@ -21,8 +31,17 @@ templ PowerMenu() {
 				templ.Attributes{"aria-label": "Power menu"},
 			),
 		}) {
-			<span id="power-dot" class="inline-block size-2 rounded-full bg-muted-foreground shrink-0"></span>
-			<span id="power-text" class="hidden sm:inline">Checking…</span>
+			{{ pwrOn, pwrKnown := initialPowerState() }}
+			if pwrKnown && pwrOn {
+				<span id="power-dot" class="inline-block size-2 rounded-full bg-green-500 shrink-0"></span>
+				<span id="power-text" class="hidden sm:inline">Power On</span>
+			} else if pwrKnown {
+				<span id="power-dot" class="inline-block size-2 rounded-full bg-destructive shrink-0"></span>
+				<span id="power-text" class="hidden sm:inline">Power Off</span>
+			} else {
+				<span id="power-dot" class="inline-block size-2 rounded-full bg-muted-foreground shrink-0"></span>
+				<span id="power-text" class="hidden sm:inline">Checking…</span>
+			}
 			@icon.ChevronDown()
 		}
 		@dropdownmenu.Content(dropdownmenu.ContentProps{Class: "w-72 panel-fit"}) {
@@ -34,8 +53,8 @@ templ PowerMenu() {
 						@powerGridBtn("powerAction('on')", "", icon.Power, "Power On")
 						@powerGridBtn("powerAction('off')", "", icon.PowerOff, "Power Off")
 						@powerGridBtn("powerAction('reset')", "", icon.RefreshCw, "Reset")
-						@powerGridBtn("if(confirm('Force power off?')) powerAction('forceoff')", "text-destructive hover:text-destructive", icon.CircleX, "Force Off")
-						@powerGridBtn("if(confirm('Force the host into rpiboot (USB recovery) mode? A running host is powered off first.')) powerAction('rpiboot')", "col-span-2", icon.Usb, "Recovery (rpiboot)")
+						@powerGridBtn("confirmPowerAction('forceoff', 'Force power off?', 'The host loses power immediately without a clean shutdown.')", "text-destructive hover:text-destructive", icon.CircleX, "Force Off")
+						@powerGridBtn("confirmPowerAction('rpiboot', 'Enter USB recovery mode?', 'Forces the host into rpiboot (USB recovery). A running host is powered off first.')", "col-span-2", icon.Usb, "Recovery (rpiboot)")
 					</div>
 				</div>
 				<div class="h-px bg-border"></div>
@@ -66,7 +85,6 @@ templ PowerMenu() {
 							Clear
 						}
 					</div>
-					<p id="boot-status" class="text-[0.6875rem] text-muted-foreground min-h-[1rem]"></p>
 				</div>
 			</div>
 		}
@@ -115,19 +133,6 @@ templ NativeSelect(id string, class string) {
 	</select>
 }
 
-// PowerBadge is a small inline pill showing the current power state.
-templ PowerBadge(on bool) {
-	if on {
-		@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "bg-green-500/15 text-green-500"}) {
-			On
-		}
-	} else {
-		@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) {
-			Off
-		}
-	}
-}
-
 templ powerMenuScript() {
 	<script>
 		function renderPower(on) {
@@ -163,34 +168,38 @@ templ powerMenuScript() {
 			// No refresh needed — the resulting LED transition arrives on the stream.
 		}
 
+		async function confirmPowerAction(action, title, description) {
+			if (await uiConfirm({ title, description, destructive: true })) powerAction(action);
+		}
+
 		async function applyBootOverride() {
 			const device = document.getElementById('boot-device').value || 'None';
 			const persist = document.getElementById('boot-persist').value || 'Once';
-			const statusEl = document.getElementById('boot-status');
 			try {
 				const r = await fetch('/redfish/v1/Systems/1', {
 					method: 'PATCH', headers: getAuthHeaders(),
 					body: JSON.stringify({ Boot: { BootSourceOverrideTarget: device, BootSourceOverrideEnabled: persist } })
 				});
-				const data = await r.json();
-				const b = data.Boot;
-				statusEl.textContent = b ? `Set: ${b.BootSourceOverrideTarget} (${b.BootSourceOverrideEnabled})` : 'Applied';
+				if (!r.ok) throw new Error(r.statusText);
+				const b = (await r.json()).Boot;
+				tui.toast.add({ type: 'success', title: 'Boot override set',
+					description: b ? `${b.BootSourceOverrideTarget} (${b.BootSourceOverrideEnabled})` : undefined });
 			} catch(e) {
-				statusEl.textContent = 'Failed';
+				tui.toast.add({ type: 'error', title: 'Boot override failed' });
 			}
 			if (typeof loadFirmwareInfo === 'function') loadFirmwareInfo();
 		}
 
 		async function clearBootOverride() {
-			const statusEl = document.getElementById('boot-status');
 			try {
 				const r = await fetch('/redfish/v1/Systems/1', {
 					method: 'PATCH', headers: getAuthHeaders(),
 					body: JSON.stringify({ Boot: { BootSourceOverrideTarget: 'None', BootSourceOverrideEnabled: 'Disabled' } })
 				});
-				statusEl.textContent = r.ok ? 'Cleared' : 'Failed';
+				if (!r.ok) throw new Error(r.statusText);
+				tui.toast.add({ type: 'success', title: 'Boot override cleared' });
 			} catch(e) {
-				statusEl.textContent = 'Failed';
+				tui.toast.add({ type: 'error', title: 'Clearing boot override failed' });
 			}
 			if (typeof loadFirmwareInfo === 'function') loadFirmwareInfo();
 		}

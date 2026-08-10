@@ -1,13 +1,45 @@
 package components
 
 import (
+	"strings"
+
+	"github.com/pi-bmc/nanokvm-app/pkg/application"
+	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
+	"github.com/pi-bmc/nanokvm-app/pkg/sysinfo"
 	"github.com/pi-bmc/nanokvm-app/ui/components/badge"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/card"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
 	selectcomp "github.com/pi-bmc/nanokvm-app/ui/components/select"
 )
+
+// appVersionDisplay normalizes the running application version to the
+// v-prefixed form loadAppVersion writes, so the initial render and the
+// update-check refresh agree.
+func appVersionDisplay() string {
+	v := strings.TrimPrefix(application.CurrentVersion(), "v")
+	if v == "" || v == "dev" {
+		return v
+	}
+	return "v" + v
+}
+
+// firmwareStatusDisplay mirrors loadFirmwareState's text: image cache state
+// plus USB presentation. downloadNeeded drives the footer download row.
+func firmwareStatusDisplay() (txt string, downloadNeeded bool) {
+	st := firmware.GetController().GetStatus()
+	if st.Downloaded {
+		txt = "Ready"
+	} else {
+		txt = "Not downloaded"
+		downloadNeeded = true
+	}
+	if st.Presented {
+		txt += " · USB Active"
+	}
+	return txt, downloadNeeded
+}
 
 // overviewSidebarID is the ID of the slide-in panel.
 const overviewSidebarID = "overview-sidebar"
@@ -138,7 +170,13 @@ templ overviewBmcCard() {
 			<div class="ov-row">
 				<span class="ov-label">Application</span>
 				<span class="ov-value flex items-center gap-1.5 justify-end">
-					<span id="info-app">—</span>
+					<span id="info-app">
+						if v := appVersionDisplay(); v != "" {
+							{ v }
+						} else {
+							—
+						}
+					</span>
 					@button.Button(button.Props{
 						ID:         "btn-app-update",
 						Variant:    button.VariantOutline,
@@ -158,9 +196,9 @@ templ overviewBmcCard() {
 				</span>
 			</div>
 			@DownloadProgress("app-update")
-			@kvRow("Image", "info-image")
-			@kvRow("Hardware", "info-hw")
-			@kvRow("IP Address", "info-ip")
+			@kvRowValue("Image", "info-image", sysinfo.ImageVersion())
+			@kvRowValue("Hardware", "info-hw", config.GetInstance().Hardware.Version.String())
+			@kvRowValue("IP Address", "info-ip", sysinfo.PrimaryIP())
 		}
 		@card.Footer(card.FooterProps{Class: "pt-2 text-xs text-muted-foreground"}) {
 			Interfaces: IPMI :623 · <a href="/redfish/v1" target="_blank" rel="noopener noreferrer" class="ml-1 underline underline-offset-4 hover:text-foreground">Redfish</a>
@@ -181,8 +219,9 @@ templ overviewBiosCard() {
 				U-Boot identity and boot-method discovery.
 			}
 		}
+		{{ fwStatus, fwDownloadNeeded := firmwareStatusDisplay() }}
 		@card.Content(card.ContentProps{Class: "py-0 pb-2"}) {
-			@kvRow("Firmware", "info-fw-status")
+			@kvRowValue("Firmware", "info-fw-status", fwStatus)
 			<div class="ov-row">
 				<span class="ov-label">U-Boot</span>
 				<span class="ov-value flex items-center gap-1.5 justify-end">
@@ -212,7 +251,7 @@ templ overviewBiosCard() {
 			@kvRow("Boot Methods", "info-bootmeths")
 		}
 		@card.Footer(card.FooterProps{Class: "pt-2 flex flex-col gap-2 w-full"}) {
-			<div id="fw-download-item" class="hidden w-full flex items-center justify-between">
+			<div id="fw-download-item" class={ "w-full flex items-center justify-between", templ.KV("hidden", !fwDownloadNeeded) }>
 				<span class="text-xs text-muted-foreground">Firmware image not cached</span>
 				@button.Button(button.Props{
 					ID:         "btn-fw-download",
@@ -262,7 +301,6 @@ templ overviewBootOverrideCard() {
 			}) {
 				Persistent
 			}
-			<span id="boot-override-status" class="text-[0.6875rem] text-muted-foreground"></span>
 		}
 	}
 }
@@ -350,11 +388,24 @@ templ overviewKernelCard() {
 	}
 }
 
-// kvRow renders a single label / value row in an overview card.
+// kvRow renders a single label / value row in an overview card, filled in
+// by the data script after an async load.
 templ kvRow(label, valueID string) {
+	@kvRowValue(label, valueID, "")
+}
+
+// kvRowValue is a kvRow with a server-rendered initial value; the em-dash
+// placeholder appears only while the value is unknown.
+templ kvRowValue(label, valueID, value string) {
 	<div class="ov-row">
 		<span class="ov-label">{ label }</span>
-		<span id={ valueID } class="ov-value">—</span>
+		<span id={ valueID } class="ov-value">
+			if value != "" {
+				{ value }
+			} else {
+				—
+			}
+		</span>
 	</div>
 }
 

@@ -13,6 +13,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/ui/components/dialog"
 	"github.com/pi-bmc/nanokvm-app/ui/components/input"
 	"github.com/pi-bmc/nanokvm-app/ui/components/label"
+	"github.com/pi-bmc/nanokvm-app/ui/components/spinner"
 	"github.com/pi-bmc/nanokvm-app/ui/layouts"
 )
 
@@ -127,7 +128,11 @@ func LoginPage() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "Sign In")
+				templ_7745c5c3_Err = spinner.Spinner(spinner.Props{ID: "login-spinner", Class: "hidden"}).Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, " <span>Sign In</span>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -290,7 +295,7 @@ func forgotPasswordDialog() templ.Component {
 				var templ_7745c5c3_Var12 string
 				templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs("for")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/pages/login.templ`, Line: 76, Col: 178}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/pages/login.templ`, Line: 78, Col: 178}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 				if templ_7745c5c3_Err != nil {
@@ -377,7 +382,7 @@ func loginScript() templ.Component {
 			templ_7745c5c3_Var15 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<script>\n\t\t(async function() {\n\t\t\ttry {\n\t\t\t\tconst r = await fetch('/api/auth/check');\n\t\t\t\tif (r.ok) window.location.replace('/dashboard');\n\t\t\t} catch(e) {}\n\t\t})();\n\n\t\tlet loginTimeout = null;\n\n\t\tasync function handleLogin(event) {\n\t\t\tevent.preventDefault();\n\t\t\tconst errorEl = document.getElementById('login-error');\n\t\t\tconst btn = document.getElementById('login-btn');\n\n\t\t\tconst username = document.getElementById('username').value.trim();\n\t\t\tconst password = document.getElementById('password').value;\n\n\t\t\tif (!username || !password) {\n\t\t\t\terrorEl.textContent = 'Username and password are required.';\n\t\t\t\treturn false;\n\t\t\t}\n\n\t\t\tbtn.disabled = true;\n\t\t\tbtn.textContent = 'Signing in...';\n\t\t\terrorEl.textContent = '';\n\n\t\t\ttry {\n\t\t\t\tconst r = await fetch('/api/auth/login', {\n\t\t\t\t\tmethod: 'POST',\n\t\t\t\t\theaders: { 'Content-Type': 'application/json' },\n\t\t\t\t\tbody: JSON.stringify({ username, password: encryptPassword(password) })\n\t\t\t\t});\n\t\t\t\tconst data = await r.json();\n\n\t\t\t\tif (data.code === 0) {\n\t\t\t\t\tsetCookie('nano-kvm-token', data.data.token, 30);\n\t\t\t\t\twindow.location.replace('/dashboard');\n\t\t\t\t\treturn false;\n\t\t\t\t}\n\n\t\t\t\tlet msg = 'Login failed.';\n\t\t\t\tif (data.code === -2) msg = 'Invalid username or password.';\n\t\t\t\telse if (data.code === -5) msg = 'Account locked. Try again later.';\n\t\t\t\telse if (data.code === -4) msg = 'Too many failed attempts. Try again later.';\n\t\t\t\terrorEl.textContent = msg;\n\t\t\t} catch (e) {\n\t\t\t\terrorEl.textContent = 'Connection error. Please try again.';\n\t\t\t} finally {\n\t\t\t\tbtn.disabled = false;\n\t\t\t\tbtn.textContent = 'Sign In';\n\t\t\t\tclearTimeout(loginTimeout);\n\t\t\t\tloginTimeout = setTimeout(() => { errorEl.textContent = ''; }, 5000);\n\t\t\t}\n\t\t\treturn false;\n\t\t}\n\t</script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<script>\n\t\t// Already-authed visitors are redirected server-side by the /auth/login\n\t\t// handler, so there is no client-side auth probe here.\n\t\tfunction setLoginBusy(busy) {\n\t\t\tdocument.getElementById('login-btn').disabled = busy;\n\t\t\tdocument.getElementById('login-spinner').classList.toggle('hidden', !busy);\n\t\t}\n\n\t\tasync function handleLogin(event) {\n\t\t\tevent.preventDefault();\n\t\t\tconst errorEl = document.getElementById('login-error');\n\n\t\t\tconst username = document.getElementById('username').value.trim();\n\t\t\tconst password = document.getElementById('password').value;\n\n\t\t\tif (!username || !password) {\n\t\t\t\terrorEl.textContent = 'Username and password are required.';\n\t\t\t\treturn false;\n\t\t\t}\n\n\t\t\tsetLoginBusy(true);\n\t\t\terrorEl.textContent = '';\n\n\t\t\ttry {\n\t\t\t\tconst r = await fetch('/api/auth/login', {\n\t\t\t\t\tmethod: 'POST',\n\t\t\t\t\theaders: { 'Content-Type': 'application/json' },\n\t\t\t\t\tbody: JSON.stringify({ username, password: encryptPassword(password) })\n\t\t\t\t});\n\t\t\t\tconst data = await r.json();\n\n\t\t\t\tif (data.code === 0) {\n\t\t\t\t\tsetCookie('nano-kvm-token', data.data.token, 30);\n\t\t\t\t\twindow.location.replace('/dashboard');\n\t\t\t\t\treturn false;\n\t\t\t\t}\n\n\t\t\t\tlet msg = 'Login failed.';\n\t\t\t\tif (data.code === -2) msg = 'Invalid username or password.';\n\t\t\t\telse if (data.code === -5) msg = 'Account locked. Try again later.';\n\t\t\t\telse if (data.code === -4) msg = 'Too many failed attempts. Try again later.';\n\t\t\t\terrorEl.textContent = msg;\n\t\t\t} catch (e) {\n\t\t\t\terrorEl.textContent = 'Connection error. Please try again.';\n\t\t\t} finally {\n\t\t\t\tsetLoginBusy(false);\n\t\t\t}\n\t\t\treturn false;\n\t\t}\n\t</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -1,0 +1,414 @@
+package components
+
+import (
+	"github.com/pi-bmc/nanokvm-app/ui/components/button"
+	"github.com/pi-bmc/nanokvm-app/ui/components/dropdownmenu"
+	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
+	"github.com/pi-bmc/nanokvm-app/ui/components/kbd"
+	"github.com/pi-bmc/nanokvm-app/ui/utils"
+)
+
+// VirtualKeyboard is an on-screen keyboard docked under the serial terminal,
+// mirroring JetKVM's virtual keyboard: header (Detach · title · layout · Hide),
+// shortcut chips, ANSI main block + nav/arrow cluster, and a status bar with
+// the pressed-keys readout and lock indicators. Keycaps are shadcn-templ Kbd
+// elements made interactive; presses are translated to xterm byte sequences
+// and written to the serial WebSocket via sendSerialInput().
+//
+// Hidden by default; the console toolbar's keyboard button calls
+// toggleVirtualKeyboard(). Detach floats the panel (fixed) and the header
+// becomes a drag handle.
+templ VirtualKeyboard() {
+	<div
+		id="virtual-keyboard"
+		class="group/vk hidden mt-1 rounded-md border border-border bg-card shadow-lg"
+		data-vk-detached="false"
+	>
+		@vkHeader()
+		@vkBoard()
+		@vkStatusBar()
+	</div>
+	@virtualKeyboardScript()
+}
+
+// vkKeyClasses turns the display-only Kbd component into a pressable keycap:
+// re-enable pointer events, size to the row via flex weights (flex-1 default,
+// overridden per key), and add the JetKVM-style hover/press/latched states.
+// data-vk-on=true marks a latched modifier or an active lock key.
+const vkKeyClasses = "pointer-events-auto h-9 min-w-0 flex-1 cursor-pointer overflow-hidden rounded-md border border-border bg-secondary px-1.5 whitespace-nowrap text-xs font-medium text-secondary-foreground shadow-xs transition-colors select-none hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] active:translate-y-px data-[vk-on=true]:border-blue-600 data-[vk-on=true]:bg-blue-600 data-[vk-on=true]:text-white"
+
+// vkKey renders one pressable keycap. code is the logical key handed to
+// vkPress(); class carries the flex weight / size overrides for wide keys.
+templ vkKey(label, code, class string) {
+	@kbd.Kbd(kbd.Props{
+		Class: utils.CN(vkKeyClasses, class),
+		Attributes: templ.Attributes{
+			"data-vk": code,
+			// Keep focus (and thus keystrokes) on the terminal while clicking.
+			"onmousedown": "event.preventDefault()",
+			"onclick":     "vkPress(this)",
+		},
+	}) {
+		{ label }
+	}
+}
+
+// vkCombo renders a shortcut chip ("Ctrl + Alt + Delete"): the comma-separated
+// combo is sent as one modified sequence, without latching any modifier.
+templ vkCombo(label, combo string) {
+	@kbd.Kbd(kbd.Props{
+		Class: utils.CN(vkKeyClasses, "h-7 flex-none px-2"),
+		Attributes: templ.Attributes{
+			"data-vk-combo": combo,
+			"onmousedown":   "event.preventDefault()",
+			"onclick":       "vkPressCombo(this)",
+		},
+	}) {
+		{ label }
+	}
+}
+
+templ vkHeader() {
+	<div
+		id="vk-header"
+		class="relative flex items-center justify-between gap-2 border-b border-border px-2 py-1.5 group-data-[vk-detached=true]/vk:cursor-move"
+	>
+		@button.Button(button.Props{
+			ID:      "vk-detach-btn",
+			Variant: button.VariantOutline,
+			Size:    button.SizeSm,
+			Attributes: templ.Attributes{
+				"onclick": "vkToggleDetach()",
+				"title":   "Detach into a floating window",
+			},
+		}) {
+			@icon.PictureInPicture2()
+			<span id="vk-detach-label">Detach</span>
+		}
+		<span class="pointer-events-none absolute left-1/2 -translate-x-1/2 text-xs font-medium select-none">Virtual Keyboard</span>
+		<div class="flex items-center gap-1">
+			@vkLayoutMenu()
+			@button.Button(button.Props{
+				Variant:    button.VariantGhost,
+				Size:       button.SizeSm,
+				Attributes: templ.Attributes{"onclick": "toggleVirtualKeyboard()", "title": "Hide keyboard"},
+			}) {
+				@icon.ChevronDown()
+				<span>Hide</span>
+			}
+		</div>
+	</div>
+}
+
+// vkLayoutMenu is the keyboard-layout picker. Only English (US) is mapped
+// today, so the menu is a single-entry placeholder kept for JetKVM parity.
+templ vkLayoutMenu() {
+	@dropdownmenu.DropdownMenu() {
+		@button.Button(button.Props{
+			Variant: button.VariantOutline,
+			Size:    button.SizeSm,
+			Attributes: utils.MergeAttributes(
+				dropdownmenu.Trigger(ctx),
+				templ.Attributes{"aria-label": "Keyboard layout"},
+			),
+		}) {
+			@icon.Keyboard()
+			<span>English (US)</span>
+		}
+		@dropdownmenu.Content(dropdownmenu.ContentProps{Class: "w-44", Align: dropdownmenu.AlignEnd}) {
+			@dropdownmenu.Label() {
+				Keyboard layout
+			}
+			@dropdownmenu.Item() {
+				English (US)
+			}
+		}
+	}
+}
+
+// vkBoard lays out the key matrix: main ANSI block (15 flex units) beside the
+// nav/arrow cluster (3 units), matching JetKVM's proportions. Row weights sum
+// to 15 so wide keys line up across rows.
+templ vkBoard() {
+	<div class="flex gap-3 px-2 py-2 sm:px-3">
+		<div class="flex min-w-0 flex-[15] flex-col gap-1.5">
+			@kbd.Group(kbd.GroupProps{Class: "h-9 gap-1.5"}) {
+				@vkCombo("Ctrl + Alt + Delete", "Ctrl,Alt,Delete")
+				@vkCombo("Alt + Meta + Escape", "Alt,Meta,Escape")
+				@vkCombo("Ctrl + Alt + Backspace", "Ctrl,Alt,Backspace")
+			}
+			<div class="flex gap-1.5">
+				@vkKey("Esc", "Escape", "")
+				for _, k := range []string{"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"} {
+					@vkKey(k, k, "")
+				}
+			</div>
+			<div class="flex gap-1.5">
+				for _, k := range []string{"`", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "="} {
+					@vkKey(k, k, "")
+				}
+				@vkKey("Backspace ⌫", "Backspace", "flex-[2]")
+			</div>
+			<div class="flex gap-1.5">
+				@vkKey("Tab ⇥", "Tab", "flex-[1.5]")
+				for _, k := range []string{"q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "[", "]"} {
+					@vkKey(k, k, "")
+				}
+				@vkKey("\\", "\\", "flex-[1.5]")
+			</div>
+			<div class="flex gap-1.5">
+				@vkKey("Caps Lock", "CapsLock", "flex-[1.75]")
+				for _, k := range []string{"a", "s", "d", "f", "g", "h", "j", "k", "l", ";", "'"} {
+					@vkKey(k, k, "")
+				}
+				@vkKey("Enter", "Enter", "flex-[2.25]")
+			</div>
+			<div class="flex gap-1.5">
+				@vkKey("Shift ⇧", "Shift", "flex-[2.25]")
+				for _, k := range []string{"z", "x", "c", "v", "b", "n", "m", ",", ".", "/"} {
+					@vkKey(k, k, "")
+				}
+				@vkKey("⇧ Shift", "Shift", "flex-[2.75]")
+			</div>
+			<div class="flex gap-1.5">
+				@vkKey("Ctrl ^", "Ctrl", "flex-[1.25]")
+				@vkKey("Meta ⌘", "Meta", "flex-[1.25]")
+				@vkKey("Alt ⌥", "Alt", "flex-[1.25]")
+				@vkKey("", "Space", "flex-[6.25]")
+				@vkKey("AltGr", "AltGr", "flex-[1.25]")
+				@vkKey("⌘ Meta", "Meta", "flex-[1.25]")
+				@vkKey("Menu", "Menu", "flex-[1.25]")
+				@vkKey("^ Ctrl", "Ctrl", "flex-[1.25]")
+			</div>
+		</div>
+		<div class="flex flex-[3] flex-col gap-1.5">
+			<div class="flex gap-1.5">
+				@vkKey("Prt Sc", "PrtSc", "")
+				@vkKey("Scr Lk", "ScrLk", "")
+				@vkKey("Pause", "Pause", "")
+			</div>
+			<div class="flex gap-1.5">
+				@vkKey("Insert", "Insert", "")
+				@vkKey("Home", "Home", "")
+				@vkKey("PgUp", "PgUp", "")
+			</div>
+			<div class="flex gap-1.5">
+				@vkKey("Delete ⌦", "Delete", "")
+				@vkKey("End", "End", "")
+				@vkKey("PgDn", "PgDn", "")
+			</div>
+			<div class="flex-1"></div>
+			<div class="flex gap-1.5">
+				<span class="flex-1"></span>
+				@vkKey("↑", "Up", "")
+				<span class="flex-1"></span>
+			</div>
+			<div class="flex gap-1.5">
+				@vkKey("←", "Left", "")
+				@vkKey("↓", "Down", "")
+				@vkKey("→", "Right", "")
+			</div>
+		</div>
+	</div>
+}
+
+templ vkStatusBar() {
+	<div class="flex items-center justify-between gap-2 border-t border-border px-3 py-1 text-[0.6875rem] text-muted-foreground">
+		<div class="flex min-w-0 items-center gap-1">
+			<span class="select-none">Keys:</span>
+			<span id="vk-keys-display" class="truncate font-mono text-foreground"></span>
+		</div>
+		<div class="flex items-center select-none">
+			@vkLed("vk-led-caps", "Caps Lock")
+			@vkLed("vk-led-num", "Num Lock")
+			@vkLed("vk-led-scroll", "Scroll Lock")
+		</div>
+	</div>
+}
+
+// vkLed is one lock indicator cell; data-on=true lights it up.
+templ vkLed(id, label string) {
+	<span
+		id={ id }
+		class="border-l border-border px-2 opacity-50 first:border-l-0 data-[on=true]:font-medium data-[on=true]:text-foreground data-[on=true]:opacity-100"
+	>
+		{ label }
+	</span>
+}
+
+templ virtualKeyboardScript() {
+	<script>
+		(function() {
+			// US-layout shifted variants for the printable keys.
+			const SHIFT_MAP = {'`':'~','1':'!','2':'@','3':'#','4':'$','5':'%','6':'^','7':'&','8':'*','9':'(','0':')','-':'_','=':'+','[':'{',']':'}','\\':'|',';':':',"'":'"',',':'<','.':'>','/':'?'};
+			// xterm sequences for non-printable keys. Empty string = key has no
+			// serial representation (still shown in the Keys readout).
+			const SEQ = {
+				Enter:'\r', Tab:'\t', Backspace:'\x7f', Escape:'\x1b',
+				Up:'\x1b[A', Down:'\x1b[B', Right:'\x1b[C', Left:'\x1b[D',
+				Home:'\x1b[H', End:'\x1b[F',
+				Insert:'\x1b[2~', Delete:'\x1b[3~', PgUp:'\x1b[5~', PgDn:'\x1b[6~',
+				F1:'\x1bOP', F2:'\x1bOQ', F3:'\x1bOR', F4:'\x1bOS',
+				F5:'\x1b[15~', F6:'\x1b[17~', F7:'\x1b[18~', F8:'\x1b[19~',
+				F9:'\x1b[20~', F10:'\x1b[21~', F11:'\x1b[23~', F12:'\x1b[24~',
+				PrtSc:'', Pause:'', Menu:'', Meta:''
+			};
+			const MODS = ['Ctrl', 'Alt', 'AltGr', 'Shift', 'Meta'];
+			const state = { mods: {}, caps: false, num: false, scroll: false, detached: false };
+			let keysTimer = null;
+
+			const panel = () => document.getElementById('virtual-keyboard');
+
+			function send(data) {
+				if (data && typeof window.sendSerialInput === 'function') window.sendSerialInput(data);
+			}
+
+			function setLed(id, on) {
+				const el = document.getElementById(id);
+				if (el) el.dataset.on = on ? 'true' : 'false';
+			}
+
+			function renderMods() {
+				panel().querySelectorAll('[data-vk]').forEach((el) => {
+					const c = el.dataset.vk;
+					if (MODS.includes(c)) el.dataset.vkOn = state.mods[c] ? 'true' : 'false';
+					else if (c === 'CapsLock') el.dataset.vkOn = state.caps ? 'true' : 'false';
+					else if (c === 'ScrLk') el.dataset.vkOn = state.scroll ? 'true' : 'false';
+				});
+				setLed('vk-led-caps', state.caps);
+				setLed('vk-led-num', state.num);
+				setLed('vk-led-scroll', state.scroll);
+			}
+
+			function showKeys(text) {
+				const el = document.getElementById('vk-keys-display');
+				if (!el) return;
+				el.textContent = text;
+				if (keysTimer) clearTimeout(keysTimer);
+				keysTimer = setTimeout(() => { el.textContent = ''; }, 2000);
+			}
+
+			function charFor(code, mods) {
+				if (/^[a-z]$/.test(code)) {
+					// Shift XOR Caps Lock uppercases a letter.
+					return (!!mods.Shift !== state.caps) ? code.toUpperCase() : code;
+				}
+				return mods.Shift ? (SHIFT_MAP[code] || code) : code;
+			}
+
+			// seqFor translates a logical key + modifier set into the bytes an
+			// xterm-compatible terminal would send.
+			function seqFor(code, mods) {
+				if (code === 'Space') code = ' ';
+				if (code.length === 1) {
+					let ch = charFor(code, mods);
+					if (mods.Ctrl && /^[a-zA-Z]$/.test(ch)) {
+						ch = String.fromCharCode(ch.toUpperCase().charCodeAt(0) & 0x1f);
+					}
+					return (mods.Alt ? '\x1b' : '') + ch;
+				}
+				const base = SEQ[code];
+				if (base === undefined) return '';
+				const m = 1 + (mods.Shift ? 1 : 0) + (mods.Alt ? 2 : 0) + (mods.Ctrl ? 4 : 0);
+				if (m > 1 && base) {
+					// CSI n~ and CSI/SS3 letter forms take an xterm modifier param.
+					let mt = base.match(/^\x1b\[(\d+)~$/);
+					if (mt) return '\x1b[' + mt[1] + ';' + m + '~';
+					mt = base.match(/^\x1b(?:\[|O)([A-Z])$/);
+					if (mt) return '\x1b[1;' + m + mt[1];
+					if (code === 'Enter') return (mods.Alt ? '\x1b' : '') + '\r';
+					if (code === 'Backspace') return (mods.Alt ? '\x1b' : '') + (mods.Ctrl ? '\x08' : '\x7f');
+					if (code === 'Escape' || code === 'Tab') return (mods.Alt ? '\x1b' : '') + base;
+				}
+				return base;
+			}
+
+			window.vkPress = function(el) {
+				const code = el.dataset.vk;
+				if (MODS.includes(code)) {
+					// Modifiers latch (one-shot): highlight until the next key.
+					state.mods[code] = !state.mods[code];
+					renderMods();
+					return;
+				}
+				if (code === 'CapsLock') { state.caps = !state.caps; renderMods(); showKeys('Caps Lock ' + (state.caps ? 'on' : 'off')); return; }
+				if (code === 'ScrLk') { state.scroll = !state.scroll; renderMods(); showKeys('Scroll Lock ' + (state.scroll ? 'on' : 'off')); return; }
+
+				const mods = { ...state.mods };
+				const held = MODS.filter((mm) => mods[mm]);
+				send(seqFor(code, mods));
+				showKeys(held.concat(code).join(' + '));
+				MODS.forEach((mm) => { state.mods[mm] = false; });
+				renderMods();
+			};
+
+			window.vkPressCombo = function(el) {
+				const parts = el.dataset.vkCombo.split(',');
+				const key = parts.pop();
+				const mods = {};
+				parts.forEach((mm) => { mods[mm] = true; });
+				send(seqFor(key, mods));
+				showKeys(parts.concat(key).join(' + '));
+			};
+
+			window.toggleVirtualKeyboard = function() {
+				const p = panel();
+				if (!p) return;
+				const show = p.classList.contains('hidden');
+				p.classList.toggle('hidden', !show);
+				const btn = document.getElementById('btn-virtual-keyboard');
+				if (btn) {
+					btn.classList.toggle('bg-accent', show);
+					btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+				}
+				// The console pane resized — refit the terminal.
+				window.dispatchEvent(new Event('resize'));
+			};
+
+			window.vkToggleDetach = function() {
+				const p = panel();
+				if (!p) return;
+				state.detached = !state.detached;
+				p.dataset.vkDetached = state.detached ? 'true' : 'false';
+				const label = document.getElementById('vk-detach-label');
+				const btn = document.getElementById('vk-detach-btn');
+				if (state.detached) {
+					const r = p.getBoundingClientRect();
+					// Freeze current geometry, then float above the console.
+					p.style.width = r.width + 'px';
+					p.style.left = r.left + 'px';
+					p.style.top = r.top + 'px';
+					// style.left/top position the margin edge; zero the docked
+					// mt-1 so the panel doesn't shift by it on the first drag.
+					p.style.margin = '0';
+					p.classList.add('fixed', 'z-50', 'shadow-2xl');
+					if (label) label.textContent = 'Attach';
+					if (btn) btn.title = 'Attach below the console';
+				} else {
+					p.classList.remove('fixed', 'z-50', 'shadow-2xl');
+					p.style.width = p.style.left = p.style.top = p.style.margin = '';
+					if (label) label.textContent = 'Detach';
+					if (btn) btn.title = 'Detach into a floating window';
+				}
+				window.dispatchEvent(new Event('resize'));
+			};
+
+			// Drag the detached panel by its header (buttons excluded).
+			let drag = null;
+			document.addEventListener('pointerdown', (e) => {
+				if (!state.detached || !e.target.closest('#vk-header')) return;
+				if (e.target.closest('button, a, [data-tui-dropdownmenu-trigger]')) return;
+				const r = panel().getBoundingClientRect();
+				drag = { sx: e.clientX, sy: e.clientY, ox: r.left, oy: r.top };
+				e.preventDefault();
+			});
+			document.addEventListener('pointermove', (e) => {
+				if (!drag) return;
+				const p = panel();
+				p.style.left = Math.min(Math.max(0, drag.ox + e.clientX - drag.sx), window.innerWidth - 80) + 'px';
+				p.style.top = Math.min(Math.max(0, drag.oy + e.clientY - drag.sy), window.innerHeight - 40) + 'px';
+			});
+			document.addEventListener('pointerup', () => { drag = null; });
+		})();
+	</script>
+}

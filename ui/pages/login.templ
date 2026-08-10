@@ -5,6 +5,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/ui/components/dialog"
 	"github.com/pi-bmc/nanokvm-app/ui/components/input"
 	"github.com/pi-bmc/nanokvm-app/ui/components/label"
+	"github.com/pi-bmc/nanokvm-app/ui/components/spinner"
 	"github.com/pi-bmc/nanokvm-app/ui/layouts"
 )
 
@@ -42,7 +43,8 @@ templ LoginPage() {
 				</div>
 				<p id="login-error" class="text-sm text-destructive"></p>
 				@button.Button(button.Props{ID: "login-btn", Type: button.TypeSubmit, Class: "w-full"}) {
-					Sign In
+					@spinner.Spinner(spinner.Props{ID: "login-spinner", Class: "hidden"})
+					<span>Sign In</span>
 				}
 				<div class="flex justify-end">
 					<span
@@ -90,19 +92,16 @@ templ forgotPasswordDialog() {
 
 templ loginScript() {
 	<script>
-		(async function() {
-			try {
-				const r = await fetch('/api/auth/check');
-				if (r.ok) window.location.replace('/dashboard');
-			} catch(e) {}
-		})();
-
-		let loginTimeout = null;
+		// Already-authed visitors are redirected server-side by the /auth/login
+		// handler, so there is no client-side auth probe here.
+		function setLoginBusy(busy) {
+			document.getElementById('login-btn').disabled = busy;
+			document.getElementById('login-spinner').classList.toggle('hidden', !busy);
+		}
 
 		async function handleLogin(event) {
 			event.preventDefault();
 			const errorEl = document.getElementById('login-error');
-			const btn = document.getElementById('login-btn');
 
 			const username = document.getElementById('username').value.trim();
 			const password = document.getElementById('password').value;
@@ -112,8 +111,7 @@ templ loginScript() {
 				return false;
 			}
 
-			btn.disabled = true;
-			btn.textContent = 'Signing in...';
+			setLoginBusy(true);
 			errorEl.textContent = '';
 
 			try {
@@ -138,10 +136,7 @@ templ loginScript() {
 			} catch (e) {
 				errorEl.textContent = 'Connection error. Please try again.';
 			} finally {
-				btn.disabled = false;
-				btn.textContent = 'Sign In';
-				clearTimeout(loginTimeout);
-				loginTimeout = setTimeout(() => { errorEl.textContent = ''; }, 5000);
+				setLoginBusy(false);
 			}
 			return false;
 		}

@@ -1,4 +1,4 @@
-package vm
+package sysinfo
 
 import (
 	"fmt"

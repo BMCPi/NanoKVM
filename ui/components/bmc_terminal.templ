@@ -17,6 +17,11 @@ const bmcTerminalPanelID = "bmc-terminal-panel"
 // The shell process is only spawned when the drawer is first opened, and
 // the session survives hiding the drawer — reopening returns to the same
 // prompt and scrollback.
+//
+// We do NOT use the shadcn-templ Sheet/Drawer here: both compose the dialog
+// machinery (show-modal, backdrop, focus trap), but this dock must stay
+// non-modal — the console keeps working while the shell is open — and
+// supports drag-to-resize, which the dialog stack has no notion of.
 templ BMCTerminalPanel() {
 	@bmcTerminalStyles()
 	<div

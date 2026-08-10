@@ -53,8 +53,14 @@ func staticRoutes(r *gin.Engine) {
 
 // pageRoutes registers every templ-rendered page.
 func pageRoutes(r *gin.Engine) {
-	// Public auth pages (no middleware)
-	r.GET("/auth/login", func(c *gin.Context) {
+	// Public auth page. ResolveAuth only flags the session; an already
+	// authed visitor is bounced to the dashboard server-side instead of
+	// via a client-side /api/auth/check probe.
+	r.GET("/auth/login", middleware.ResolveAuth(), func(c *gin.Context) {
+		if middleware.IsAuthed(c) {
+			c.Redirect(http.StatusFound, "/dashboard")
+			return
+		}
 		render := newRender(c.Request.Context(), http.StatusOK, pages.LoginPage())
 		c.Render(http.StatusOK, render)
 	})
@@ -94,6 +100,11 @@ func pageRoutes(r *gin.Engine) {
 	// for tooling discovery; the rendered docs page is behind auth so
 	// it shares the dashboard chrome.
 	protected.GET("/docs", apiDocsHandler())
+
+	// Server-rendered fragments fetched by page scripts. CheckToken (not
+	// RequireAuth) so an expired session yields a clean 401 for fetch()
+	// instead of a redirect into login-page HTML.
+	r.POST("/ui/eeprom/preview", middleware.CheckToken(), eepromPreviewHandler())
 }
 
 // apiDocsHandler parses the OpenAPI spec once (sync.Once via the model

@@ -1,0 +1,92 @@
+package components
+
+import (
+	"github.com/pi-bmc/nanokvm-app/ui/components/alertdialog"
+	"github.com/pi-bmc/nanokvm-app/ui/components/button"
+)
+
+// ConfirmDialog is the shared confirmation dialog behind window.uiConfirm().
+// Mounted once in the layout; it has no trigger — callers open it
+// programmatically and await the user's choice instead of native confirm().
+//
+// Two Action buttons (default + destructive) exist so the variant styling
+// stays server-rendered; uiConfirm just flips `hidden` between them.
+templ ConfirmDialog() {
+	@alertdialog.AlertDialog(alertdialog.Props{ID: "app-confirm"}) {
+		@alertdialog.Content(alertdialog.ContentProps{Size: alertdialog.SizeSm}) {
+			@alertdialog.Header() {
+				@alertdialog.Title(alertdialog.TitleProps{ID: "app-confirm-title"}) {
+					Are you sure?
+				}
+				@alertdialog.Description(alertdialog.DescriptionProps{ID: "app-confirm-desc"})
+			}
+			@alertdialog.Footer() {
+				@alertdialog.Cancel() {
+					Cancel
+				}
+				@alertdialog.Action(alertdialog.ActionProps{ID: "app-confirm-action"}) {
+					Confirm
+				}
+				@alertdialog.Action(alertdialog.ActionProps{
+					ID:      "app-confirm-action-destructive",
+					Variant: button.VariantDestructive,
+					Class:   "hidden",
+				}) {
+					Confirm
+				}
+			}
+		}
+	}
+	@confirmDialogScript()
+}
+
+// confirmDialogScript exposes window.uiConfirm(opts) -> Promise<boolean>.
+// opts: { title, description, confirmLabel, destructive }. Resolves true on
+// the action button, false on Cancel/Esc. Lookups are lazy because the
+// dialog content lives in a portal template until dialog.js initializes.
+templ confirmDialogScript() {
+	<script>
+		(function () {
+			let pending = null;
+
+			function settle(ok) {
+				if (pending) { const p = pending; pending = null; p(ok); }
+			}
+
+			window.uiConfirm = function (opts) {
+				opts = opts || {};
+				const popup = document.getElementById('app-confirm');
+				document.getElementById('app-confirm-title').textContent = opts.title || 'Are you sure?';
+				document.getElementById('app-confirm-desc').textContent = opts.description || '';
+				const label = opts.confirmLabel || 'Confirm';
+				const act = document.getElementById('app-confirm-action');
+				const dact = document.getElementById('app-confirm-action-destructive');
+				act.textContent = label;
+				dact.textContent = label;
+				act.classList.toggle('hidden', !!opts.destructive);
+				dact.classList.toggle('hidden', !opts.destructive);
+				return new Promise((resolve) => {
+					pending = resolve;
+					tui.dialog.open(popup);
+					// Any close that wasn't the action button (Cancel, Esc)
+					// resolves false; the observer disconnects itself.
+					const obs = new MutationObserver(() => {
+						if (!popup.hasAttribute('data-open')) {
+							settle(false);
+							obs.disconnect();
+						}
+					});
+					obs.observe(popup, { attributes: true, attributeFilter: ['data-open'] });
+				});
+			};
+
+			document.addEventListener('click', (e) => {
+				if (!(e.target instanceof Element)) return;
+				if (e.target.closest('#app-confirm-action, #app-confirm-action-destructive')) {
+					settle(true);
+					tui.dialog.close(document.getElementById('app-confirm'));
+				}
+			});
+		})();
+	</script>
+}

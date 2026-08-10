@@ -8,7 +8,10 @@ package layouts
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-import "github.com/pi-bmc/nanokvm-app/ui/components"
+import (
+	"github.com/pi-bmc/nanokvm-app/ui/components"
+	"github.com/pi-bmc/nanokvm-app/ui/components/toast"
+)
 
 // Base renders the common HTML document shell. The `dark` class on <html>
 // activates the dark theme tokens (defined in globals.css).
@@ -46,7 +49,7 @@ func Base(title string, showNav bool, onDocsPage bool) templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/layouts/base.templ`, Line: 20, Col: 17}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/layouts/base.templ`, Line: 23, Col: 17}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -103,8 +106,20 @@ func Base(title string, showNav bool, onDocsPage bool) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, " ")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = components.ConfirmDialog().Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</body></html>")
+		templ_7745c5c3_Err = toast.Toaster().Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -135,7 +150,7 @@ func authHelperScript() templ.Component {
 			templ_7745c5c3_Var3 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<script>\n\t\tfunction getCookie(name) {\n\t\t\tconst match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));\n\t\t\treturn match ? decodeURIComponent(match[2]) : null;\n\t\t}\n\t\tfunction setCookie(name, value, days) {\n\t\t\tconst d = new Date();\n\t\t\td.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));\n\t\t\tdocument.cookie = name + '=' + encodeURIComponent(value) + ';expires=' + d.toUTCString() + ';path=/';\n\t\t}\n\t\tfunction deleteCookie(name) {\n\t\t\tdocument.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';\n\t\t}\n\t\tfunction getAuthHeaders() {\n\t\t\tconst token = getCookie('nano-kvm-token') || '';\n\t\t\treturn { 'Content-Type': 'application/json', 'token': token };\n\t\t}\n\t\tfunction encryptPassword(password) {\n\t\t\tconst SECRET_KEY = 'nanokvm-sipeed-2024';\n\t\t\tconst encrypted = CryptoJS.AES.encrypt(password, SECRET_KEY).toString();\n\t\t\treturn encodeURIComponent(encrypted);\n\t\t}\n\t\tasync function apiGet(url) {\n\t\t\treturn (await fetch(url, { headers: getAuthHeaders() })).json();\n\t\t}\n\t\tasync function apiPost(url, body) {\n\t\t\treturn (await fetch(url, {\n\t\t\t\tmethod: 'POST',\n\t\t\t\theaders: getAuthHeaders(),\n\t\t\t\tbody: body ? JSON.stringify(body) : undefined,\n\t\t\t})).json();\n\t\t}\n\t</script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<script>\n\t\tfunction getCookie(name) {\n\t\t\tconst match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));\n\t\t\treturn match ? decodeURIComponent(match[2]) : null;\n\t\t}\n\t\tfunction setCookie(name, value, days) {\n\t\t\tconst d = new Date();\n\t\t\td.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));\n\t\t\tdocument.cookie = name + '=' + encodeURIComponent(value) + ';expires=' + d.toUTCString() + ';path=/';\n\t\t}\n\t\tfunction deleteCookie(name) {\n\t\t\tdocument.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';\n\t\t}\n\t\tfunction getAuthHeaders() {\n\t\t\tconst token = getCookie('nano-kvm-token') || '';\n\t\t\treturn { 'Content-Type': 'application/json', 'token': token };\n\t\t}\n\t\tfunction encryptPassword(password) {\n\t\t\tconst SECRET_KEY = 'nanokvm-sipeed-2024';\n\t\t\tconst encrypted = CryptoJS.AES.encrypt(password, SECRET_KEY).toString();\n\t\t\treturn encodeURIComponent(encrypted);\n\t\t}\n\t\tasync function apiGet(url) {\n\t\t\treturn (await fetch(url, { headers: getAuthHeaders() })).json();\n\t\t}\n\t\tasync function apiPost(url, body) {\n\t\t\treturn (await fetch(url, {\n\t\t\t\tmethod: 'POST',\n\t\t\t\theaders: getAuthHeaders(),\n\t\t\t\tbody: body ? JSON.stringify(body) : undefined,\n\t\t\t})).json();\n\t\t}\n\t</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

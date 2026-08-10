@@ -3,6 +3,7 @@ package components
 import (
 	"github.com/pi-bmc/nanokvm-app/ui/components/badge"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
+	"github.com/pi-bmc/nanokvm-app/ui/components/checkbox"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
 	"github.com/pi-bmc/nanokvm-app/ui/components/input"
 )
@@ -15,24 +16,65 @@ templ ConsoleToolbar() {
 		<div class="flex items-center gap-3">
 			<span class="text-xs font-medium">Serial Console</span>
 			<span class="text-xs text-muted-foreground">/dev/ttyS1 @ 115200 8N1</span>
+			// One badge per connection state, server-styled; setConnStatus
+			// only swaps `hidden` between them.
 			@badge.Badge(badge.Props{
-				ID:      "conn-status",
+				ID:      "conn-status-disconnected",
 				Variant: badge.VariantDestructive,
 				Class:   "text-[0.6875rem]",
 			}) {
 				Disconnected
 			}
+			@badge.Badge(badge.Props{
+				ID:      "conn-status-connecting",
+				Variant: badge.VariantSecondary,
+				Class:   "hidden text-[0.6875rem] bg-yellow-500/15 text-yellow-500",
+			}) {
+				Connecting…
+			}
+			@badge.Badge(badge.Props{
+				ID:      "conn-status-connected",
+				Variant: badge.VariantSecondary,
+				Class:   "hidden text-[0.6875rem] bg-green-500/15 text-green-500",
+			}) {
+				Connected
+			}
 		</div>
 		<div class="flex items-center gap-1">
+			// Connect / Disconnect are separate server-styled buttons; the
+			// script swaps `hidden` instead of rebuilding innerHTML.
 			@button.Button(button.Props{
-				ID:         "btn-serial-toggle",
+				ID:         "btn-serial-connect",
 				Variant:    button.VariantOutline,
 				Size:       button.SizeSm,
 				Class:      "border-green-700 text-green-500",
-				Attributes: templ.Attributes{"onclick": "toggleSerialConnection()"},
+				Attributes: templ.Attributes{"onclick": "connectSerial()"},
 			}) {
 				@icon.Plug()
 				<span>Connect</span>
+			}
+			@button.Button(button.Props{
+				ID:         "btn-serial-disconnect",
+				Variant:    button.VariantOutline,
+				Size:       button.SizeSm,
+				Class:      "hidden border-destructive text-destructive",
+				Attributes: templ.Attributes{"onclick": "disconnectSerial()"},
+			}) {
+				@icon.X()
+				<span>Disconnect</span>
+			}
+			@button.Button(button.Props{
+				ID:      "btn-virtual-keyboard",
+				Variant: button.VariantOutline,
+				Size:    button.SizeIcon,
+				Class:   "size-8",
+				Attributes: templ.Attributes{
+					"onclick":       "toggleVirtualKeyboard()",
+					"title":         "Virtual Keyboard",
+					"aria-expanded": "false",
+				},
+			}) {
+				@icon.Keyboard()
 			}
 			@button.Button(button.Props{
 				ID:         "btn-search",
@@ -79,12 +121,15 @@ templ ConsoleSearchBar() {
 		</div>
 		<span id="search-count" class="min-w-[3rem] text-center text-xs text-muted-foreground select-none"></span>
 		<div class="ml-auto flex items-center gap-2">
-			<label class="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer select-none" title="Case sensitive">
-				<input id="search-case" type="checkbox" class="rounded border-input" onchange="onSearchInput()"/>
+			// change fires on the checkbox's hidden input and bubbles to the
+			// label; the ids stay on the inputs so buildSearchOpts reads
+			// .checked unchanged.
+			<label class="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer select-none" title="Case sensitive" onchange="onSearchInput()">
+				@checkbox.Checkbox(checkbox.Props{ID: "search-case"})
 				Aa
 			</label>
-			<label class="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer select-none" title="Regular expression">
-				<input id="search-regex" type="checkbox" class="rounded border-input" onchange="onSearchInput()"/>
+			<label class="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer select-none" title="Regular expression" onchange="onSearchInput()">
+				@checkbox.Checkbox(checkbox.Props{ID: "search-regex"})
 				.*
 			</label>
 			@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeIcon, Class: "size-7", Attributes: templ.Attributes{"onclick": "findPrevious()", "title": "Previous match (Shift+Enter)"}}) {

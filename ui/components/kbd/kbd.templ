@@ -1,0 +1,53 @@
+package kbd
+
+import "github.com/pi-bmc/nanokvm-app/ui/utils"
+
+type Props struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+}
+
+type GroupProps struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+}
+
+// 1:1 base/ui/kbd.tsx: structure lives here, the look comes from the
+// active style-*.css via the classes.
+const baseClasses = "bg-muted text-muted-foreground pointer-events-none inline-flex h-5 w-fit min-w-5 items-center justify-center gap-1 rounded-sm px-1 font-sans text-xs font-medium select-none [&_svg:not([class*='size-'])]:size-3 [[data-slot=tooltip-content]_&]:bg-background/20 [[data-slot=tooltip-content]_&]:text-background dark:[[data-slot=tooltip-content]_&]:bg-background/10"
+
+templ Kbd(props ...Props) {
+	{{ var p Props }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	<kbd
+		if p.ID != "" {
+			id={ p.ID }
+		}
+		data-slot="kbd"
+		class={ utils.CN(baseClasses, p.Class) }
+		{ p.Attributes... }
+	>
+		{ children... }
+	</kbd>
+}
+
+templ Group(props ...GroupProps) {
+	{{ var p GroupProps }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	<kbd
+		if p.ID != "" {
+			id={ p.ID }
+		}
+		data-slot="kbd-group"
+		class={ utils.CN("inline-flex items-center gap-1", p.Class) }
+		{ p.Attributes... }
+	>
+		{ children... }
+	</kbd>
+}

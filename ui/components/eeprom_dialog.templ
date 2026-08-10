@@ -1,6 +1,8 @@
 package components
 
 import (
+	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
+	"github.com/pi-bmc/nanokvm-app/pkg/firmware/eepromkeys"
 	"github.com/pi-bmc/nanokvm-app/ui/components/badge"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/dialog"
@@ -171,6 +173,67 @@ templ EEPROMDialog() {
 	@eepromDialogScript()
 }
 
+// eepromPreviewModel groups parsed settings by section preserving first-
+// appearance order, mirroring EEPROMConfigSummary's sections/order fields.
+func eepromPreviewModel(settings []firmware.EEPROMSetting) (order []string, sections map[string][]firmware.EEPROMSetting) {
+	sections = map[string][]firmware.EEPROMSetting{}
+	for _, s := range settings {
+		if _, ok := sections[s.Section]; !ok {
+			order = append(order, s.Section)
+		}
+		sections[s.Section] = append(sections[s.Section], s)
+	}
+	return order, sections
+}
+
+// EEPROMPreview renders the parsed-settings pane. The dialog fetches it from
+// POST /ui/eeprom/preview on each edit, so the parse and the default-filter
+// hinting run through the real Go implementations (firmware.ParseEEPROMConfig,
+// eepromkeys.IsDefault) instead of a JS mirror.
+templ EEPROMPreview(settings []firmware.EEPROMSetting) {
+	{{ order, sections := eepromPreviewModel(settings) }}
+	if len(order) == 0 {
+		<p class="text-muted-foreground italic">No settings parsed.</p>
+	} else {
+		<p class="text-[0.625rem] text-muted-foreground/70 mb-2"><span class="line-through">Strikethrough</span> = value equals the documented default and will be omitted on save.</p>
+		for _, name := range order {
+			<div>
+				<div class="text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground mb-1">[{ name }]</div>
+				<div class="space-y-0.5">
+					for _, r := range sections[name] {
+						@eepromPreviewRow(r)
+					}
+				</div>
+			</div>
+		}
+	}
+}
+
+// eepromPreviewRow is one key/value line: description tooltip and documented
+// default from the catalog, strikethrough when the value equals the default
+// (only [all] is default-filtered at save time).
+templ eepromPreviewRow(r firmware.EEPROMSetting) {
+	{{ meta, hasMeta := eepromkeys.Lookup(r.Key) }}
+	{{ isDefault := r.Section == "all" && eepromkeys.IsDefault(eepromkeys.PlatformRPi5, r.Key, r.Value) }}
+	<div class="flex items-baseline justify-between gap-2 border-b border-border/40 py-0.5">
+		if hasMeta && meta.Description != "" {
+			<span class="font-mono" title={ meta.Description }>{ r.Key }</span>
+		} else {
+			<span class="font-mono">{ r.Key }</span>
+		}
+		<span class="flex items-baseline gap-1 min-w-0">
+			if isDefault {
+				<span class="font-mono text-muted-foreground/60 text-right break-all line-through">{ r.Value }</span>
+			} else {
+				<span class="font-mono text-muted-foreground text-right break-all">{ r.Value }</span>
+			}
+			if hasMeta && meta.Default != "" {
+				<span class="text-[0.625rem] text-muted-foreground/70 ml-2" title="Documented default">def: { meta.Default }</span>
+			}
+		</span>
+	</div>
+}
+
 templ eepromDialogScript() {
 	<script>
 		(function() {
@@ -208,108 +271,6 @@ templ eepromDialogScript() {
 				s.textContent = msg || '';
 				s.classList.remove('text-destructive', 'text-green-500', 'text-muted-foreground');
 				s.classList.add(cls || 'text-muted-foreground');
-			}
-
-			// catalogByName indexes the per-platform catalog from the API
-			// response so renderPreview can show each row's documented
-			// default + description. Re-built each time a fresh summary
-			// arrives from the server.
-			let catalogByName = {};
-
-			function buildCatalogIndex(summary) {
-				const idx = {};
-				for (const k of (summary.catalog || [])) idx[k.name] = k;
-				catalogByName = idx;
-			}
-
-			// rowMatchesDefault mirrors eepromkeys.IsDefault for [all].
-			// Returns true when the value would be filtered out at save
-			// time. Only the [all] section is filtered server-side; other
-			// sections are always kept verbatim.
-			function rowMatchesDefault(section, key, value) {
-				if (section !== 'all') return false;
-				const meta = catalogByName[key];
-				if (!meta || !meta.default) return false;
-				// Permissive comparator: trim, lower-case hex, numeric
-				// parsing for ints/bools. Matches the Go EqualValues
-				// well enough for visual hinting.
-				const a = String(value).trim();
-				const b = String(meta.default).trim();
-				if (a === b) return true;
-				if (meta.type === 'hex') {
-					return a.replace(/^0x/i, '').toLowerCase() === b.replace(/^0x/i, '').toLowerCase();
-				}
-				if (meta.type === 'integer' || meta.type === 'bool') {
-					const na = Number(a), nb = Number(b);
-					return Number.isFinite(na) && Number.isFinite(nb) && na === nb;
-				}
-				return false;
-			}
-
-			// renderPreview mirrors EEPROMConfigSummary returned by the API:
-			// { raw, sections: { [name]: [{section,key,value}, ...] }, order: [...] }
-			// We accept either a parsed payload (from API) or a string (for
-			// in-editor re-parse) — in the string case the server isn't
-			// re-hit; we just rebuild the visual.
-			function renderPreview(summary) {
-				const pv = preview();
-				if (!pv) return;
-				const order = summary.order || [];
-				if (order.length === 0) {
-					pv.innerHTML = '<p class="text-muted-foreground italic">No settings parsed.</p>';
-					return;
-				}
-				const parts = [];
-				for (const name of order) {
-					const rows = (summary.sections && summary.sections[name]) || [];
-					parts.push(`<div><div class="text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground mb-1">[${escapeHTML(name)}]</div>`);
-					parts.push('<div class="space-y-0.5">');
-					for (const r of rows) {
-						const meta = catalogByName[r.key];
-						const isDefault = rowMatchesDefault(r.section, r.key, r.value);
-						const tooltip = meta ? escapeHTML(meta.description) : '';
-						const defaultBadge = meta && meta.default
-							? `<span class="text-[0.625rem] text-muted-foreground/70 ml-2" title="Documented default">def: ${escapeHTML(meta.default)}</span>`
-							: '';
-						const valueClasses = isDefault
-							? 'font-mono text-muted-foreground/60 text-right break-all line-through'
-							: 'font-mono text-muted-foreground text-right break-all';
-						const keyAttr = tooltip ? ` title="${tooltip}"` : '';
-						parts.push(`<div class="flex items-baseline justify-between gap-2 border-b border-border/40 py-0.5"><span class="font-mono"${keyAttr}>${escapeHTML(r.key)}</span><span class="flex items-baseline gap-1 min-w-0"><span class="${valueClasses}">${escapeHTML(r.value)}</span>${defaultBadge}</span></div>`);
-					}
-					parts.push('</div></div>');
-				}
-				// Hint about what the strikethrough means.
-				parts.unshift('<p class="text-[0.625rem] text-muted-foreground/70 mb-2"><span class="line-through">Strikethrough</span> = value equals the documented default and will be omitted on save.</p>');
-				pv.innerHTML = parts.join('');
-			}
-
-			function escapeHTML(s) {
-				return String(s).replace(/[&<>"']/g, (c) => ({
-					'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-				}[c]));
-			}
-
-			// Pure client-side parse used by Re-parse (mirrors firmware.ParseEEPROMConfig).
-			function parseClient(text) {
-				const order = [], sections = {}, seen = new Set();
-				let section = 'all';
-				for (let line of (text || '').split(/\r?\n/)) {
-					line = line.trim();
-					if (!line || line.startsWith('#')) continue;
-					if (line.startsWith('[') && line.endsWith(']')) {
-						section = line.slice(1, -1).trim() || 'all';
-						continue;
-					}
-					const eq = line.indexOf('=');
-					if (eq <= 0) continue;
-					const key = line.slice(0, eq).trim();
-					const value = line.slice(eq + 1).trim();
-					if (!key) continue;
-					if (!seen.has(section)) { seen.add(section); order.push(section); }
-					(sections[section] ||= []).push({ section, key, value });
-				}
-				return { raw: text, sections, order };
 			}
 
 			// applyPendingChrome flips the pending badge + discard button
@@ -376,8 +337,7 @@ templ eepromDialogScript() {
 					}
 					showEditorView();
 					editor().value = data.raw || '';
-					buildCatalogIndex(data);
-					renderPreview(data);
+					refreshEEPROMPreview();
 					applyPendingChrome(data);
 					setStatus(describeState(data));
 				} catch(e) {
@@ -402,8 +362,7 @@ templ eepromDialogScript() {
 					const data = await r.json();
 					showEditorView();
 					editor().value = data.raw || '';
-					buildCatalogIndex(data);
-					renderPreview(data);
+					refreshEEPROMPreview();
 					applyPendingChrome(data);
 					setStatus('EEPROM initialized — staged as pieeprom.upd. Edit settings, then reboot to flash.', 'text-green-500');
 				} catch(e) {
@@ -414,7 +373,11 @@ templ eepromDialogScript() {
 			};
 
 			window.discardPendingEEPROM = async function() {
-				if (!confirm('Discard the pending EEPROM update? The next boot will keep the current EEPROM unchanged.')) return;
+				if (!await uiConfirm({
+					title: 'Discard pending EEPROM update?',
+					description: 'Removes pieeprom.upd — the next boot keeps the current EEPROM unchanged.',
+					confirmLabel: 'Discard', destructive: true,
+				})) return;
 				const btn = document.getElementById('eeprom-discard');
 				btn.disabled = true;
 				setStatus('Discarding…');
@@ -438,7 +401,11 @@ templ eepromDialogScript() {
 			};
 
 			window.refreshRecoveryBin = async function() {
-				if (!confirm('Re-download recovery.bin from raspberrypi/rpi-eeprom into the firmware FAT? pieeprom.bin is left alone — U-Boot writes it on each boot and it is the host’s recovery source.')) return;
+				if (!await uiConfirm({
+					title: 'Refresh recovery.bin?',
+					description: 'Re-downloads recovery.bin from raspberrypi/rpi-eeprom into the firmware FAT. pieeprom.bin is left alone — U-Boot writes it on each boot and it is the host’s recovery source.',
+					confirmLabel: 'Refresh',
+				})) return;
 				const btn = document.getElementById('eeprom-refresh-bin');
 				btn.disabled = true;
 				setStatus('Fetching latest recovery.bin…');
@@ -463,7 +430,11 @@ templ eepromDialogScript() {
 			};
 
 			window.upgradeEEPROMVersion = async function() {
-				if (!confirm('Stage a bootloader version upgrade?\n\nThe latest upstream pieeprom-*.bin will be downloaded and written as pieeprom.upd, with your current bootconf transplanted into it. recovery.bin is staged alongside. The live pieeprom.bin is untouched.')) return;
+				if (!await uiConfirm({
+					title: 'Stage a bootloader upgrade?',
+					description: 'Downloads the latest upstream pieeprom-*.bin and writes it as pieeprom.upd with your current bootconf transplanted in. recovery.bin is staged alongside; the live pieeprom.bin is untouched.',
+					confirmLabel: 'Stage upgrade',
+				})) return;
 				const btn = document.getElementById('eeprom-upgrade');
 				btn.disabled = true;
 				setStatus('Downloading latest bootloader and staging…');
@@ -479,8 +450,7 @@ templ eepromDialogScript() {
 					}
 					const data = await r.json();
 					editor().value = data.raw || '';
-					buildCatalogIndex(data);
-					renderPreview(data);
+					refreshEEPROMPreview();
 					applyPendingChrome(data);
 					setStatus('Bootloader upgrade staged as pieeprom.upd. rpi-eeprom-update will flash on the next boot.', 'text-green-500');
 				} catch(e) {
@@ -490,8 +460,20 @@ templ eepromDialogScript() {
 				}
 			};
 
-			window.refreshEEPROMPreview = function() {
-				renderPreview(parseClient(editor().value));
+			// The preview pane is server-rendered: POST the editor text, swap
+			// in the returned HTML fragment. A stale response must never
+			// overwrite a newer one, so responses are sequence-checked.
+			let previewSeq = 0;
+			window.refreshEEPROMPreview = async function() {
+				const seq = ++previewSeq;
+				try {
+					const r = await fetch('/ui/eeprom/preview', {
+						method: 'POST', headers: getAuthHeaders(),
+						body: JSON.stringify({ content: editor().value }),
+					});
+					if (!r.ok || seq !== previewSeq) return;
+					preview().innerHTML = await r.text();
+				} catch(e) { /* keep last good preview */ }
 			};
 
 			window.saveEEPROMConfig = async function() {
@@ -516,8 +498,7 @@ templ eepromDialogScript() {
 						return;
 					}
 					const data = await r.json();
-					buildCatalogIndex(data);
-					renderPreview(data);
+					refreshEEPROMPreview();
 					applyPendingChrome(data);
 					setStatus('Staged as pieeprom.upd. rpi-eeprom-update will flash on the next boot.', 'text-green-500');
 				} catch(e) {

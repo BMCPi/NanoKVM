@@ -1,17 +1,29 @@
 package components
 
 import (
+	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/dropdownmenu"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
 	"github.com/pi-bmc/nanokvm-app/ui/components/input"
+	"github.com/pi-bmc/nanokvm-app/ui/components/tabs"
 	"github.com/pi-bmc/nanokvm-app/ui/utils"
 )
+
+// mediaState snapshots the staged ISO list and insertion state at render
+// time so the menu paints populated on first open; navVmRefresh re-syncs
+// the same DOM after mutations (and on every menu open).
+func mediaState() (files []string, inserted string) {
+	ctrl := firmware.GetController()
+	files, _ = ctrl.ListMediaFiles()
+	return files, ctrl.GetVirtualMediaState().ImageName
+}
 
 // VirtualMediaMenu is the navbar virtual-media picker. Two views — "current
 // mount" and "add media" — toggled by the inline script. The "add" view uses
 // three tabs (Existing / Upload / URL) to keep height fixed.
 templ VirtualMediaMenu() {
+	{{ files, inserted := mediaState() }}
 	@dropdownmenu.DropdownMenu() {
 		@button.Button(button.Props{
 			Variant: button.VariantGhost,
@@ -26,15 +38,15 @@ templ VirtualMediaMenu() {
 			@icon.ChevronDown()
 		}
 		@dropdownmenu.Content(dropdownmenu.ContentProps{Class: "w-96 p-0 panel-fit"}) {
-			@vmCurrentView()
-			@vmAddView()
+			@vmCurrentView(inserted)
+			@vmAddView(files)
 		}
 	}
 	@virtualMediaScript()
 }
 
 // vmCurrentView shows current mount state + entry to the add view.
-templ vmCurrentView() {
+templ vmCurrentView(inserted string) {
 	<div id="nav-vm-view" class="p-3 space-y-3">
 		<div class="flex items-start justify-between gap-2">
 			<div>
@@ -58,14 +70,19 @@ templ vmCurrentView() {
 				@icon.Disc()
 			</div>
 			<div class="min-w-0 flex-1">
-				<div id="nav-vm-title" class="text-sm font-semibold truncate">No mounted media</div>
-				<div id="nav-vm-sub" class="text-xs text-muted-foreground">Add a file to get started</div>
+				if inserted != "" {
+					<div id="nav-vm-title" class="text-sm font-semibold truncate text-green-500">{ inserted }</div>
+					<div id="nav-vm-sub" class="text-xs text-muted-foreground">Mounted as virtual media</div>
+				} else {
+					<div id="nav-vm-title" class="text-sm font-semibold truncate">No mounted media</div>
+					<div id="nav-vm-sub" class="text-xs text-muted-foreground">Add a file to get started</div>
+				}
 			</div>
 			@button.Button(button.Props{
 				ID:         "nav-vm-eject",
 				Variant:    button.VariantDestructive,
 				Size:       button.SizeSm,
-				Class:      "hidden h-7 shrink-0",
+				Class:      utils.IfElse(inserted == "", "hidden h-7 shrink-0", "h-7 shrink-0"),
 				Attributes: templ.Attributes{"onclick": "navVmEject()"},
 			}) {
 				Eject
@@ -82,12 +99,11 @@ templ vmCurrentView() {
 				</span>
 			}
 		</div>
-		<p id="nav-vm-status" class="text-xs text-muted-foreground"></p>
 	</div>
 }
 
 // vmAddView uses three tabs (Existing / Upload / URL) so height stays fixed.
-templ vmAddView() {
+templ vmAddView(files []string) {
 	<div id="nav-vm-add" class="hidden p-3 space-y-2">
 		<div class="flex items-center justify-between gap-2">
 			<div class="text-sm font-semibold">Add New Media</div>
@@ -103,96 +119,72 @@ templ vmAddView() {
 				</span>
 			}
 		</div>
-		// Tab bar
-		<div class="flex gap-0.5 rounded-md bg-muted p-0.5 text-xs">
-			@vmTabButton("vm-tab-existing", "existing", true) {
-				Existing
-			}
-			@vmTabButton("vm-tab-upload", "upload", false) {
-				Upload
-			}
-			@vmTabButton("vm-tab-url", "url", false) {
-				URL
-			}
-		</div>
-		// Tab panels
-		<div id="vm-panel-existing" class="space-y-2">
-			<div class="flex items-center gap-2">
-				@NativeSelect("nav-vm-select", "flex-1 px-3")
-				@button.Button(button.Props{
-					Size:       button.SizeSm,
-					Attributes: templ.Attributes{"onclick": "navVmInsert()"},
-				}) {
-					Mount
+		@tabs.Tabs(tabs.Props{DefaultValue: "existing"}) {
+			@tabs.List(tabs.ListProps{Class: "w-full"}) {
+				@tabs.Trigger(tabs.TriggerProps{Value: "existing"}) {
+					Existing
 				}
-			</div>
-		</div>
-		<div id="vm-panel-upload" class="hidden space-y-2">
-			<div class="flex items-center gap-2">
-				@input.Input(input.Props{
-					ID:     "nav-vm-file",
-					Type:   "file",
-					Accept: ".iso,.img",
-					Class:  "flex-1 h-8",
-				})
-				@button.Button(button.Props{
-					Size:       button.SizeSm,
-					Attributes: templ.Attributes{"onclick": "navVmUpload()"},
-				}) {
+				@tabs.Trigger(tabs.TriggerProps{Value: "upload"}) {
 					Upload
 				}
-			</div>
-		</div>
-		<div id="vm-panel-url" class="hidden space-y-2">
-			@input.Input(input.Props{
-				ID:          "nav-vm-url",
-				Type:        "url",
-				Placeholder: "https://example.com/image.iso",
-			})
-			<div class="flex items-center gap-2">
-				@input.Input(input.Props{
-					ID:          "nav-vm-url-name",
-					Placeholder: "filename.iso (optional)",
-					Class:       "flex-1",
-				})
-				@button.Button(button.Props{
-					Size:       button.SizeSm,
-					Attributes: templ.Attributes{"onclick": "navVmFetch()"},
-				}) {
-					Fetch
+				@tabs.Trigger(tabs.TriggerProps{Value: "url"}) {
+					URL
 				}
-			</div>
-		</div>
-		<p id="nav-vm-add-status" class="text-xs text-muted-foreground min-h-[1rem]"></p>
+			}
+			@tabs.Content(tabs.ContentProps{Value: "existing", Class: "space-y-2"}) {
+				<div class="flex items-center gap-2">
+					@NativeSelect("nav-vm-select", "flex-1 px-3") {
+						<option value="">— select ISO —</option>
+						for _, f := range files {
+							<option value={ f }>{ f }</option>
+						}
+					}
+					@button.Button(button.Props{
+						Size:       button.SizeSm,
+						Attributes: templ.Attributes{"onclick": "navVmInsert()"},
+					}) {
+						Mount
+					}
+				</div>
+			}
+			@tabs.Content(tabs.ContentProps{Value: "upload", Class: "space-y-2"}) {
+				<div class="flex items-center gap-2">
+					@input.Input(input.Props{
+						ID:     "nav-vm-file",
+						Type:   "file",
+						Accept: ".iso,.img",
+						Class:  "flex-1 h-8",
+					})
+					@button.Button(button.Props{
+						Size:       button.SizeSm,
+						Attributes: templ.Attributes{"onclick": "navVmUpload()"},
+					}) {
+						Upload
+					}
+				</div>
+			}
+			@tabs.Content(tabs.ContentProps{Value: "url", Class: "space-y-2"}) {
+				@input.Input(input.Props{
+					ID:          "nav-vm-url",
+					Type:        "url",
+					Placeholder: "https://example.com/image.iso",
+				})
+				<div class="flex items-center gap-2">
+					@input.Input(input.Props{
+						ID:          "nav-vm-url-name",
+						Placeholder: "filename.iso (optional)",
+						Class:       "flex-1",
+					})
+					@button.Button(button.Props{
+						Size:       button.SizeSm,
+						Attributes: templ.Attributes{"onclick": "navVmFetch()"},
+					}) {
+						Fetch
+					}
+				</div>
+			}
+		}
 	</div>
-	@vmTabStyles()
-}
-
-// vmTabButton renders one segment of the add-media tab bar. The vm-tab /
-// vm-tab-active classes carry the segmented-control look; navVmTab toggles
-// vm-tab-active on click.
-templ vmTabButton(id string, name string, active bool) {
-	{{ class := "vm-tab" }}
-	if active {
-		{{ class = "vm-tab vm-tab-active" }}
-	}
-	@button.Button(button.Props{
-		ID:         id,
-		Variant:    button.VariantGhost,
-		Size:       button.SizeSm,
-		Class:      class,
-		Attributes: templ.Attributes{"onclick": "navVmTab('" + name + "')"},
-	}) {
-		{ children... }
-	}
-}
-
-templ vmTabStyles() {
-	<style>
-		.vm-tab { flex: 1; padding: .25rem .5rem; border-radius: .25rem; color: var(--muted-foreground); cursor: pointer; background: transparent; border: none; transition: background .1s, color .1s; }
-		.vm-tab:hover { color: var(--foreground); }
-		.vm-tab-active { background: var(--background); color: var(--foreground); box-shadow: 0 1px 3px rgba(0,0,0,.3); }
-	</style>
 }
 
 templ virtualMediaScript() {
@@ -240,104 +232,77 @@ templ virtualMediaScript() {
 			document.getElementById('nav-vm-view').classList.remove('hidden');
 		}
 
-		function navVmTab(name) {
-			['existing','upload','url'].forEach(t => {
-				document.getElementById('vm-panel-' + t).classList.toggle('hidden', t !== name);
-				const btn = document.getElementById('vm-tab-' + t);
-				btn.classList.toggle('vm-tab-active', t === name);
-			});
+		// vmRequest performs one media mutation with a loading toast that
+		// morphs into the success/error result. Returns the parsed JSON body
+		// on success, null on failure.
+		async function vmRequest(promiseFn, labels) {
+			const p = promiseFn();
+			tui.toast.promise(p, labels);
+			try { return await p; } catch (e) { return null; }
+		}
+
+		async function vmPost(url, opts) {
+			const r = await fetch(url, Object.assign({ method: 'POST', headers: getAuthHeaders() }, opts));
+			if (!r.ok) {
+				const err = await r.json().catch(() => ({}));
+				throw new Error(err.error || r.statusText);
+			}
+			return r.json().catch(() => ({}));
 		}
 
 		async function navVmInsert() {
 			const name = document.getElementById('nav-vm-select').value;
-			const status = document.getElementById('nav-vm-add-status');
-			if (!name) { status.textContent = 'Select an ISO first'; return; }
-			status.textContent = 'Mounting…';
-			try {
-				const r = await fetch('/api/firmware/media/insert', {
-					method: 'POST', headers: getAuthHeaders(),
-					body: JSON.stringify({ name }),
-				});
-				if (r.ok) {
-					status.textContent = '';
-					navVmRefresh();
-					navVmShowView();
-					if (typeof loadFirmwareInfo === 'function') loadFirmwareInfo();
-				} else {
-					const err = await r.json().catch(() => ({}));
-					status.textContent = 'Error: ' + (err.error || r.statusText);
-				}
-			} catch(e) { status.textContent = 'Error: ' + e.message; }
+			if (!name) { tui.toast.add({ type: 'warning', title: 'Select an ISO first' }); return; }
+			const d = await vmRequest(
+				() => vmPost('/api/firmware/media/insert', { body: JSON.stringify({ name }) }),
+				{ loading: 'Mounting…', success: 'Media mounted', error: e => 'Mount failed: ' + e.message });
+			if (d === null) return;
+			navVmRefresh();
+			navVmShowView();
+			if (typeof loadFirmwareInfo === 'function') loadFirmwareInfo();
 		}
 
 		async function navVmEject() {
-			const status = document.getElementById('nav-vm-status');
-			status.textContent = 'Ejecting…';
-			try {
-				const r = await fetch('/api/firmware/media/eject', {
-					method: 'POST', headers: getAuthHeaders(),
-				});
-				if (r.ok) {
-					status.textContent = '';
-					navVmRefresh();
-					if (typeof loadFirmwareInfo === 'function') loadFirmwareInfo();
-				} else {
-					const err = await r.json().catch(() => ({}));
-					status.textContent = 'Error: ' + (err.error || r.statusText);
-				}
-			} catch(e) { status.textContent = 'Error: ' + e.message; }
+			const d = await vmRequest(
+				() => vmPost('/api/firmware/media/eject'),
+				{ loading: 'Ejecting…', success: 'Media ejected', error: e => 'Eject failed: ' + e.message });
+			if (d === null) return;
+			navVmRefresh();
+			if (typeof loadFirmwareInfo === 'function') loadFirmwareInfo();
 		}
 
 		async function navVmUpload() {
 			const fileInput = document.getElementById('nav-vm-file');
-			const status = document.getElementById('nav-vm-add-status');
 			if (!fileInput.files || !fileInput.files.length) {
-				status.textContent = 'Select a file first';
+				tui.toast.add({ type: 'warning', title: 'Select a file first' });
 				return;
 			}
-			const token = getCookie('nano-kvm-token') || '';
 			const form = new FormData();
 			form.append('file', fileInput.files[0]);
-			status.textContent = 'Uploading…';
-			try {
-				const r = await fetch('/api/firmware/media/upload', {
-					method: 'POST', headers: { 'token': token }, body: form,
-				});
-				if (r.ok) {
-					const d = await r.json();
-					status.textContent = 'Saved: ' + d.file;
-					fileInput.value = '';
-					navVmRefresh();
-				} else {
-					const err = await r.json().catch(() => ({}));
-					status.textContent = 'Error: ' + (err.error || r.statusText);
-				}
-			} catch(e) { status.textContent = 'Error: ' + e.message; }
+			const d = await vmRequest(
+				() => vmPost('/api/firmware/media/upload', {
+					headers: { 'token': getCookie('nano-kvm-token') || '' }, body: form,
+				}),
+				{ loading: 'Uploading…', success: d => 'Saved: ' + d.file, error: e => 'Upload failed: ' + e.message });
+			if (d === null) return;
+			fileInput.value = '';
+			navVmRefresh();
 		}
 
 		async function navVmFetch() {
 			const urlInput = document.getElementById('nav-vm-url');
 			const nameInput = document.getElementById('nav-vm-url-name');
-			const status = document.getElementById('nav-vm-add-status');
 			const isoUrl = urlInput.value.trim();
-			if (!isoUrl) { status.textContent = 'Enter a URL first'; return; }
-			status.textContent = 'Fetching…';
-			try {
-				const r = await fetch('/api/firmware/media/fetch', {
-					method: 'POST', headers: getAuthHeaders(),
+			if (!isoUrl) { tui.toast.add({ type: 'warning', title: 'Enter a URL first' }); return; }
+			const d = await vmRequest(
+				() => vmPost('/api/firmware/media/fetch', {
 					body: JSON.stringify({ url: isoUrl, name: nameInput.value.trim() || undefined }),
-				});
-				if (r.ok) {
-					const d = await r.json();
-					status.textContent = 'Saved: ' + d.file;
-					urlInput.value = '';
-					nameInput.value = '';
-					navVmRefresh();
-				} else {
-					const err = await r.json().catch(() => ({}));
-					status.textContent = 'Error: ' + (err.error || r.statusText);
-				}
-			} catch(e) { status.textContent = 'Error: ' + e.message; }
+				}),
+				{ loading: 'Fetching…', success: d => 'Saved: ' + d.file, error: e => 'Fetch failed: ' + e.message });
+			if (d === null) return;
+			urlInput.value = '';
+			nameInput.value = '';
+			navVmRefresh();
 		}
 	</script>
 }

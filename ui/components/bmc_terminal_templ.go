@@ -25,6 +25,11 @@ const bmcTerminalPanelID = "bmc-terminal-panel"
 // The shell process is only spawned when the drawer is first opened, and
 // the session survives hiding the drawer — reopening returns to the same
 // prompt and scrollback.
+//
+// We do NOT use the shadcn-templ Sheet/Drawer here: both compose the dialog
+// machinery (show-modal, backdrop, focus trap), but this dock must stay
+// non-modal — the console keeps working while the shell is open — and
+// supports drag-to-resize, which the dialog stack has no notion of.
 func BMCTerminalPanel() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -57,7 +62,7 @@ func BMCTerminalPanel() templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(bmcTerminalPanelID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/bmc_terminal.templ`, Line: 23, Col: 25}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/bmc_terminal.templ`, Line: 28, Col: 25}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {

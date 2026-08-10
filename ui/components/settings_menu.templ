@@ -4,13 +4,30 @@ import (
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/card"
 	"github.com/pi-bmc/nanokvm-app/ui/components/dialog"
+	"github.com/pi-bmc/nanokvm-app/ui/components/field"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
 	"github.com/pi-bmc/nanokvm-app/ui/components/input"
-	"github.com/pi-bmc/nanokvm-app/ui/components/label"
-	"github.com/pi-bmc/nanokvm-app/ui/components/separator"
+	selectcomp "github.com/pi-bmc/nanokvm-app/ui/components/select"
 	switchcomp "github.com/pi-bmc/nanokvm-app/ui/components/switch"
+	"github.com/pi-bmc/nanokvm-app/ui/components/textarea"
 	"github.com/pi-bmc/nanokvm-app/ui/utils"
 )
+
+// settingsSection is one entry in the dialog's left nav rail. The list lives
+// in Go so the rail and the panels cannot drift apart.
+type settingsSection struct {
+	ID    string
+	Label string
+	Icon  func(...icon.Props) templ.Component
+}
+
+var settingsSections = []settingsSection{
+	{ID: "general", Label: "General", Icon: icon.SlidersHorizontal},
+	{ID: "network", Label: "Network", Icon: icon.Network},
+	{ID: "hardware", Label: "Hardware", Icon: icon.Usb},
+	{ID: "access", Label: "Access", Icon: icon.ShieldCheck},
+	{ID: "advanced", Label: "Advanced", Icon: icon.Wrench},
+}
 
 // SettingsDialogTrigger is the navbar button that opens the settings dialog.
 // Lives separately from the dialog body so dialog state survives across
@@ -24,6 +41,9 @@ templ SettingsDialogTrigger() {
 			templ.Attributes{
 				"title":      "Settings",
 				"aria-label": "Settings",
+				// Every panel reads its state from the API on open rather than
+				// on page load, so a dialog that is never opened costs nothing.
+				"onclick": "onSettingsOpen()",
 			},
 		),
 	}) {
@@ -31,185 +51,763 @@ templ SettingsDialogTrigger() {
 	}
 }
 
-// SettingsDialog is the modal settings panel — Network, Security, System,
-// and Auto-Update controls. Rendered once near the root and triggered from
-// the navbar via dialog.TriggerFor("settings-dialog").
+// SettingsDialog is the modal settings panel, laid out like JetKVM's settings
+// pane: a nav rail on the left (Back to KVM + one entry per section) and a
+// single card on the right whose header carries the section title, its
+// one-line description and the section's primary action. Rendered once near
+// the root and triggered from the navbar via
+// dialog.TriggerFor("settings-dialog").
 templ SettingsDialog() {
 	@dialog.Dialog(dialog.Props{ID: "settings-dialog"}) {
-		@dialog.Content(dialog.ContentProps{Class: "max-w-lg max-h-[calc(100svh-4rem)] flex flex-col"}) {
-			@dialog.Header() {
+		// bg-background (darker than bg-card in this theme) is what makes the
+		// panel and nav cards read as raised surfaces, like the reference pane.
+		@dialog.Content(dialog.ContentProps{
+			HideCloseButton: true,
+			Class:           "bg-background flex flex-col gap-0 p-3 sm:max-w-3xl lg:max-w-5xl h-[min(46rem,calc(100svh-3rem))]",
+		}) {
+			// The visible headings live in each panel, so the dialog's own
+			// title/description — what aria-labelledby/-describedby point at —
+			// are screen-reader only.
+			@dialog.Header(dialog.HeaderProps{Class: "sr-only"}) {
 				@dialog.Title() {
 					Settings
 				}
 				@dialog.Description() {
-					Network, security, system, and automatic update settings.
+					Configure general, network, hardware, access and advanced settings.
 				}
 			}
-			// Scrollable card area: flex-1 + overflow-y-auto pins the header
-			// and footer so the Close button is always reachable regardless of
-			// viewport height.
-			<div class="flex-1 min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-4 py-2">
-				@settingsNetworkCard()
-				@settingsSecurityCard()
-				@settingsAutoUpdateCard()
-				@settingsSystemCard()
+			<div class="flex min-h-0 flex-1 flex-col gap-3 sm:flex-row">
+				@settingsNav()
+				<div class="flex min-h-0 min-w-0 flex-1 flex-col">
+					@settingsGeneralPanel()
+					@settingsNetworkPanel()
+					@settingsHardwarePanel()
+					@settingsAccessPanel()
+					@settingsAdvancedPanel()
+				</div>
 			</div>
-			@dialog.Footer() {
-				@button.Button(button.Props{Variant: button.VariantOutline, Attributes: dialog.Close(ctx)}) {
-					Close
-				}
-			}
 		}
 	}
 	@settingsDialogScript()
 }
 
-// settingsNetworkCard groups network toggles (SSH) and the SSH key editor.
-// The BMC runs no sshd — the app is the SSH server (pkg/ssh) — so
-// the toggle starts/stops an in-process listener and the textarea below is the
-// authorized_keys file it authenticates against.
-templ settingsNetworkCard() {
-	@card.Card() {
-		@card.Header() {
-			@card.Title(card.TitleProps{Class: "text-sm"}) {
-				Network
+// settingsNav is the left rail: the dismiss button over a card of section
+// links, mirroring the reference pane's "Back to KVM" + section list.
+templ settingsNav() {
+	<nav class="flex shrink-0 flex-col gap-3 sm:w-52" aria-label="Settings sections">
+		@button.Button(button.Props{
+			Variant:    button.VariantOutline,
+			Class:      "w-full justify-start gap-2",
+			Attributes: dialog.Close(ctx),
+		}) {
+			@icon.ArrowLeft()
+			<span>Back to KVM</span>
+		}
+		@card.Card(card.Props{Class: "gap-0.5 p-1"}) {
+			for i, s := range settingsSections {
+				@settingsNavItem(s, i == 0)
 			}
 		}
-		@card.Content(card.ContentProps{Class: "pt-0 space-y-2"}) {
-			@settingsToggleRow("ssh-switch", "SSH", "toggleSSH(this.checked)")
-			@separator.Separator()
-			<div class="space-y-1.5">
-				@label.Label(label.Props{For: "ssh-keys"}) {
-					Authorized Keys
+	</nav>
+}
+
+// settingsNavItem is one section link. The active state rides on data-active
+// rather than a class swap: the attribute selector outranks the variant's own
+// background, so the highlight survives hover without an !important.
+templ settingsNavItem(s settingsSection, active bool) {
+	@button.Button(button.Props{
+		Variant: button.VariantGhost,
+		Size:    button.SizeSm,
+		Class:   "w-full justify-start gap-2 font-normal text-muted-foreground data-[active=true]:bg-muted data-[active=true]:font-medium data-[active=true]:text-foreground",
+		Attributes: templ.Attributes{
+			"data-settings-nav": s.ID,
+			"data-active":       utils.IfElse(active, "true", "false"),
+			"onclick":           "showSettingsSection('" + s.ID + "')",
+		},
+	}) {
+		@s.Icon(icon.Props{Class: "size-4"})
+		<span>{ s.Label }</span>
+	}
+}
+
+// settingsPanel is the right-hand pane for one section. action is the
+// header's top-right control (a Save button for the sections that batch
+// their writes) and may be nil.
+templ settingsPanel(id, title, description string, active bool, action templ.Component) {
+	<section
+		data-settings-panel={ id }
+		data-active={ utils.IfElse(active, "true", "false") }
+		aria-label={ title }
+		class="flex min-h-0 flex-1 flex-col data-[active=false]:hidden"
+	>
+		@card.Card(card.Props{Class: "min-h-0 flex-1"}) {
+			@card.Header() {
+				@card.Title() {
+					{ title }
 				}
-				<p class="text-xs text-muted-foreground">
-					One public key per line, OpenSSH format. Log in as
-					<code class="text-[0.6875rem]">root</code>.
-				</p>
-				<textarea
-					id="ssh-keys"
-					rows="4"
-					spellcheck="false"
-					autocomplete="off"
-					placeholder="ssh-ed25519 AAAA… user@host"
-					class="w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs shadow-xs focus:outline-none focus:ring-2 focus:ring-ring"
-				></textarea>
-				<div class="flex items-center justify-between gap-2">
-					<span id="ssh-keys-status" class="text-xs text-muted-foreground"></span>
+				@card.Description() {
+					{ description }
+				}
+				if action != nil {
+					@card.Action() {
+						@action
+					}
+				}
+			}
+			@card.Content(card.ContentProps{Class: "no-scrollbar min-h-0 flex-1 overflow-y-auto"}) {
+				{ children... }
+			}
+		}
+	</section>
+}
+
+// settingsSaveButton is the header action for panels that batch their writes.
+templ settingsSaveButton(onclick string) {
+	@button.Button(button.Props{
+		Size:       button.SizeSm,
+		Attributes: templ.Attributes{"onclick": onclick},
+	}) {
+		Save Settings
+	}
+}
+
+// ── Panels ──────────────────────────────────────────────────────────────
+
+// settingsGeneralPanel shows the BMC's own identity and the background
+// updater. The update toggles write on change, so the panel has no Save.
+templ settingsGeneralPanel() {
+	@settingsPanel("general", "General", "Device identity and automatic updates.", true, nil) {
+		@field.Group() {
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Device
+				}
+				@settingsValueRow("Application", "BMC application build currently running.", "set-app-version")
+				@settingsValueRow("System image", "Base image the BMC booted from.", "set-image-version")
+				@settingsValueRow("Hardware", "Detected NanoKVM hardware revision.", "set-hw-version")
+			}
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Automatic updates
+				}
+				@settingsSwitchRow("au-enabled", "Enable auto-update",
+					"Check GitHub for newer releases in the background and apply them.")
+				@settingsRow("au-interval", "Check interval",
+					"Minutes between checks. Values below 5 are clamped at runtime.") {
+					@input.Input(input.Props{
+						ID:         "au-interval",
+						Type:       "number",
+						Value:      "360",
+						Class:      "w-24",
+						Attributes: templ.Attributes{"min": "5", "step": "5", "onchange": "saveAutoUpdate()"},
+					})
+				}
+				@settingsSwitchRow("au-application", "Update application",
+					"Apply new NanoKVM application releases. The service restarts.")
+				@settingsSwitchRow("au-bios", "Update BIOS (U-Boot)",
+					"Apply new U-Boot images for the managed host.")
+			}
+			@settingsStatusLine("au-status")
+		}
+	}
+}
+
+// settingsNetworkPanel is the closest mirror of the reference pane: the eth0
+// addressing form up top, the USB host-interface link below it, and a status
+// card at the bottom standing in for the lease readout.
+templ settingsNetworkPanel() {
+	@settingsPanel("network", "Network", "Configure your network settings.", false, settingsSaveButton("saveNetwork()")) {
+		@field.Group() {
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Wired uplink (eth0)
+				}
+				@settingsSwitchRow("net-enabled", "Managed networking",
+					"Let the BMC configure eth0 over netlink instead of leaving it to the boot scripts.")
+				@settingsRow("net-mac", "MAC Address",
+					"Hardware identifier for the network interface. Blank keeps the kernel MAC.") {
+					@input.Input(input.Props{
+						ID:          "net-mac",
+						Placeholder: "aa:bb:cc:dd:ee:ff",
+						Class:       "w-48 font-mono",
+						Attributes:  templ.Attributes{"spellcheck": "false", "autocomplete": "off"},
+					})
+					@button.Button(button.Props{
+						Variant:    button.VariantOutline,
+						Size:       button.SizeIcon,
+						Attributes: templ.Attributes{"onclick": "copySettingsValue('net-mac')", "title": "Copy", "aria-label": "Copy MAC address"},
+					}) {
+						@icon.Copy()
+					}
+				}
+				@settingsRow("net-mode-trigger", "IPv4 Mode", "Configure the IPv4 mode.") {
+					@selectcomp.Select(selectcomp.Props{ID: "net-mode", Name: "net-mode", Value: "dhcp"}) {
+						@selectcomp.Trigger(selectcomp.TriggerProps{ID: "net-mode-trigger", Class: "w-32"}) {
+							@selectcomp.Value(selectcomp.ValueProps{Placeholder: "DHCP"})
+						}
+						@selectcomp.Content() {
+							@selectcomp.Item(selectcomp.ItemProps{Value: "dhcp"}) {
+								DHCP
+							}
+							@selectcomp.Item(selectcomp.ItemProps{Value: "static"}) {
+								Static
+							}
+						}
+					}
+				}
+				// Static-only fields. data-active drives the visibility so the
+				// attribute selector wins over the row's own display utility.
+				<div id="net-static" data-active="false" class="flex flex-col gap-4 data-[active=false]:hidden">
+					@settingsRow("net-address", "IPv4 Address", "Static address in CIDR notation, e.g. 192.168.1.50/24.") {
+						@input.Input(input.Props{
+							ID:          "net-address",
+							Placeholder: "192.168.1.50/24",
+							Class:       "w-48 font-mono",
+							Attributes:  templ.Attributes{"spellcheck": "false", "autocomplete": "off"},
+						})
+					}
+					@settingsRow("net-gateway", "Gateway", "Default-route next hop. Blank adds no default route.") {
+						@input.Input(input.Props{
+							ID:          "net-gateway",
+							Placeholder: "192.168.1.1",
+							Class:       "w-48 font-mono",
+							Attributes:  templ.Attributes{"spellcheck": "false", "autocomplete": "off"},
+						})
+					}
+					@settingsRow("net-dns", "DNS Servers", "Nameservers written to /etc/resolv.conf, comma separated.") {
+						@input.Input(input.Props{
+							ID:          "net-dns",
+							Placeholder: "1.1.1.1, 9.9.9.9",
+							Class:       "w-48 font-mono",
+							Attributes:  templ.Attributes{"spellcheck": "false", "autocomplete": "off"},
+						})
+					}
+				</div>
+			}
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					USB host interface
+				}
+				@settingsRow("rhi-address", "BMC Address",
+					"Link-local CIDR the BMC takes on the USB link to the managed host.") {
+					@input.Input(input.Props{
+						ID:          "rhi-address",
+						Placeholder: "169.254.10.1/16",
+						Class:       "w-48 font-mono",
+						Attributes:  templ.Attributes{"spellcheck": "false", "autocomplete": "off"},
+					})
+				}
+				@settingsRow("rhi-lease", "Host Lease",
+					"Single address offered to the host. Blank disables the DHCP server.") {
+					@input.Input(input.Props{
+						ID:          "rhi-lease",
+						Placeholder: "169.254.10.2",
+						Class:       "w-48 font-mono",
+						Attributes:  templ.Attributes{"spellcheck": "false", "autocomplete": "off"},
+					})
+				}
+			}
+			@settingsStatusLine("net-status")
+			@settingsNetworkStatusCard()
+		}
+	}
+}
+
+// settingsNetworkStatusCard is the read-only counterpart of the form above —
+// what the interfaces actually ended up with. bg-background keeps it distinct
+// from the panel card it sits in.
+templ settingsNetworkStatusCard() {
+	@card.Card(card.Props{Size: card.SizeSm, Class: "bg-background"}) {
+		@card.Header() {
+			@card.Title(card.TitleProps{Class: "text-xs"}) {
+				Network Status
+			}
+			@card.Action() {
+				@button.Button(button.Props{
+					Variant:    button.VariantOutline,
+					Size:       button.SizeSm,
+					Attributes: templ.Attributes{"onclick": "loadNetworkStatus()"},
+				}) {
+					@icon.RefreshCw()
+					<span>Refresh</span>
+				}
+			}
+		}
+		@card.Content(card.ContentProps{Class: "grid grid-cols-1 gap-x-6 sm:grid-cols-2"}) {
+			@settingsStatusRow("IP Address", "net-status-ip")
+			@settingsStatusRow("Interface", "net-status-iface")
+			@settingsStatusRow("IPv4 Mode", "net-status-mode")
+			@settingsStatusRow("MAC Address", "net-status-mac")
+			@settingsStatusRow("mDNS Name", "net-status-mdns")
+			@settingsStatusRow("USB Host Link", "net-status-rhi")
+		}
+	}
+}
+
+// settingsHardwarePanel exposes the USB gadget functions the BMC presents to
+// the managed host. Each toggle applies immediately, so there is no Save.
+templ settingsHardwarePanel() {
+	@settingsPanel("hardware", "Hardware", "USB gadget functions exposed to the managed host.", false, nil) {
+		@field.Group() {
+			@settingsSwitchRow("usb-network", "USB Ethernet",
+				"Present a CDC-ECM adapter to the host — the transport for the Redfish host interface.")
+			@settingsSwitchRow("usb-disk", "USB Mass Storage",
+				"Present the BMC's disk image to the host as a USB drive.")
+			@settingsValueRow("Virtual media", "Whether an ISO is currently attached to the host.", "usb-media-state")
+			@settingsStatusLine("hw-status")
+		}
+	}
+}
+
+// settingsAccessPanel groups everything that gates reaching the BMC: the
+// in-process SSH server (the BMC runs no sshd — pkg/ssh is the server, and the
+// textarea is the authorized_keys file it authenticates against), TLS, and the
+// web account password.
+templ settingsAccessPanel() {
+	@settingsPanel("access", "Access", "Who can reach the BMC, and how.", false, nil) {
+		@field.Group() {
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					SSH
+				}
+				@settingsSwitchRow("ssh-switch", "SSH server",
+					"In-process SSH server on port 22. Log in as root.")
+				@field.Field() {
+					@field.Label(field.LabelProps{For: "ssh-keys"}) {
+						Authorized Keys
+					}
+					@field.Description() {
+						One public key per line, OpenSSH format.
+					}
+					@textarea.Textarea(textarea.Props{
+						ID:          "ssh-keys",
+						Rows:        4,
+						Placeholder: "ssh-ed25519 AAAA… user@host",
+						Class:       "font-mono text-xs",
+						Attributes:  templ.Attributes{"spellcheck": "false", "autocomplete": "off"},
+					})
+					<div class="flex items-center justify-between gap-2">
+						@settingsStatusLine("ssh-keys-status")
+						@button.Button(button.Props{
+							Variant:    button.VariantOutline,
+							Size:       button.SizeSm,
+							Attributes: templ.Attributes{"onclick": "saveSSHKeys()"},
+						}) {
+							Save Keys
+						}
+					</div>
+				}
+			}
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Web interface
+				}
+				@settingsSwitchRow("tls-switch", "TLS / HTTPS",
+					"Serve the web UI and the APIs over HTTPS. The page reloads on the new scheme.")
+				@settingsRow("", "Password", "Change the password of the BMC web account.") {
 					@button.Button(button.Props{
 						Variant:    button.VariantOutline,
 						Size:       button.SizeSm,
-						Attributes: templ.Attributes{"onclick": "saveSSHKeys()"},
+						Attributes: templ.Attributes{"onclick": "window.location.href='/auth/password'"},
 					}) {
-						Save Keys
+						@icon.KeyRound()
+						<span>Change Password</span>
 					}
-				</div>
-			</div>
-		}
-	}
-}
-
-// settingsSecurityCard groups TLS toggle + password change.
-templ settingsSecurityCard() {
-	@card.Card() {
-		@card.Header() {
-			@card.Title(card.TitleProps{Class: "text-sm"}) {
-				Security
-			}
-		}
-		@card.Content(card.ContentProps{Class: "pt-0 space-y-2"}) {
-			@settingsToggleRow("tls-switch", "TLS / HTTPS", "toggleTLS(this.checked)")
-			@separator.Separator()
-			@button.Button(button.Props{
-				Variant:    button.VariantOutline,
-				Class:      "w-full",
-				Attributes: templ.Attributes{"onclick": "window.location.href='/auth/password'"},
-			}) {
-				@icon.KeyRound()
-				<span>Change Password</span>
-			}
-		}
-	}
-}
-
-// settingsAutoUpdateCard exposes the auto-update toggle + interval + per-
-// component switches. State loads from /api/autoupdate/settings on dialog
-// open and writes via PATCH.
-templ settingsAutoUpdateCard() {
-	@card.Card() {
-		@card.Header() {
-			@card.Title(card.TitleProps{Class: "text-sm"}) {
-				Automatic Updates
-			}
-			@card.Description() {
-				Background ticker checks GitHub for newer releases and applies them.
-			}
-		}
-		@card.Content(card.ContentProps{Class: "pt-0 space-y-3"}) {
-			@settingsToggleRow("au-enabled", "Enable auto-update", "saveAutoUpdate()")
-			<div class="space-y-1.5">
-				@label.Label(label.Props{For: "au-interval"}) {
-					Check interval (minutes)
 				}
-				@input.Input(input.Props{
-					ID:         "au-interval",
-					Type:       "number",
-					Value:      "360",
-					Attributes: templ.Attributes{"min": "5", "step": "5", "onchange": "saveAutoUpdate()"},
-				})
-			</div>
-			@separator.Separator()
-			@settingsToggleRow("au-application", "Update application", "saveAutoUpdate()")
-			@settingsToggleRow("au-bios", "Update BIOS (U-Boot)", "saveAutoUpdate()")
-			<p id="au-status" class="text-xs text-muted-foreground min-h-[1rem]"></p>
-		}
-	}
-}
-
-// settingsSystemCard hosts system-wide actions (reboot).
-templ settingsSystemCard() {
-	@card.Card() {
-		@card.Header() {
-			@card.Title(card.TitleProps{Class: "text-sm"}) {
-				System
-			}
-		}
-		@card.Content(card.ContentProps{Class: "pt-0"}) {
-			@button.Button(button.Props{
-				Variant:    button.VariantDestructive,
-				Class:      "w-full",
-				Attributes: templ.Attributes{"onclick": "if(confirm('Reboot the BMC?')) rebootSystem()"},
-			}) {
-				@icon.RefreshCw()
-				<span>Reboot BMC</span>
 			}
 		}
 	}
 }
 
-// settingsToggleRow renders one "label + switch" settings row.
-templ settingsToggleRow(id, text, onchange string) {
-	<div class="flex items-center justify-between py-1">
-		@label.Label(label.Props{For: id}) {
-			{ text }
+// settingsAdvancedPanel holds the maintenance actions.
+templ settingsAdvancedPanel() {
+	@settingsPanel("advanced", "Advanced", "Maintenance and diagnostics.", false, nil) {
+		@field.Group() {
+			@settingsRow("", "Reboot BMC",
+				"Restart the management controller. The managed host keeps running.") {
+				@button.Button(button.Props{
+					Variant:    button.VariantDestructive,
+					Size:       button.SizeSm,
+					Attributes: templ.Attributes{"onclick": "if(confirm('Reboot the BMC?')) rebootSystem()"},
+				}) {
+					@icon.RefreshCw()
+					<span>Reboot BMC</span>
+				}
+			}
+			@settingsRow("", "API documentation",
+				"Rendered reference for the Redfish and NanoKVM APIs served by this device.") {
+				@button.Button(button.Props{
+					Variant: button.VariantOutline,
+					Size:    button.SizeSm,
+					Href:    "/docs",
+					Target:  "_blank",
+					Attributes: templ.Attributes{
+						"rel": "noopener noreferrer",
+					},
+				}) {
+					@icon.BookOpen()
+					<span>Open Docs</span>
+				}
+			}
+			@settingsValueRow("Device key", "Per-device identifier baked into the image.", "set-device-key")
 		}
-		@switchcomp.Switch(switchcomp.Props{ID: id, Attributes: templ.Attributes{"onchange": onchange}})
+	}
+}
+
+// ── Row primitives ──────────────────────────────────────────────────────
+
+// settingsRow is the reference pane's row shape: title over a one-line
+// description on the left, the control on the right. forID associates the
+// title with the control; pass "" when the control is not labelable.
+templ settingsRow(forID, title, description string) {
+	@field.Field(field.Props{Orientation: field.OrientationHorizontal}) {
+		@field.Content() {
+			if forID != "" {
+				@field.Label(field.LabelProps{For: forID}) {
+					{ title }
+				}
+			} else {
+				@field.Title() {
+					{ title }
+				}
+			}
+			@field.Description() {
+				{ description }
+			}
+		}
+		<div class="flex shrink-0 items-center gap-2">
+			{ children... }
+		</div>
+	}
+}
+
+// settingsSwitchRow is a row whose control is a switch. The change handler is
+// registered in JS by id, not inline — see the note in settingsDialogScript.
+templ settingsSwitchRow(id, title, description string) {
+	@settingsRow(id, title, description) {
+		@switchcomp.Switch(switchcomp.Props{ID: id})
+	}
+}
+
+// settingsValueRow is a read-only row; the JS fills valueID.
+templ settingsValueRow(title, description, valueID string) {
+	@settingsRow("", title, description) {
+		<span id={ valueID } class="font-mono text-xs">—</span>
+	}
+}
+
+// settingsStatusRow is one entry of the network status grid: muted label on
+// the left, value on the right, hairline between rows.
+templ settingsStatusRow(label, valueID string) {
+	<div class="flex items-center justify-between gap-2 border-b border-border/50 py-1 last:border-0">
+		<span class="text-muted-foreground">{ label }</span>
+		<span id={ valueID } class="truncate font-mono">—</span>
 	</div>
+}
+
+// settingsStatusLine is the inline save/error feedback slot for a section.
+templ settingsStatusLine(id string) {
+	<p id={ id } class="min-h-4 text-xs text-muted-foreground"></p>
 }
 
 templ settingsDialogScript() {
 	<script>
+		// ── Panel switching ────────────────────────────────────────────────
+		function showSettingsSection(id) {
+			document.querySelectorAll('[data-settings-panel]').forEach((p) => {
+				p.dataset.active = String(p.dataset.settingsPanel === id);
+			});
+			document.querySelectorAll('[data-settings-nav]').forEach((b) => {
+				b.dataset.active = String(b.dataset.settingsNav === id);
+			});
+		}
+
+		// ── Small DOM helpers ──────────────────────────────────────────────
+		function setSettingsText(id, value) {
+			const el = document.getElementById(id);
+			if (el) el.textContent = value || '—';
+		}
+
+		function setSettingsStatus(id, message, isError) {
+			const el = document.getElementById(id);
+			if (!el) return;
+			el.textContent = message || '';
+			el.classList.toggle('text-destructive', !!isError);
+			if (el._tid) clearTimeout(el._tid);
+			if (message) {
+				el._tid = setTimeout(() => {
+					el.textContent = '';
+					el.classList.remove('text-destructive');
+				}, 4000);
+			}
+		}
+
+		// navigator.clipboard needs a secure context and the BMC serves plain
+		// HTTP by default, so fall back to the selection-based copy there.
+		function copySettingsValue(id) {
+			const el = document.getElementById(id);
+			if (!el || !el.value) return;
+			if (navigator.clipboard && window.isSecureContext) {
+				navigator.clipboard.writeText(el.value);
+				return;
+			}
+			el.select();
+			try { document.execCommand('copy'); } catch(e) {}
+			el.setSelectionRange(el.value.length, el.value.length);
+		}
+
+		// switch.js mirrors the hidden checkbox's state onto the role=switch
+		// span on the native change event; assigning .checked never fires one,
+		// so loaded state has to be mirrored the same way by hand.
+		function setSettingsSwitch(id, checked) {
+			const input = document.getElementById(id);
+			if (!input) return;
+			input.checked = !!checked;
+			const root = input.previousElementSibling;
+			if (!root || !root.matches('[data-tui-switch]')) return;
+			root.setAttribute('aria-checked', String(!!checked));
+			root.toggleAttribute('data-checked', !!checked);
+			root.toggleAttribute('data-unchecked', !checked);
+			const thumb = root.querySelector('[data-slot="switch-thumb"]');
+			if (thumb) {
+				thumb.toggleAttribute('data-checked', !!checked);
+				thumb.toggleAttribute('data-unchecked', !checked);
+			}
+		}
+
+		// select.js exposes no setter: its content is portaled to <body> under
+		// the select's id, so drive the item state and the trigger label the
+		// same way its own click handler does.
+		function setSettingsSelect(id, value) {
+			const content = document.getElementById(id);
+			let label = value;
+			if (content) {
+				content.querySelectorAll('[data-tui-select-item]').forEach((item) => {
+					const match = item.getAttribute('data-tui-select-value') === value;
+					item.setAttribute('data-state', match ? 'checked' : 'unchecked');
+					item.setAttribute('aria-selected', String(match));
+					if (match) {
+						label = item.getAttribute('data-tui-select-label')
+							|| (item.querySelector('[data-tui-select-item-text]') || item).textContent.trim();
+					}
+				});
+			}
+			const trigger = document.querySelector('[data-tui-select-trigger][aria-controls="' + id + '"]');
+			if (trigger) {
+				const span = trigger.querySelector('[data-tui-select-value]');
+				if (span) span.textContent = label;
+				trigger.removeAttribute('data-placeholder');
+			}
+			const input = settingsSelectInput(id);
+			if (input) input.value = value;
+		}
+
+		function settingsSelectInput(id) {
+			return document.querySelector('input[data-tui-select-input][name="' + id + '"]');
+		}
+
+		function getSettingsSelect(id) {
+			const input = settingsSelectInput(id);
+			return input ? input.value : '';
+		}
+
+		// ── Toggle wiring ──────────────────────────────────────────────────
+		// switch.js fires `change` on the visually hidden checkbox, which is a
+		// SIBLING of the role=switch span — an onchange attribute on the switch
+		// itself never sees the event. One delegated listener keyed by input id
+		// is both correct and keeps the markup free of inline handlers.
+		const SETTINGS_SWITCHES = {
+			'au-enabled': () => saveAutoUpdate(),
+			'au-application': () => saveAutoUpdate(),
+			'au-bios': () => saveAutoUpdate(),
+			'ssh-switch': (on) => toggleSSH(on),
+			'tls-switch': (on) => toggleTLS(on),
+			'usb-network': (on) => setVirtualDevice('network', on),
+			'usb-disk': (on) => setVirtualDevice('disk', on),
+		};
+
+		document.addEventListener('change', (e) => {
+			const t = e.target;
+			if (!t || !t.matches) return;
+			if (t.matches('input[data-tui-select-input][name="net-mode"]')) {
+				syncNetworkMode();
+				return;
+			}
+			if (!t.matches('[data-tui-switch-input]')) return;
+			const handler = SETTINGS_SWITCHES[t.id];
+			if (handler) handler(t.checked);
+		});
+
+		// ── General ────────────────────────────────────────────────────────
+		async function loadDeviceInfo() {
+			try {
+				const d = await apiGet('/api/vm/info');
+				if (d.code === 0) {
+					setSettingsText('set-app-version', d.data.application);
+					setSettingsText('set-image-version', d.data.image);
+					setSettingsText('set-device-key', d.data.deviceKey);
+				}
+			} catch(e) {}
+			try {
+				const h = await apiGet('/api/vm/hardware');
+				if (h.code === 0) setSettingsText('set-hw-version', h.data.version);
+			} catch(e) {}
+		}
+
+		async function loadAutoUpdate() {
+			try {
+				const r = await fetch('/api/autoupdate/settings', { headers: getAuthHeaders() });
+				if (!r.ok) return;
+				const s = await r.json();
+				setSettingsSwitch('au-enabled', s.enabled);
+				document.getElementById('au-interval').value = s.intervalMinutes ?? 360;
+				setSettingsSwitch('au-application', s.application);
+				setSettingsSwitch('au-bios', s.bios);
+			} catch(e) {}
+		}
+
+		async function saveAutoUpdate() {
+			const body = {
+				enabled: document.getElementById('au-enabled').checked,
+				intervalMinutes: parseInt(document.getElementById('au-interval').value, 10) || 360,
+				application: document.getElementById('au-application').checked,
+				bios: document.getElementById('au-bios').checked,
+			};
+			setSettingsStatus('au-status', 'Saving…');
+			try {
+				const r = await fetch('/api/autoupdate/settings', {
+					method: 'PATCH', headers: getAuthHeaders(),
+					body: JSON.stringify(body),
+				});
+				setSettingsStatus('au-status', r.ok ? 'Saved' : 'Save failed', !r.ok);
+			} catch(e) { setSettingsStatus('au-status', 'Error: ' + e.message, true); }
+		}
+
+		// ── Network ────────────────────────────────────────────────────────
+		function syncNetworkMode() {
+			const el = document.getElementById('net-static');
+			if (el) el.dataset.active = String(getSettingsSelect('net-mode') === 'static');
+		}
+
+		function applyNetworkSettings(n) {
+			if (!n) return;
+			setSettingsSwitch('net-enabled', n.enabled);
+			const eth = n.eth0 || {};
+			setSettingsSelect('net-mode', (eth.mode || 'dhcp').toLowerCase());
+			document.getElementById('net-mac').value = eth.mac || '';
+			document.getElementById('net-address').value = eth.address || '';
+			document.getElementById('net-gateway').value = eth.gateway || '';
+			document.getElementById('net-dns').value = (eth.dns || []).join(', ');
+			const rhi = n.rhi || {};
+			document.getElementById('rhi-address').value = rhi.address || '';
+			document.getElementById('rhi-lease').value = rhi.lease || '';
+			syncNetworkMode();
+			setSettingsText('net-status-mode', (eth.mode || 'dhcp').toUpperCase());
+			setSettingsText('net-status-mac', eth.mac || 'kernel default');
+		}
+
+		async function loadNetwork() {
+			try {
+				const d = await apiGet('/api/network/settings');
+				if (d.code === 0) applyNetworkSettings(d.data);
+			} catch(e) {}
+			loadNetworkStatus();
+		}
+
+		async function saveNetwork() {
+			const body = {
+				enabled: document.getElementById('net-enabled').checked,
+				eth0: {
+					mode: getSettingsSelect('net-mode') || 'dhcp',
+					mac: document.getElementById('net-mac').value.trim(),
+					address: document.getElementById('net-address').value.trim(),
+					gateway: document.getElementById('net-gateway').value.trim(),
+					dns: document.getElementById('net-dns').value.split(/[\s,]+/).filter(Boolean),
+				},
+				rhi: {
+					address: document.getElementById('rhi-address').value.trim(),
+					lease: document.getElementById('rhi-lease').value.trim(),
+				},
+			};
+			setSettingsStatus('net-status', 'Saving…');
+			try {
+				const r = await fetch('/api/network/settings', {
+					method: 'PATCH', headers: getAuthHeaders(),
+					body: JSON.stringify(body),
+				});
+				const d = await r.json().catch(() => ({}));
+				if (d.code === 0) {
+					// The server re-applies addressing immediately, so echo back
+					// what it actually persisted rather than the submitted form.
+					applyNetworkSettings(d.data);
+					setSettingsStatus('net-status', 'Saved — addressing re-applied');
+					setTimeout(loadNetworkStatus, 1500);
+				} else {
+					setSettingsStatus('net-status', d.msg || 'Save failed', true);
+				}
+			} catch(e) { setSettingsStatus('net-status', 'Error: ' + e.message, true); }
+		}
+
+		async function loadNetworkStatus() {
+			try {
+				const d = await apiGet('/api/vm/info');
+				if (d.code !== 0) return;
+				const ips = d.data.ips || [];
+				const linkLocal = (a) => a && a.startsWith('169.254.');
+				const primary = ips.find((x) => x.addr && !x.addr.startsWith('127.') && !linkLocal(x.addr)) || ips[0] || {};
+				const rhi = ips.find((x) => linkLocal(x.addr));
+				setSettingsText('net-status-ip', primary.addr);
+				setSettingsText('net-status-iface', primary.name);
+				setSettingsText('net-status-mdns', d.data.mdns);
+				setSettingsText('net-status-rhi', rhi && rhi.addr);
+			} catch(e) {}
+		}
+
+		// ── Hardware ───────────────────────────────────────────────────────
+		async function loadVirtualDevices() {
+			try {
+				const d = await apiGet('/api/vm/device/virtual');
+				if (d.code !== 0) return;
+				setSettingsSwitch('usb-network', d.data.network);
+				setSettingsSwitch('usb-disk', d.data.disk);
+				setSettingsText('usb-media-state', d.data.media ? 'Inserted' : 'Not inserted');
+			} catch(e) {}
+		}
+
+		// The endpoint toggles rather than sets, so read the live state first
+		// and only POST when it disagrees with what the switch now shows.
+		async function setVirtualDevice(device, want) {
+			try {
+				const cur = await apiGet('/api/vm/device/virtual');
+				if (cur.code !== 0) throw new Error(cur.msg || 'read failed');
+				const on = device === 'network' ? cur.data.network : cur.data.disk;
+				if (on === want) return;
+				const r = await apiPost('/api/vm/device/virtual', { device: device });
+				if (r && r.code !== 0) setSettingsStatus('hw-status', r.msg || 'Failed', true);
+			} catch(e) {
+				setSettingsStatus('hw-status', 'Error: ' + e.message, true);
+			}
+			loadVirtualDevices();
+		}
+
+		// ── Access ─────────────────────────────────────────────────────────
 		async function toggleSSH(enable) {
-			const status = document.getElementById('ssh-keys-status');
 			try {
 				const r = await apiPost(enable ? '/api/vm/ssh/enable' : '/api/vm/ssh/disable');
 				// The server rolls its own state back on failure (e.g. the port
 				// is taken), so re-read rather than trusting the switch.
 				if (r && r.code !== 0) {
-					if (status) status.textContent = r.msg || 'Failed';
+					setSettingsStatus('ssh-keys-status', r.msg || 'Failed', true);
 					loadSSHState();
 				}
-			} catch(e) { console.error(e); loadSSHState(); }
+			} catch(e) { loadSSHState(); }
+		}
+
+		async function loadSSHState() {
+			try {
+				const s = await apiGet('/api/vm/ssh');
+				if (s.code === 0) setSettingsSwitch('ssh-switch', s.data.enabled);
+			} catch(e) {}
 		}
 
 		async function loadSSHKeys() {
@@ -221,70 +819,38 @@ templ settingsDialogScript() {
 		}
 
 		async function saveSSHKeys() {
-			const status = document.getElementById('ssh-keys-status');
-			status.textContent = 'Saving…';
+			setSettingsStatus('ssh-keys-status', 'Saving…');
 			try {
 				const r = await apiPost('/api/vm/ssh/keys', { sshKey: document.getElementById('ssh-keys').value });
-				status.textContent = (r && r.code === 0) ? 'Saved' : (r?.msg || 'Save failed');
-			} catch(e) { status.textContent = 'Error: ' + e.message; }
-			setTimeout(() => { status.textContent = ''; }, 4000);
+				const ok = r && r.code === 0;
+				setSettingsStatus('ssh-keys-status', ok ? 'Saved' : (r?.msg || 'Save failed'), !ok);
+			} catch(e) { setSettingsStatus('ssh-keys-status', 'Error: ' + e.message, true); }
 		}
 
-		async function loadSSHState() {
-			try {
-				const s = await apiGet('/api/vm/ssh');
-				const el = document.getElementById('ssh-switch');
-				if (el) el.checked = !!(s.data?.enabled);
-			} catch(e) {}
-		}
 		async function toggleTLS(enable) {
 			try { await apiPost('/api/vm/tls', { enabled: enable }); }
 			catch(e) { console.error(e); }
 			alert('TLS ' + (enable ? 'enabled' : 'disabled') + '. Page may reload.');
 		}
+
+		// ── Advanced ───────────────────────────────────────────────────────
 		async function rebootSystem() {
 			try { await apiPost('/api/vm/system/reboot'); }
 			catch(e) { console.error(e); }
 		}
 
-		async function loadAutoUpdate() {
-			try {
-				const r = await fetch('/api/autoupdate/settings', { headers: getAuthHeaders() });
-				if (!r.ok) return;
-				const s = await r.json();
-				document.getElementById('au-enabled').checked = !!s.enabled;
-				document.getElementById('au-interval').value = s.intervalMinutes ?? 360;
-				document.getElementById('au-application').checked = !!s.application;
-				document.getElementById('au-bios').checked = !!s.bios;
-			} catch(e) {}
-		}
-
-		async function saveAutoUpdate() {
-			const status = document.getElementById('au-status');
-			const body = {
-				enabled: document.getElementById('au-enabled').checked,
-				intervalMinutes: parseInt(document.getElementById('au-interval').value, 10) || 360,
-				application: document.getElementById('au-application').checked,
-				bios: document.getElementById('au-bios').checked,
-			};
-			status.textContent = 'Saving…';
-			try {
-				const r = await fetch('/api/autoupdate/settings', {
-					method: 'PATCH', headers: getAuthHeaders(),
-					body: JSON.stringify(body),
-				});
-				status.textContent = r.ok ? 'Saved' : 'Save failed';
-			} catch(e) { status.textContent = 'Error: ' + e.message; }
-			setTimeout(() => { status.textContent = ''; }, 3000);
-		}
-
-		// Load initial state on page load + every time the dialog opens.
-		(async function() {
+		// ── Open ───────────────────────────────────────────────────────────
+		// Called from the navbar trigger: every panel reads its state fresh so
+		// the dialog never shows values that went stale in another tab.
+		function onSettingsOpen() {
+			loadDeviceInfo();
+			loadAutoUpdate();
+			loadNetwork();
+			loadVirtualDevices();
 			loadSSHState();
 			loadSSHKeys();
 			const tls = document.getElementById('tls-switch');
-			if (tls) tls.checked = window.location.protocol === 'https:';
-			loadAutoUpdate();
-		})();
+			if (tls) setSettingsSwitch('tls-switch', window.location.protocol === 'https:');
+		}
 	</script>
 }

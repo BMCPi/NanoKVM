@@ -9,12 +9,22 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
-	"github.com/pi-bmc/nanokvm-app/ui/components/badge"
+	"github.com/pi-bmc/nanokvm-app/pkg/power"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/dropdownmenu"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
 	"github.com/pi-bmc/nanokvm-app/ui/utils"
 )
+
+// initialPowerState reads the host power state at render time so the navbar
+// pill paints correctly on first load; the SSE stream keeps it fresh after.
+// known is false when the controller cannot read the state (e.g. dev host),
+// in which case the pill falls back to the neutral "Checking…" look until
+// the stream delivers.
+func initialPowerState() (on bool, known bool) {
+	s, err := power.GetController().State()
+	return s, err == nil
+}
 
 // PowerMenu is the navbar power-state pill and the dropdown holding power
 // actions + boot-device override. Polled by the inline script below; clicks
@@ -64,7 +74,24 @@ func PowerMenu() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<span id=\"power-dot\" class=\"inline-block size-2 rounded-full bg-muted-foreground shrink-0\"></span> <span id=\"power-text\" class=\"hidden sm:inline\">Checking…</span>")
+				pwrOn, pwrKnown := initialPowerState()
+				if pwrKnown && pwrOn {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<span id=\"power-dot\" class=\"inline-block size-2 rounded-full bg-green-500 shrink-0\"></span> <span id=\"power-text\" class=\"hidden sm:inline\">Power On</span>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				} else if pwrKnown {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<span id=\"power-dot\" class=\"inline-block size-2 rounded-full bg-destructive shrink-0\"></span> <span id=\"power-text\" class=\"hidden sm:inline\">Power Off</span>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				} else {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<span id=\"power-dot\" class=\"inline-block size-2 rounded-full bg-muted-foreground shrink-0\"></span> <span id=\"power-text\" class=\"hidden sm:inline\">Checking…</span>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, " ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -85,7 +112,7 @@ func PowerMenu() templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -101,7 +128,7 @@ func PowerMenu() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<div class=\"p-2 space-y-2\"><div><p class=\"px-1 pb-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground\">Power</p><div class=\"grid grid-cols-2 gap-1\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<div class=\"p-2 space-y-2\"><div><p class=\"px-1 pb-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground\">Power</p><div class=\"grid grid-cols-2 gap-1\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -117,15 +144,15 @@ func PowerMenu() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = powerGridBtn("if(confirm('Force power off?')) powerAction('forceoff')", "text-destructive hover:text-destructive", icon.CircleX, "Force Off").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = powerGridBtn("confirmPowerAction('forceoff', 'Force power off?', 'The host loses power immediately without a clean shutdown.')", "text-destructive hover:text-destructive", icon.CircleX, "Force Off").Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = powerGridBtn("if(confirm('Force the host into rpiboot (USB recovery) mode? A running host is powered off first.')) powerAction('rpiboot')", "col-span-2", icon.Usb, "Recovery (rpiboot)").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = powerGridBtn("confirmPowerAction('rpiboot', 'Enter USB recovery mode?', 'Forces the host into rpiboot (USB recovery). A running host is powered off first.')", "col-span-2", icon.Usb, "Recovery (rpiboot)").Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</div></div><div class=\"h-px bg-border\"></div><div class=\"space-y-1.5\"><p class=\"px-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground\">Boot Override</p><div class=\"grid grid-cols-2 gap-1\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div></div><div class=\"h-px bg-border\"></div><div class=\"space-y-1.5\"><p class=\"px-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground\">Boot Override</p><div class=\"grid grid-cols-2 gap-1\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -137,7 +164,7 @@ func PowerMenu() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</div><div class=\"flex gap-1\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</div><div class=\"flex gap-1\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -153,7 +180,7 @@ func PowerMenu() templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "Apply")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "Apply")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -179,7 +206,7 @@ func PowerMenu() templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "Clear")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "Clear")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -193,7 +220,7 @@ func PowerMenu() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</div><p id=\"boot-status\" class=\"text-[0.6875rem] text-muted-foreground min-h-[1rem]\"></p></div></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</div></div></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -255,20 +282,20 @@ func powerGridBtn(onclick, class string, ico func(...icon.Props) templ.Component
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, " <span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, " <span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var9 string
 			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 86, Col: 15}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 104, Col: 15}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -321,7 +348,7 @@ func bootDeviceSelect() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<option value=\"None\" selected>Default</option> <option value=\"Pxe\">PXE / Network</option> <option value=\"Hdd\">HDD / SD / NVMe</option> <option value=\"Cd\">USB / CD-ROM</option> <option value=\"BiosSetup\">BIOS Setup</option>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<option value=\"None\" selected>Default</option> <option value=\"Pxe\">PXE / Network</option> <option value=\"Hdd\">HDD / SD / NVMe</option> <option value=\"Cd\">USB / CD-ROM</option> <option value=\"BiosSetup\">BIOS Setup</option>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -369,7 +396,7 @@ func bootPersistSelect() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<option value=\"Once\" selected>Once (default)</option> <option value=\"Continuous\">Continuous</option>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<option value=\"Once\" selected>Once (default)</option> <option value=\"Continuous\">Continuous</option>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -412,33 +439,33 @@ func NativeSelect(id string, class string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<select id=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<select id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var16 string
 		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(id)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 113, Col: 16}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 131, Col: 16}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "\" name=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "\" name=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var17 string
 		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(id)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 113, Col: 28}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 131, Col: 28}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "\" class=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "\" class=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -451,7 +478,7 @@ func NativeSelect(id string, class string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -459,82 +486,9 @@ func NativeSelect(id string, class string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "</select>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "</select>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
-		}
-		return nil
-	})
-}
-
-// PowerBadge is a small inline pill showing the current power state.
-func PowerBadge(on bool) templ.Component {
-	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
-			return templ_7745c5c3_CtxErr
-		}
-		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-		if !templ_7745c5c3_IsBuffer {
-			defer func() {
-				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err == nil {
-					templ_7745c5c3_Err = templ_7745c5c3_BufErr
-				}
-			}()
-		}
-		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var19 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var19 == nil {
-			templ_7745c5c3_Var19 = templ.NopComponent
-		}
-		ctx = templ.ClearChildren(ctx)
-		if on {
-			templ_7745c5c3_Var20 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-				if !templ_7745c5c3_IsBuffer {
-					defer func() {
-						templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-						if templ_7745c5c3_Err == nil {
-							templ_7745c5c3_Err = templ_7745c5c3_BufErr
-						}
-					}()
-				}
-				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "On")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				return nil
-			})
-			templ_7745c5c3_Err = badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "bg-green-500/15 text-green-500"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var20), templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-		} else {
-			templ_7745c5c3_Var21 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-				if !templ_7745c5c3_IsBuffer {
-					defer func() {
-						templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-						if templ_7745c5c3_Err == nil {
-							templ_7745c5c3_Err = templ_7745c5c3_BufErr
-						}
-					}()
-				}
-				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "Off")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				return nil
-			})
-			templ_7745c5c3_Err = badge.Badge(badge.Props{Variant: badge.VariantDestructive}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var21), templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
 		}
 		return nil
 	})
@@ -556,12 +510,12 @@ func powerMenuScript() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var22 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var22 == nil {
-			templ_7745c5c3_Var22 = templ.NopComponent
+		templ_7745c5c3_Var19 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var19 == nil {
+			templ_7745c5c3_Var19 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<script>\n\t\tfunction renderPower(on) {\n\t\t\tconst dot = document.getElementById('power-dot');\n\t\t\tdot.className = 'inline-block size-2 rounded-full ' + (on ? 'bg-green-500' : 'bg-destructive');\n\t\t\tconst txt = document.getElementById('power-text');\n\t\t\ttxt.textContent = on ? 'Power On' : 'Power Off';\n\t\t\ttxt.className = 'hidden sm:inline';\n\t\t}\n\n\t\t// The server pushes a `power` event on every GPIO transition, so there is\n\t\t// nothing to poll. EventSource reconnects on its own after a drop; the\n\t\t// stream re-sends the current state on connect, so a reconnect resyncs.\n\t\t// Auth rides the nano-kvm-token cookie, which EventSource sends for us.\n\t\tconst powerEvents = new EventSource('/api/vm/gpio/events');\n\t\tpowerEvents.addEventListener('power', (e) => {\n\t\t\ttry {\n\t\t\t\trenderPower(JSON.parse(e.data).pwr);\n\t\t\t} catch(err) { console.error(err); }\n\t\t});\n\t\tpowerEvents.onerror = () => {\n\t\t\t// Leave the last known state on screen while EventSource retries.\n\t\t\tconsole.debug('power stream interrupted, reconnecting');\n\t\t};\n\n\t\tasync function powerAction(action) {\n\t\t\ttry {\n\t\t\t\tawait fetch('/api/vm/gpio', {\n\t\t\t\t\tmethod: 'POST', headers: getAuthHeaders(),\n\t\t\t\t\tbody: JSON.stringify({action}),\n\t\t\t\t});\n\t\t\t} catch(e) { console.error(e); }\n\t\t\t// No refresh needed — the resulting LED transition arrives on the stream.\n\t\t}\n\n\t\tasync function applyBootOverride() {\n\t\t\tconst device = document.getElementById('boot-device').value || 'None';\n\t\t\tconst persist = document.getElementById('boot-persist').value || 'Once';\n\t\t\tconst statusEl = document.getElementById('boot-status');\n\t\t\ttry {\n\t\t\t\tconst r = await fetch('/redfish/v1/Systems/1', {\n\t\t\t\t\tmethod: 'PATCH', headers: getAuthHeaders(),\n\t\t\t\t\tbody: JSON.stringify({ Boot: { BootSourceOverrideTarget: device, BootSourceOverrideEnabled: persist } })\n\t\t\t\t});\n\t\t\t\tconst data = await r.json();\n\t\t\t\tconst b = data.Boot;\n\t\t\t\tstatusEl.textContent = b ? `Set: ${b.BootSourceOverrideTarget} (${b.BootSourceOverrideEnabled})` : 'Applied';\n\t\t\t} catch(e) {\n\t\t\t\tstatusEl.textContent = 'Failed';\n\t\t\t}\n\t\t\tif (typeof loadFirmwareInfo === 'function') loadFirmwareInfo();\n\t\t}\n\n\t\tasync function clearBootOverride() {\n\t\t\tconst statusEl = document.getElementById('boot-status');\n\t\t\ttry {\n\t\t\t\tconst r = await fetch('/redfish/v1/Systems/1', {\n\t\t\t\t\tmethod: 'PATCH', headers: getAuthHeaders(),\n\t\t\t\t\tbody: JSON.stringify({ Boot: { BootSourceOverrideTarget: 'None', BootSourceOverrideEnabled: 'Disabled' } })\n\t\t\t\t});\n\t\t\t\tstatusEl.textContent = r.ok ? 'Cleared' : 'Failed';\n\t\t\t} catch(e) {\n\t\t\t\tstatusEl.textContent = 'Failed';\n\t\t\t}\n\t\t\tif (typeof loadFirmwareInfo === 'function') loadFirmwareInfo();\n\t\t}\n\t</script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<script>\n\t\tfunction renderPower(on) {\n\t\t\tconst dot = document.getElementById('power-dot');\n\t\t\tdot.className = 'inline-block size-2 rounded-full ' + (on ? 'bg-green-500' : 'bg-destructive');\n\t\t\tconst txt = document.getElementById('power-text');\n\t\t\ttxt.textContent = on ? 'Power On' : 'Power Off';\n\t\t\ttxt.className = 'hidden sm:inline';\n\t\t}\n\n\t\t// The server pushes a `power` event on every GPIO transition, so there is\n\t\t// nothing to poll. EventSource reconnects on its own after a drop; the\n\t\t// stream re-sends the current state on connect, so a reconnect resyncs.\n\t\t// Auth rides the nano-kvm-token cookie, which EventSource sends for us.\n\t\tconst powerEvents = new EventSource('/api/vm/gpio/events');\n\t\tpowerEvents.addEventListener('power', (e) => {\n\t\t\ttry {\n\t\t\t\trenderPower(JSON.parse(e.data).pwr);\n\t\t\t} catch(err) { console.error(err); }\n\t\t});\n\t\tpowerEvents.onerror = () => {\n\t\t\t// Leave the last known state on screen while EventSource retries.\n\t\t\tconsole.debug('power stream interrupted, reconnecting');\n\t\t};\n\n\t\tasync function powerAction(action) {\n\t\t\ttry {\n\t\t\t\tawait fetch('/api/vm/gpio', {\n\t\t\t\t\tmethod: 'POST', headers: getAuthHeaders(),\n\t\t\t\t\tbody: JSON.stringify({action}),\n\t\t\t\t});\n\t\t\t} catch(e) { console.error(e); }\n\t\t\t// No refresh needed — the resulting LED transition arrives on the stream.\n\t\t}\n\n\t\tasync function confirmPowerAction(action, title, description) {\n\t\t\tif (await uiConfirm({ title, description, destructive: true })) powerAction(action);\n\t\t}\n\n\t\tasync function applyBootOverride() {\n\t\t\tconst device = document.getElementById('boot-device').value || 'None';\n\t\t\tconst persist = document.getElementById('boot-persist').value || 'Once';\n\t\t\ttry {\n\t\t\t\tconst r = await fetch('/redfish/v1/Systems/1', {\n\t\t\t\t\tmethod: 'PATCH', headers: getAuthHeaders(),\n\t\t\t\t\tbody: JSON.stringify({ Boot: { BootSourceOverrideTarget: device, BootSourceOverrideEnabled: persist } })\n\t\t\t\t});\n\t\t\t\tif (!r.ok) throw new Error(r.statusText);\n\t\t\t\tconst b = (await r.json()).Boot;\n\t\t\t\ttui.toast.add({ type: 'success', title: 'Boot override set',\n\t\t\t\t\tdescription: b ? `${b.BootSourceOverrideTarget} (${b.BootSourceOverrideEnabled})` : undefined });\n\t\t\t} catch(e) {\n\t\t\t\ttui.toast.add({ type: 'error', title: 'Boot override failed' });\n\t\t\t}\n\t\t\tif (typeof loadFirmwareInfo === 'function') loadFirmwareInfo();\n\t\t}\n\n\t\tasync function clearBootOverride() {\n\t\t\ttry {\n\t\t\t\tconst r = await fetch('/redfish/v1/Systems/1', {\n\t\t\t\t\tmethod: 'PATCH', headers: getAuthHeaders(),\n\t\t\t\t\tbody: JSON.stringify({ Boot: { BootSourceOverrideTarget: 'None', BootSourceOverrideEnabled: 'Disabled' } })\n\t\t\t\t});\n\t\t\t\tif (!r.ok) throw new Error(r.statusText);\n\t\t\t\ttui.toast.add({ type: 'success', title: 'Boot override cleared' });\n\t\t\t} catch(e) {\n\t\t\t\ttui.toast.add({ type: 'error', title: 'Clearing boot override failed' });\n\t\t\t}\n\t\t\tif (typeof loadFirmwareInfo === 'function') loadFirmwareInfo();\n\t\t}\n\t</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

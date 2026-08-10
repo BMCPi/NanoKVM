@@ -1,6 +1,9 @@
 package layouts
 
-import "github.com/pi-bmc/nanokvm-app/ui/components"
+import (
+	"github.com/pi-bmc/nanokvm-app/ui/components"
+	"github.com/pi-bmc/nanokvm-app/ui/components/toast"
+)
 
 // Base renders the common HTML document shell. The `dark` class on <html>
 // activates the dark theme tokens (defined in globals.css).
@@ -37,7 +40,11 @@ templ Base(title string, showNav bool, onDocsPage bool) {
 				// no on-page footprint when their triggers aren't clicked.
 				@components.SettingsDialog()
 				@components.EEPROMDialog()
+				@components.ConfirmDialog()
 			}
+			// Toast viewport for tui.toast.add() — mounted on every page so
+			// auth pages can surface errors the same way as the dashboard.
+			@toast.Toaster()
 		</body>
 	</html>
 }

@@ -22,43 +22,26 @@ templ ConsoleScript() {
 			return proto + '//' + window.location.host;
 		}
 
-		function setConnStatus(text, variant) {
-			const el = document.getElementById('conn-status');
-			el.textContent = text;
-			// The badge renders with the destructive variant's colour classes;
-			// we swap them for green/yellow tints per connection state.
-			el.classList.remove(
-				'bg-destructive/10', 'dark:bg-destructive/20', 'text-destructive',
-				'bg-green-500/15', 'text-green-500',
-				'bg-yellow-500/15', 'text-yellow-500'
-			);
-			if (variant === 'connected') el.classList.add('bg-green-500/15', 'text-green-500');
-			else if (variant === 'connecting') el.classList.add('bg-yellow-500/15', 'text-yellow-500');
-			else el.classList.add('bg-destructive/10', 'dark:bg-destructive/20', 'text-destructive');
-		}
-
-		function updateSerialToggleBtn() {
-			const btn = document.getElementById('btn-serial-toggle');
-			btn.innerHTML = '';
-			const icon = document.createElement('span');
-			icon.className = 'pointer-events-none';
-			if (serialConnected) {
-				icon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
-				btn.classList.remove('border-green-700', 'text-green-500');
-				btn.classList.add('border-destructive', 'text-destructive');
-			} else {
-				icon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>';
-				btn.classList.add('border-green-700', 'text-green-500');
-				btn.classList.remove('border-destructive', 'text-destructive');
+		// setConnStatus / updateSerialButtons swap `hidden` between the
+		// server-rendered state variants of the badge and the connect /
+		// disconnect buttons — no class or innerHTML rebuilding.
+		function setConnStatus(state) {
+			for (const s of ['disconnected', 'connecting', 'connected']) {
+				document.getElementById('conn-status-' + s).classList.toggle('hidden', s !== state);
 			}
-			const label = document.createElement('span');
-			label.textContent = serialConnected ? 'Disconnect' : 'Connect';
-			btn.appendChild(icon);
-			btn.appendChild(label);
 		}
 
-		window.toggleSerialConnection = function() {
-			if (serialConnected) disconnectSerial(); else connectSerial();
+		function updateSerialButtons(busy) {
+			const connect = document.getElementById('btn-serial-connect');
+			connect.classList.toggle('hidden', serialConnected);
+			connect.disabled = !!busy;
+			document.getElementById('btn-serial-disconnect').classList.toggle('hidden', !serialConnected);
+		}
+
+		// Raw input path for the virtual keyboard: write bytes to the serial
+		// WebSocket exactly as xterm's AttachAddon would for typed keys.
+		window.sendSerialInput = function(data) {
+			if (ws && ws.readyState === WebSocket.OPEN) ws.send(data);
 		};
 
 		window.connectSerial = function() {
@@ -98,27 +81,24 @@ templ ConsoleScript() {
 			fitAddon.fit();
 
 			ws = new WebSocket(getWsUrl() + '/api/vm/terminal');
-			setConnStatus('Connecting…', 'connecting');
-			document.getElementById('btn-serial-toggle').disabled = true;
+			setConnStatus('connecting');
+			updateSerialButtons(true);
 
 			ws.onopen = () => {
 				term.loadAddon(new AttachAddon(ws));
-				setConnStatus('Connected', 'connected');
 				serialConnected = true;
-				document.getElementById('btn-serial-toggle').disabled = false;
-				updateSerialToggleBtn();
+				setConnStatus('connected');
+				updateSerialButtons();
 			};
 			ws.onclose = () => {
-				setConnStatus('Disconnected', 'disconnected');
 				serialConnected = false;
-				document.getElementById('btn-serial-toggle').disabled = false;
-				updateSerialToggleBtn();
+				setConnStatus('disconnected');
+				updateSerialButtons();
 			};
 			ws.onerror = () => {
-				setConnStatus('Error', 'disconnected');
 				serialConnected = false;
-				document.getElementById('btn-serial-toggle').disabled = false;
-				updateSerialToggleBtn();
+				setConnStatus('disconnected');
+				updateSerialButtons();
 			};
 
 			resizeHandler = () => { if (fitAddon) fitAddon.fit(); };
