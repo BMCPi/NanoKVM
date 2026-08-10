@@ -3,17 +3,12 @@ package assets
 
 import "embed"
 
-// CSS generation runs in three ordered steps:
+// CSS generation is a single Tailwind pass: globals.css (created and updated
+// by the shadcn-templ CLI) is the entry point, and Tailwind scans the repo's
+// templ sources — including the vendored components under server/components —
+// for class names. No transient @source files are involved.
 //
-//  1. Resolve the templui module path from the Go build cache and write a
-//     transient @source directive into css/sources.generated.css so Tailwind
-//     can scan templui's templ files for class names (no `go mod vendor`).
-//  2. Run Tailwind to compile input.css → output.css.
-//  3. Delete the transient sources.generated.css.
-//
-//go:generate sh -c "go list -m -f '@source \"{{.Dir}}/**/*.templ\";' github.com/templui/templui > css/sources.generated.css"
-//go:generate go tool tailwindcss --cwd ../../ -i server/assets/css/input.css -o server/assets/css/output.css --minify
-//go:generate rm -f css/sources.generated.css
+//go:generate go tool tailwindcss --cwd ../../ -i server/assets/css/globals.css -o server/assets/css/output.css --minify
 
 // CSS contains embedded CSS files (Tailwind output, xterm).
 //

@@ -1,0 +1,312 @@
+package components
+
+// bmcTerminalPanelID is the ID of the slide-up terminal drawer.
+const bmcTerminalPanelID = "bmc-terminal-panel"
+
+// BMCTerminalPanel is a bottom drawer holding a shell on the BMC itself
+// (as opposed to the Serial Console pane, which talks to the target host).
+// It mirrors JetKVM's terminal drawer: a slim header with a collapse
+// chevron on the left, the title centred, and a Hide button on the right;
+// the drawer slides up over the console rather than reflowing it.
+//
+// The shell process is only spawned when the drawer is first opened, and
+// the session survives hiding the drawer — reopening returns to the same
+// prompt and scrollback.
+templ BMCTerminalPanel() {
+	@bmcTerminalStyles()
+	<div
+		id={ bmcTerminalPanelID }
+		class="bmc-term-panel"
+		data-state="closed"
+		aria-label="BMC Terminal"
+		aria-hidden="true"
+	>
+		<div class="bmc-term-grip" title="Drag to resize" onmousedown="startBmcTerminalResize(event)" ontouchstart="startBmcTerminalResize(event)"></div>
+		<div class="bmc-term-header">
+			<button
+				class="bmc-term-icon-btn"
+				onclick="closeBmcTerminal()"
+				title="Hide BMC Terminal"
+				aria-label="Hide BMC Terminal"
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+			</button>
+			<span class="bmc-term-title">BMC Terminal</span>
+			<div class="bmc-term-actions">
+				<span id="bmc-term-status" class="bmc-term-status"></span>
+				<button class="bmc-term-hide-btn" onclick="closeBmcTerminal()" aria-label="Hide BMC Terminal">
+					<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+					<span>Hide</span>
+				</button>
+			</div>
+		</div>
+		<div class="bmc-term-body">
+			<div id="bmc-terminal"></div>
+		</div>
+	</div>
+	@bmcTerminalScript()
+}
+
+templ bmcTerminalStyles() {
+	<style>
+		.bmc-term-panel {
+			position: fixed;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			z-index: 45;
+			display: flex;
+			flex-direction: column;
+			height: 45vh;
+			min-height: 10rem;
+			background: var(--card);
+			border-top: 1px solid var(--border);
+			box-shadow: 0 -12px 30px -14px rgba(0, 0, 0, 0.7);
+			transform: translateY(100%);
+			visibility: hidden;
+			transition: transform 0.22s ease, visibility 0s linear 0.22s;
+		}
+		.bmc-term-panel[data-state="open"] {
+			transform: translateY(0);
+			visibility: visible;
+			transition: transform 0.22s ease, visibility 0s;
+		}
+		/* No slide animation while the user drags the top edge. */
+		.bmc-term-panel.resizing { transition: none; }
+
+		/* Top-edge drag handle for resizing the drawer. */
+		.bmc-term-grip {
+			position: absolute;
+			top: 0;
+			left: 0;
+			right: 0;
+			height: 5px;
+			cursor: ns-resize;
+			background: transparent;
+		}
+		.bmc-term-grip:hover { background: color-mix(in oklab, var(--primary) 45%, transparent); }
+
+		/* 1fr auto 1fr keeps the title optically centred regardless of the
+		   width of the buttons on either side. */
+		.bmc-term-header {
+			display: grid;
+			grid-template-columns: 1fr auto 1fr;
+			align-items: center;
+			gap: 0.5rem;
+			padding: 0.375rem 0.5rem;
+			border-bottom: 1px solid var(--border);
+			flex-shrink: 0;
+			user-select: none;
+		}
+		.bmc-term-title {
+			font-size: 0.8125rem;
+			color: var(--muted-foreground);
+			text-align: center;
+			white-space: nowrap;
+		}
+		.bmc-term-actions {
+			display: flex;
+			align-items: center;
+			justify-content: flex-end;
+			gap: 0.5rem;
+		}
+		.bmc-term-status {
+			font-size: 0.6875rem;
+			color: var(--muted-foreground);
+			white-space: nowrap;
+		}
+		.bmc-term-icon-btn {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			width: 1.75rem;
+			height: 1.75rem;
+			border: none;
+			border-radius: 0.25rem;
+			background: transparent;
+			color: var(--muted-foreground);
+			cursor: pointer;
+			justify-self: start;
+		}
+		.bmc-term-icon-btn:hover { color: var(--foreground); background: var(--accent); }
+		.bmc-term-hide-btn {
+			display: inline-flex;
+			align-items: center;
+			gap: 0.375rem;
+			height: 1.75rem;
+			padding: 0 0.625rem;
+			font-size: 0.8125rem;
+			line-height: 1;
+			color: var(--muted-foreground);
+			background: transparent;
+			border: 1px solid var(--border);
+			border-radius: 0.375rem;
+			cursor: pointer;
+			white-space: nowrap;
+		}
+		.bmc-term-hide-btn:hover { color: var(--foreground); background: var(--accent); }
+
+		.bmc-term-body {
+			flex: 1;
+			min-height: 0;
+			overflow: hidden;
+			padding: 0.25rem 0.5rem 0.5rem;
+			background: var(--background);
+		}
+		#bmc-terminal { height: 100%; }
+	</style>
+}
+
+// bmcTerminalScript wires xterm.js to the /api/vm/shell WebSocket. Wrapped
+// in an IIFE because ConsoleScript already declares Terminal / FitAddon /
+// AttachAddon at global script scope, and a second `const` of the same name
+// in another classic script would be a redeclaration error.
+templ bmcTerminalScript() {
+	<script>
+		(function () {
+			const XTerm = window.Terminal;
+			const Fit = window.FitAddon?.FitAddon || window.FitAddon;
+			const Attach = window.AttachAddon?.AttachAddon || window.AttachAddon;
+
+			let bterm = null;
+			let bws = null;
+			let bfit = null;
+			let bresize = null;
+
+			function panel() { return document.getElementById('bmc-terminal-panel'); }
+			function isOpen() { return panel().getAttribute('data-state') === 'open'; }
+
+			function setStatus(text) {
+				document.getElementById('bmc-term-status').textContent = text || '';
+			}
+
+			function fit() {
+				if (!bfit) return;
+				try { bfit.fit(); } catch (e) { return; }
+				if (bws && bws.readyState === WebSocket.OPEN && bterm) {
+					// Binary frame = resize; the server pushes it onto the PTY.
+					bws.send(new TextEncoder().encode(JSON.stringify({ cols: bterm.cols, rows: bterm.rows })));
+				}
+			}
+
+			function connect() {
+				bterm = new XTerm({
+					allowProposedApi: true,
+					cursorBlink: true,
+					fontSize: 13,
+					fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+				});
+				bfit = new Fit();
+				bterm.loadAddon(bfit);
+
+				const el = document.getElementById('bmc-terminal');
+				el.innerHTML = '';
+				bterm.open(el);
+				bfit.fit();
+
+				const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+				bws = new WebSocket(proto + '//' + window.location.host + '/api/vm/shell');
+				setStatus('connecting…');
+
+				bws.onopen = () => {
+					bterm.loadAddon(new Attach(bws));
+					setStatus('');
+					fit();
+					bterm.focus();
+				};
+				bws.onclose = () => {
+					setStatus('session closed');
+					if (bterm) bterm.write('\r\n\x1b[31m[session closed]\x1b[0m\r\n');
+					bws = null;
+				};
+				bws.onerror = () => { setStatus('error'); };
+
+				bresize = () => { if (isOpen()) fit(); };
+				window.addEventListener('resize', bresize);
+			}
+
+			function teardown() {
+				if (bresize) { window.removeEventListener('resize', bresize); bresize = null; }
+				if (bws) { try { bws.close(); } catch (e) {} bws = null; }
+				if (bterm) { bterm.dispose(); bterm = null; }
+				bfit = null;
+			}
+
+			window.openBmcTerminal = function () {
+				const p = panel();
+				p.setAttribute('data-state', 'open');
+				p.setAttribute('aria-hidden', 'false');
+				setNavActive(true);
+				// Lazily start the session; a hidden drawer keeps its shell so
+				// reopening lands back on the same prompt.
+				if (!bterm || !bws) {
+					teardown();
+					connect();
+				} else {
+					setTimeout(() => { fit(); bterm.focus(); }, 240);
+				}
+			};
+
+			window.closeBmcTerminal = function () {
+				const p = panel();
+				p.setAttribute('data-state', 'closed');
+				p.setAttribute('aria-hidden', 'true');
+				setNavActive(false);
+			};
+
+			window.toggleBmcTerminal = function () {
+				isOpen() ? closeBmcTerminal() : openBmcTerminal();
+			};
+
+			function setNavActive(active) {
+				const btn = document.getElementById('btn-bmc-terminal');
+				if (!btn) return;
+				btn.classList.toggle('bg-accent', active);
+				btn.classList.toggle('text-foreground', active);
+				btn.setAttribute('aria-expanded', active ? 'true' : 'false');
+			}
+
+			// ── Drag-to-resize the drawer height ───────────────────────────
+			let dragStartY = 0;
+			let dragStartH = 0;
+
+			window.startBmcTerminalResize = function (e) {
+				const p = panel();
+				dragStartY = (e.touches ? e.touches[0].clientY : e.clientY);
+				dragStartH = p.getBoundingClientRect().height;
+				p.classList.add('resizing');
+				e.preventDefault();
+				document.addEventListener('mousemove', onDrag);
+				document.addEventListener('touchmove', onDrag, { passive: false });
+				document.addEventListener('mouseup', endDrag);
+				document.addEventListener('touchend', endDrag);
+			};
+
+			function onDrag(e) {
+				const y = (e.touches ? e.touches[0].clientY : e.clientY);
+				const h = Math.min(window.innerHeight - 80, Math.max(160, dragStartH + (dragStartY - y)));
+				panel().style.height = h + 'px';
+				if (e.cancelable) e.preventDefault();
+			}
+
+			function endDrag() {
+				panel().classList.remove('resizing');
+				document.removeEventListener('mousemove', onDrag);
+				document.removeEventListener('touchmove', onDrag);
+				document.removeEventListener('mouseup', endDrag);
+				document.removeEventListener('touchend', endDrag);
+				fit();
+			}
+
+			// Escape hides the drawer when the focus is inside it.
+			document.addEventListener('keydown', (e) => {
+				if (e.key !== 'Escape' || !isOpen()) return;
+				if (!document.activeElement || !document.activeElement.closest('#bmc-terminal-panel')) return;
+				e.preventDefault();
+				closeBmcTerminal();
+			});
+
+			window.addEventListener('beforeunload', teardown);
+		})();
+	</script>
+}

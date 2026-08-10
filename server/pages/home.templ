@@ -1,0 +1,51 @@
+package pages
+
+import (
+	"github.com/pi-bmc/nanokvm-app/server/components"
+	"github.com/pi-bmc/nanokvm-app/server/layouts"
+)
+
+// Home is the main BMC page (served at /dashboard). Standard layout (navbar
+// at top), then a horizontal flex row containing the console pane + the
+// Server Overview sidebar. The sidebar's width animates between 0 and 24rem,
+// so opening it shrinks the console pane rather than overlaying it or the
+// navbar.
+templ Home() {
+	@layouts.Base("NanoKVM BMC", true, false) {
+		<link rel="stylesheet" href="/css/xterm.min.css"/>
+		<style>
+			#console-pane { display: flex; flex-direction: column; height: 100%; padding: 0.25rem 0.5rem 0.5rem; gap: 0; }
+			#console-pane.expanded { position: fixed; inset: 0; z-index: 40; background: var(--background); padding: 0; }
+			#terminal-wrap { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+			#terminal { height: 100%; }
+		</style>
+		<div class="flex h-full min-h-0 w-full">
+			<div class="flex-1 min-w-0">
+				<div id="console-pane">
+					@components.ConsoleToolbar()
+					@components.ConsoleSearchBar()
+					<div id="terminal-wrap" class="border border-t-0 border-border bg-background rounded-b-md">
+						<div id="terminal"></div>
+					</div>
+				</div>
+			</div>
+			@components.OverviewSidebar()
+		</div>
+		@xtermScripts()
+		@components.ConsoleScript()
+		// Slide-up shell drawer for the BMC itself. Rendered after the
+		// xterm bundles so its script can construct a Terminal at once.
+		@components.BMCTerminalPanel()
+		@components.OverviewDataScript()
+		@components.DownloadProgressScript()
+	}
+}
+
+// xtermScripts loads the xterm.js bundles. Kept separate so the dashboard
+// markup stays readable.
+templ xtermScripts() {
+	<script src="/js/xterm.min.js"></script>
+	<script src="/js/xterm-addon-fit.min.js"></script>
+	<script src="/js/xterm-addon-attach.min.js"></script>
+	<script src="/js/xterm-addon-search.min.js"></script>
+}

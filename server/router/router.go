@@ -3,16 +3,13 @@ package router
 import (
 	"io/fs"
 	"net/http"
-	"path"
-	"strings"
 
 	"github.com/pi-bmc/nanokvm-app/server/assets"
+	"github.com/pi-bmc/nanokvm-app/server/components"
 	"github.com/pi-bmc/nanokvm-app/server/config"
 	"github.com/pi-bmc/nanokvm-app/server/middleware"
+	"github.com/pi-bmc/nanokvm-app/server/pages"
 	"github.com/pi-bmc/nanokvm-app/server/telemetry"
-	"github.com/pi-bmc/nanokvm-app/server/templates"
-	templuiAssets "github.com/templui/templui/assets"
-	templuiComponents "github.com/templui/templui/components"
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -61,7 +58,8 @@ func web(r *gin.Engine) {
 	r.StaticFS("/js", http.FS(jsFS))
 	r.StaticFS("/img", http.FS(imgFS))
 
-	templuiRoutes(r)
+	// Component JS bundle rendered into the layout by components.Scripts().
+	r.GET("/components/*filepath", gin.WrapH(components.ScriptsHandler()))
 
 	// Favicon shortcut
 	r.GET("/favicon.ico", func(c *gin.Context) {
@@ -75,7 +73,7 @@ func web(r *gin.Engine) {
 
 	// Public auth pages (no middleware)
 	r.GET("/auth/login", func(c *gin.Context) {
-		render := newRender(c.Request.Context(), http.StatusOK, templates.LoginPage())
+		render := newRender(c.Request.Context(), http.StatusOK, pages.LoginPage())
 		c.Render(http.StatusOK, render)
 	})
 
@@ -99,36 +97,36 @@ func web(r *gin.Engine) {
 	})
 
 	// All page routes resolve auth status (sets authed flag, never redirects).
-	pages := r.Group("/")
-	pages.Use(middleware.ResolveAuth())
+	pageGroup := r.Group("/")
+	pageGroup.Use(middleware.ResolveAuth())
 
 	// Password reset is reachable both logged-in and as a guest.
-	pages.GET("/auth/password", func(c *gin.Context) {
-		render := newRender(c.Request.Context(), http.StatusOK, templates.PasswordPage(middleware.IsAuthed(c)))
+	pageGroup.GET("/auth/password", func(c *gin.Context) {
+		render := newRender(c.Request.Context(), http.StatusOK, pages.PasswordPage(middleware.IsAuthed(c)))
 		c.Render(http.StatusOK, render)
 	})
 
 	// Protected pages — require valid JWT cookie, redirect to login otherwise.
-	protected := pages.Group("/")
+	protected := pageGroup.Group("/")
 	protected.Use(middleware.RequireAuth())
 
 	protected.GET("/", func(c *gin.Context) {
 		c.Redirect(http.StatusFound, "/dashboard")
 	})
 	protected.GET("/dashboard", func(c *gin.Context) {
-		render := newRender(c.Request.Context(), http.StatusOK, templates.DashboardPage())
+		render := newRender(c.Request.Context(), http.StatusOK, pages.Home())
 		c.Render(http.StatusOK, render)
 	})
 	protected.GET("/console", func(c *gin.Context) {
-		render := newRender(c.Request.Context(), http.StatusOK, templates.ConsolePage())
+		render := newRender(c.Request.Context(), http.StatusOK, pages.ConsolePage())
 		c.Render(http.StatusOK, render)
 	})
 	protected.GET("/settings", func(c *gin.Context) {
-		render := newRender(c.Request.Context(), http.StatusOK, templates.SettingsPage())
+		render := newRender(c.Request.Context(), http.StatusOK, pages.SettingsPage())
 		c.Render(http.StatusOK, render)
 	})
 
-	// API docs — custom templui-rendered view of the embedded OpenAPI
+	// API docs — custom templ-rendered view of the embedded OpenAPI
 	// spec. The raw spec stays public at /redfish/v1/openapi.{yaml,json}
 	// for tooling discovery; the rendered docs page is behind auth so
 	// it shares the dashboard chrome.
@@ -136,7 +134,7 @@ func web(r *gin.Engine) {
 }
 
 // apiDocsHandler parses the OpenAPI spec once (sync.Once via the model
-// cache below) and renders the templates.APIDocsPage on every request.
+// cache below) and renders the pages.APIDocsPage on every request.
 func apiDocsHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		model, err := loadAPIDocsModel()
@@ -145,66 +143,9 @@ func apiDocsHandler() gin.HandlerFunc {
 			c.String(http.StatusInternalServerError, "API docs unavailable: %v", err)
 			return
 		}
-		render := newRender(c.Request.Context(), http.StatusOK, templates.APIDocsPage(model))
+		render := newRender(c.Request.Context(), http.StatusOK, pages.APIDocsPage(model))
 		c.Render(http.StatusOK, render)
 	}
-}
-
-// templuiRoutes serves templui's per-component JavaScript (loaded by the
-// component Script() partials as <script src="/templui/js/<name>.min.js">)
-// and templui's static assets (fonts, etc.) directly from the Go module's
-// embedded filesystems. No build step is required.
-func templuiRoutes(r *gin.Engine) {
-	r.GET("/templui/js/*filepath", func(c *gin.Context) {
-		// Path looks like "/dropdown.min.js" or "/popover.min.js".
-		// templui embeds each component's JS at "<name>/<name>.min.js"
-		// (or "<name>/<name>.js" for the unminified variant).
-		file := strings.TrimPrefix(c.Param("filepath"), "/")
-		if file == "" || strings.Contains(file, "..") {
-			c.Status(http.StatusBadRequest)
-			return
-		}
-		name := strings.TrimSuffix(strings.TrimSuffix(file, ".min.js"), ".js")
-		data, err := templuiComponents.TemplFiles.ReadFile(path.Join(name, file))
-		if err != nil {
-			c.Status(http.StatusNotFound)
-			return
-		}
-		c.Data(http.StatusOK, "application/javascript; charset=utf-8", data)
-	})
-
-	// templui ships fonts/images under assets/. Mount them at /templui/assets
-	// so the CSS @font-face URLs (/assets/fonts/...) resolve when we expose
-	// them via a rewrite below.
-	r.GET("/assets/*filepath", func(c *gin.Context) {
-		file := strings.TrimPrefix(c.Param("filepath"), "/")
-		if file == "" || strings.Contains(file, "..") {
-			c.Status(http.StatusBadRequest)
-			return
-		}
-		data, err := templuiAssets.Assets.ReadFile(file)
-		if err != nil {
-			c.Status(http.StatusNotFound)
-			return
-		}
-		// Best-effort content type — most are woff2/svg/png.
-		ctype := "application/octet-stream"
-		switch {
-		case strings.HasSuffix(file, ".woff2"):
-			ctype = "font/woff2"
-		case strings.HasSuffix(file, ".woff"):
-			ctype = "font/woff"
-		case strings.HasSuffix(file, ".svg"):
-			ctype = "image/svg+xml"
-		case strings.HasSuffix(file, ".png"):
-			ctype = "image/png"
-		case strings.HasSuffix(file, ".css"):
-			ctype = "text/css; charset=utf-8"
-		case strings.HasSuffix(file, ".js"):
-			ctype = "application/javascript; charset=utf-8"
-		}
-		c.Data(http.StatusOK, ctype, data)
-	})
 }
 
 func server(r *gin.Engine) {

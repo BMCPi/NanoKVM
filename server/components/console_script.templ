@@ -1,0 +1,250 @@
+package components
+
+// ConsoleScript wires xterm.js to the /api/vm/terminal WebSocket and
+// implements search / expand / fullscreen. Lives in its own component so
+// dashboard.templ stays focused on layout.
+templ ConsoleScript() {
+	<script>
+		const Terminal = window.Terminal;
+		const FitAddon = window.FitAddon?.FitAddon || window.FitAddon;
+		const AttachAddon = window.AttachAddon?.AttachAddon || window.AttachAddon;
+		const SearchAddon = window.SearchAddon?.SearchAddon || window.SearchAddon;
+
+		let term = null;
+		let ws = null;
+		let fitAddon = null;
+		let searchAddon = null;
+		let resizeHandler = null;
+		let serialConnected = false;
+
+		function getWsUrl() {
+			const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+			return proto + '//' + window.location.host;
+		}
+
+		function setConnStatus(text, variant) {
+			const el = document.getElementById('conn-status');
+			el.textContent = text;
+			// The badge renders with the destructive variant's colour classes;
+			// we swap them for green/yellow tints per connection state.
+			el.classList.remove(
+				'bg-destructive/10', 'dark:bg-destructive/20', 'text-destructive',
+				'bg-green-500/15', 'text-green-500',
+				'bg-yellow-500/15', 'text-yellow-500'
+			);
+			if (variant === 'connected') el.classList.add('bg-green-500/15', 'text-green-500');
+			else if (variant === 'connecting') el.classList.add('bg-yellow-500/15', 'text-yellow-500');
+			else el.classList.add('bg-destructive/10', 'dark:bg-destructive/20', 'text-destructive');
+		}
+
+		function updateSerialToggleBtn() {
+			const btn = document.getElementById('btn-serial-toggle');
+			btn.innerHTML = '';
+			const icon = document.createElement('span');
+			icon.className = 'pointer-events-none';
+			if (serialConnected) {
+				icon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+				btn.classList.remove('border-green-700', 'text-green-500');
+				btn.classList.add('border-destructive', 'text-destructive');
+			} else {
+				icon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>';
+				btn.classList.add('border-green-700', 'text-green-500');
+				btn.classList.remove('border-destructive', 'text-destructive');
+			}
+			const label = document.createElement('span');
+			label.textContent = serialConnected ? 'Disconnect' : 'Connect';
+			btn.appendChild(icon);
+			btn.appendChild(label);
+		}
+
+		window.toggleSerialConnection = function() {
+			if (serialConnected) disconnectSerial(); else connectSerial();
+		};
+
+		window.connectSerial = function() {
+			if (ws) disconnectSerial();
+
+			term = new Terminal({
+				allowProposedApi: true,
+				cursorBlink: true,
+				fontSize: 13,
+				fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+			});
+			fitAddon = new FitAddon();
+			term.loadAddon(fitAddon);
+			searchAddon = new SearchAddon();
+			term.loadAddon(searchAddon);
+
+			// Bind Ctrl+F to the search bar at the xterm level so the key is
+			// swallowed while the terminal is focused - otherwise xterm would
+			// forward ^F (0x06) to the PTY (readline forward-char / vim page
+			// down) in addition to opening the find bar. Returning false stops
+			// xterm from sending it; preventDefault stops the browser's own
+			// find. The document keydown handler still covers Ctrl+F when focus
+			// is outside the terminal.
+			term.attachCustomKeyEventHandler((e) => {
+				if (e.type === 'keydown' && e.ctrlKey && !e.altKey && !e.metaKey &&
+				    (e.key === 'f' || e.key === 'F')) {
+					e.preventDefault();
+					openSearch();
+					return false;
+				}
+				return true;
+			});
+
+			const el = document.getElementById('terminal');
+			el.innerHTML = '';
+			term.open(el);
+			fitAddon.fit();
+
+			ws = new WebSocket(getWsUrl() + '/api/vm/terminal');
+			setConnStatus('Connecting…', 'connecting');
+			document.getElementById('btn-serial-toggle').disabled = true;
+
+			ws.onopen = () => {
+				term.loadAddon(new AttachAddon(ws));
+				setConnStatus('Connected', 'connected');
+				serialConnected = true;
+				document.getElementById('btn-serial-toggle').disabled = false;
+				updateSerialToggleBtn();
+			};
+			ws.onclose = () => {
+				setConnStatus('Disconnected', 'disconnected');
+				serialConnected = false;
+				document.getElementById('btn-serial-toggle').disabled = false;
+				updateSerialToggleBtn();
+			};
+			ws.onerror = () => {
+				setConnStatus('Error', 'disconnected');
+				serialConnected = false;
+				document.getElementById('btn-serial-toggle').disabled = false;
+				updateSerialToggleBtn();
+			};
+
+			resizeHandler = () => { if (fitAddon) fitAddon.fit(); };
+			window.addEventListener('resize', resizeHandler);
+		};
+
+		window.disconnectSerial = function() {
+			if (resizeHandler) { window.removeEventListener('resize', resizeHandler); resizeHandler = null; }
+			if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+			ws = null;
+			if (term) { term.dispose(); term = null; }
+			fitAddon = null;
+			searchAddon = null;
+			closeSearch();
+		};
+
+		// ── Search ─────────────────────────────────────────────────────────
+		let _searchOpen = false;
+		window.toggleSearch = function() { _searchOpen ? closeSearch() : openSearch(); };
+		window.openSearch = function() {
+			_searchOpen = true;
+			const bar = document.getElementById('search-bar');
+			bar.classList.remove('hidden');
+			bar.classList.add('flex');
+			document.getElementById('btn-search').classList.add('bg-accent');
+			document.getElementById('search-input').focus();
+			document.getElementById('search-input').select();
+			if (fitAddon) fitAddon.fit();
+		};
+		window.closeSearch = function() {
+			_searchOpen = false;
+			const bar = document.getElementById('search-bar');
+			bar.classList.add('hidden');
+			bar.classList.remove('flex');
+			document.getElementById('btn-search').classList.remove('bg-accent');
+			document.getElementById('search-count').textContent = '';
+			if (searchAddon) searchAddon.clearDecorations();
+			if (fitAddon) fitAddon.fit();
+		};
+		window.onSearchInput = function() {
+			const q = document.getElementById('search-input').value;
+			if (!searchAddon || !q) {
+				document.getElementById('search-count').textContent = '';
+				if (searchAddon) searchAddon.clearDecorations();
+				return;
+			}
+			searchAddon.findNext(q, { ...buildSearchOpts(), incremental: true });
+		};
+		window.findNext = function() {
+			if (!searchAddon) return;
+			const q = document.getElementById('search-input').value;
+			if (q) searchAddon.findNext(q, buildSearchOpts());
+		};
+		window.findPrevious = function() {
+			if (!searchAddon) return;
+			const q = document.getElementById('search-input').value;
+			if (q) searchAddon.findPrevious(q, buildSearchOpts());
+		};
+		function buildSearchOpts() {
+			return {
+				caseSensitive: document.getElementById('search-case').checked,
+				regex: document.getElementById('search-regex').checked,
+				wholeWord: false,
+				decorations: {
+					matchBackground: '#3b3b00',
+					matchBorder: '#a3a300',
+					matchOverviewRuler: '#a3a300',
+					activeMatchBackground: '#fbbf24',
+					activeMatchBorder: '#f59e0b',
+					activeMatchColorOverviewRuler: '#f59e0b',
+				},
+			};
+		}
+		window.onSearchKeydown = function(e) {
+			if (e.key === 'Enter') { e.preventDefault(); e.shiftKey ? findPrevious() : findNext(); }
+			else if (e.key === 'Escape') { e.preventDefault(); closeSearch(); if (term) term.focus(); }
+		};
+
+		// ── Expand / Fullscreen ────────────────────────────────────────────
+		window.toggleExpand = function() {
+			const pane = document.getElementById('console-pane');
+			const btn = document.getElementById('btn-expand');
+			pane.classList.toggle('expanded');
+			const isExpanded = pane.classList.contains('expanded');
+			btn.classList.toggle('bg-accent', isExpanded);
+			btn.title = isExpanded ? 'Collapse console' : 'Expand console';
+			const header = document.querySelector('header');
+			if (header) header.style.display = isExpanded ? 'none' : '';
+			setTimeout(() => { if (fitAddon) fitAddon.fit(); }, 50);
+		};
+		window.toggleFullscreen = function() {
+			const el = document.getElementById('console-pane');
+			if (!document.fullscreenElement) {
+				el.requestFullscreen().then(() => {
+					el.classList.add('expanded');
+					setTimeout(() => { if (fitAddon) fitAddon.fit(); }, 100);
+				}).catch(() => {});
+			} else {
+				document.exitFullscreen();
+			}
+		};
+		document.addEventListener('fullscreenchange', () => {
+			if (!document.fullscreenElement) {
+				document.getElementById('console-pane').classList.remove('expanded');
+				const header = document.querySelector('header');
+				if (header) header.style.display = '';
+				const btn = document.getElementById('btn-expand');
+				btn.title = 'Expand console';
+				btn.classList.remove('bg-accent');
+				setTimeout(() => { if (fitAddon) fitAddon.fit(); }, 50);
+			}
+		});
+
+		document.addEventListener('keydown', (e) => {
+			// The BMC terminal drawer owns its own keys while focused - don't
+			// steal Ctrl+F / Escape from a shell the user is typing into.
+			if (document.activeElement && document.activeElement.closest('#bmc-terminal-panel')) return;
+			if (e.ctrlKey && e.key === 'f') { e.preventDefault(); openSearch(); return; }
+			if (e.key === 'Escape') {
+				if (_searchOpen) { closeSearch(); if (term) term.focus(); return; }
+				const pane = document.getElementById('console-pane');
+				if (pane.classList.contains('expanded') && !document.fullscreenElement) toggleExpand();
+			}
+		});
+
+		// Auto-connect on page load.
+		window.connectSerial();
+	</script>
+}

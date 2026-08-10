@@ -13,8 +13,8 @@ import (
 func TestHostDriveResourceNVMe(t *testing.T) {
 	d := hostDriveResource(blkinfo.Drive{
 		Interface: "nvme", Devnum: 0,
-		Vendor:  "Samsung SSD 990 EVO 1TB",
-		Product: "S7M4NJ0X123456",
+		Vendor:   "Samsung SSD 990 EVO 1TB",
+		Product:  "S7M4NJ0X123456",
 		Revision: "0B2QKXJ7", SizeBytes: 1000204886016,
 	})
 	if d.ID != "nvme0" || d.Model != "Samsung SSD 990 EVO 1TB" ||

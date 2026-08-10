@@ -1,0 +1,19 @@
+package pages
+
+import "github.com/pi-bmc/nanokvm-app/server/layouts"
+
+// ConsolePage and SettingsPage are legacy routes that simply redirect to the
+// dashboard, where the serial console and the in-navbar settings dropdown
+// live. Keep them so existing links / bookmarks don't 404.
+
+templ ConsolePage() {
+	@layouts.Base("NanoKVM BMC - Serial Console", true, false) {
+		<script>window.location.replace('/dashboard');</script>
+	}
+}
+
+templ SettingsPage() {
+	@layouts.Base("NanoKVM BMC - Settings", true, false) {
+		<script>window.location.replace('/dashboard');</script>
+	}
+}

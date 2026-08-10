@@ -3,6 +3,7 @@ module github.com/pi-bmc/nanokvm-app
 go 1.26.3
 
 require (
+	github.com/Oudwins/tailwind-merge-go v0.2.1
 	github.com/a-h/templ v0.3.1001
 	github.com/beevik/ntp v1.5.0
 	github.com/diskfs/go-diskfs v1.9.2
@@ -19,7 +20,6 @@ require (
 	github.com/sirupsen/logrus v1.9.4
 	github.com/spf13/viper v1.21.0
 	github.com/stmcginnis/gofish v0.23.0
-	github.com/templui/templui v1.11.2
 	github.com/ulikunitz/xz v0.5.15
 	github.com/unrolled/secure v1.17.0
 	github.com/vishvananda/netlink v1.3.1
@@ -44,7 +44,6 @@ require (
 )
 
 require (
-	github.com/Oudwins/tailwind-merge-go v0.2.1 // indirect
 	github.com/a-h/parse v0.0.0-20250122154542-74294addb73e // indirect
 	github.com/anchore/go-lzo v0.1.0 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect
@@ -58,6 +57,7 @@ require (
 	github.com/cli/browser v1.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/creack/goselect v0.1.2 // indirect
+	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/djherbis/times v1.6.0 // indirect
 	github.com/elliotwutingfeng/asciiset v0.0.0-20260129054604-cfde2086bc57 // indirect
 	github.com/fatih/color v1.18.0 // indirect
@@ -91,6 +91,7 @@ require (
 	github.com/pion/logging v0.2.4 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pkg/xattr v0.4.12 // indirect
+	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.67.5 // indirect
 	github.com/prometheus/otlptranslator v1.0.0 // indirect

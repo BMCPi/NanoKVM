@@ -173,7 +173,12 @@ linters:
           - goheader
         path-except: zz_generated\.deepcopy\.go
     paths:
-      - server/templates/*_templ.go
+      # templ-generated Go anywhere in the tree (layouts, pages, components).
+      - _templ\.go$
+      # Vendored shadcn-templ sources (updated via `shadcn-templ add
+      # --overwrite`); local style fixes would drift from upstream.
+      - server/components/
+      - server/utils/shadcn-templ.go
       - third_party$
       - builtin$
       - examples$
@@ -188,7 +193,9 @@ formatters:
   exclusions:
     generated: lax
     paths:
-      - server/templates/*_templ.go
+      - _templ\.go$
+      - server/components/
+      - server/utils/shadcn-templ.go
       - third_party$
       - builtin$
       - examples$
