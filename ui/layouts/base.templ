@@ -50,9 +50,22 @@ templ authHelperScript() {
 			const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
 			return match ? decodeURIComponent(match[2]) : null;
 		}
+		function setCookie(name, value, days) {
+			const d = new Date();
+			d.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));
+			document.cookie = name + '=' + encodeURIComponent(value) + ';expires=' + d.toUTCString() + ';path=/';
+		}
+		function deleteCookie(name) {
+			document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
+		}
 		function getAuthHeaders() {
 			const token = getCookie('nano-kvm-token') || '';
 			return { 'Content-Type': 'application/json', 'token': token };
+		}
+		function encryptPassword(password) {
+			const SECRET_KEY = 'nanokvm-sipeed-2024';
+			const encrypted = CryptoJS.AES.encrypt(password, SECRET_KEY).toString();
+			return encodeURIComponent(encrypted);
 		}
 		async function apiGet(url) {
 			return (await fetch(url, { headers: getAuthHeaders() })).json();

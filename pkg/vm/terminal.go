@@ -1,0 +1,130 @@
+package vm
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"sync"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
+	log "github.com/sirupsen/logrus"
+
+	"github.com/pi-bmc/nanokvm-app/pkg/serial"
+)
+
+const (
+	messageWait    = 10 * time.Second
+	maxMessageSize = 1024
+)
+
+// WinSize is sent by the xterm.js client on resize. Logged but not acted
+// upon because the serial port has no concept of terminal dimensions.
+type WinSize struct {
+	Rows uint16 `json:"rows"`
+	Cols uint16 `json:"cols"`
+}
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  maxMessageSize,
+	WriteBufferSize: maxMessageSize,
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+}
+
+// wsWriter adapts a WebSocket connection to io.Writer so the serial
+// broker can fan out port output to the client.
+type wsWriter struct {
+	ws *websocket.Conn
+	mu sync.Mutex
+}
+
+func (w *wsWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if err := w.ws.SetWriteDeadline(time.Now().Add(messageWait)); err != nil {
+		return 0, err
+	}
+	if err := w.ws.WriteMessage(websocket.BinaryMessage, p); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+// Terminal upgrades the HTTP connection to a WebSocket and bridges it to
+// the shared serial port via the serial broker.
+func (s *Service) Terminal(c *gin.Context) {
+	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		log.Errorf("failed to init websocket: %s", err)
+		return
+	}
+	defer func() {
+		_ = ws.Close()
+	}()
+
+	sessionID := fmt.Sprintf("ws-%s-%d", c.ClientIP(), time.Now().UnixNano())
+	broker := serial.GetBroker()
+
+	writer := &wsWriter{ws: ws}
+	_, err = broker.Connect(sessionID, writer)
+	if err != nil {
+		log.Errorf("serial broker connect failed: %s", err)
+		// Best-effort error message to the client before closing.
+		_ = ws.WriteMessage(websocket.TextMessage, []byte("serial error: "+err.Error()))
+		return
+	}
+	defer broker.Disconnect(sessionID)
+
+	// Read loop: forward WebSocket messages to the serial port.
+	var zeroTime time.Time
+	_ = ws.SetReadDeadline(zeroTime)
+
+	for {
+		msgType, p, err := ws.ReadMessage()
+		if err != nil {
+			return
+		}
+
+		// Binary messages from xterm.js carry resize notifications.
+		if msgType == websocket.BinaryMessage {
+			var winSize WinSize
+			if json.Unmarshal(p, &winSize) == nil {
+				log.Debugf("terminal resize %dx%d (ignored – serial)", winSize.Cols, winSize.Rows)
+			}
+			continue
+		}
+
+		// Text messages are keyboard input destined for the serial port.
+		if _, err := broker.Write(p); err != nil {
+			log.Errorf("serial write failed: %s", err)
+			return
+		}
+	}
+}
+
+// TerminalCapture serves the persisted host serial capture (rotated
+// generation first, then current) as plain text — the managed host's boot
+// and crash logs, recorded by the always-on capture even when no live
+// console session was attached.
+func (s *Service) TerminalCapture(c *gin.Context) {
+	files := serial.CaptureFiles()
+	if len(files) == 0 {
+		c.String(http.StatusNotFound, "no serial capture available")
+		return
+	}
+	c.Header("Content-Type", "text/plain; charset=utf-8")
+	c.Status(http.StatusOK)
+	for _, p := range files {
+		f, err := os.Open(p)
+		if err != nil {
+			continue
+		}
+		_, _ = io.Copy(c.Writer, f)
+		_ = f.Close()
+	}
+}

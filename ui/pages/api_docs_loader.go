@@ -1,7 +1,7 @@
 package pages
 
 // api_docs_loader.go parses the embedded OpenAPI 3.x spec
-// (server/service/redfish/openapi.yaml) into a flat data model that the
+// (pkg/redfish/openapi.yaml) into a flat data model that the
 // APIDocsPage template can render. We don't use a full OpenAPI library
 // here — the spec is finite and project-owned, so manual extraction
 // keeps the dep surface minimal.
@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/pi-bmc/nanokvm-app/pkg/redfish"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
@@ -171,7 +173,7 @@ func LoadAPIDocs(yamlBytes []byte) (APIDocsModel, error) {
 	if err := yaml.Unmarshal(yamlBytes, &raw); err != nil {
 		return APIDocsModel{}, fmt.Errorf("parse openapi: %w", err)
 	}
-	doc, _ := normaliseYAMLForJSON(raw).(map[string]any)
+	doc, _ := redfish.NormaliseYAMLMaps(raw).(map[string]any)
 
 	res := newResolver(doc)
 	m := APIDocsModel{ByTag: map[string][]APIDocsOperation{}}
@@ -661,36 +663,6 @@ func (op APIDocsOperation) FirstResponseSample() APIDocsResponse {
 		}
 	}
 	return APIDocsResponse{}
-}
-
-// normaliseYAMLForJSON converts the map[any]any subtrees gopkg.in/yaml.v3
-// can produce into map[string]any so the rest of this file (and our
-// json.Marshal calls) can rely on the standard shape.
-func normaliseYAMLForJSON(in any) any {
-	switch v := in.(type) {
-	case map[string]any:
-		out := make(map[string]any, len(v))
-		for k, vv := range v {
-			out[k] = normaliseYAMLForJSON(vv)
-		}
-		return out
-	case map[any]any:
-		out := make(map[string]any, len(v))
-		for k, vv := range v {
-			if ks, ok := k.(string); ok {
-				out[ks] = normaliseYAMLForJSON(vv)
-			}
-		}
-		return out
-	case []any:
-		out := make([]any, len(v))
-		for i, vv := range v {
-			out[i] = normaliseYAMLForJSON(vv)
-		}
-		return out
-	default:
-		return v
-	}
 }
 
 // slugify turns "Server Overview" / "/Systems/1/Bios/Settings" into

@@ -5,29 +5,7 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
-	"github.com/gin-gonic/gin/render"
 )
-
-// HTMLTemplRenderer renders templ components as HTML via Gin's HTMLRender
-// interface. If the data passed is not a templ.Component and a
-// FallbackHTMLRenderer is set, it delegates to the fallback.
-type HTMLTemplRenderer struct {
-	FallbackHTMLRenderer render.HTMLRender
-}
-
-func (r *HTMLTemplRenderer) Instance(s string, d any) render.Render {
-	templData, ok := d.(templ.Component)
-	if !ok {
-		if r.FallbackHTMLRenderer != nil {
-			return r.FallbackHTMLRenderer.Instance(s, d)
-		}
-	}
-	return &templRenderer{
-		ctx:       context.Background(),
-		status:    -1,
-		component: templData,
-	}
-}
 
 // newRender creates a templRenderer with a specific context, status, and component.
 func newRender(ctx context.Context, status int, component templ.Component) *templRenderer {

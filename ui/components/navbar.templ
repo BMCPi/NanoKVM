@@ -113,7 +113,7 @@ templ navbarScript() {
 	<script>
 		async function doLogout() {
 			try { await apiPost('/api/auth/logout'); } catch(e) {}
-			document.cookie = 'nano-kvm-token=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
+			deleteCookie('nano-kvm-token');
 			window.location.replace('/auth/login');
 		}
 	</script>

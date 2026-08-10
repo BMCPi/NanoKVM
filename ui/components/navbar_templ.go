@@ -250,7 +250,7 @@ func navbarScript() templ.Component {
 			templ_7745c5c3_Var6 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<script>\n\t\tasync function doLogout() {\n\t\t\ttry { await apiPost('/api/auth/logout'); } catch(e) {}\n\t\t\tdocument.cookie = 'nano-kvm-token=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';\n\t\t\twindow.location.replace('/auth/login');\n\t\t}\n\t</script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<script>\n\t\tasync function doLogout() {\n\t\t\ttry { await apiPost('/api/auth/logout'); } catch(e) {}\n\t\t\tdeleteCookie('nano-kvm-token');\n\t\t\twindow.location.replace('/auth/login');\n\t\t}\n\t</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -70,10 +70,14 @@ We offer several NanoKVM versions to suit your needs:
 ## 📂 Project Structure
 
 ``` shell
+├── api/            # HTTP API — one subpackage per sub-router (auth, vm, redfish, …)
 ├── cmd/            # CLI entry points (server, fw_env)
-├── server/         # NanoKVM Back-end (Go + Gin)
+├── pkg/            # Domain + infrastructure packages (config, ipmi, firmware, …)
+├── ui/             # Web front-end — templ layouts/pages/components + embedded assets
 ├── ...
 ```
+
+See [docs/server.md](docs/server.md) for the detailed backend layout, configuration reference, and deploy instructions.
 
 ## 🔩 Hardware Platform (NanoKVM Cube/PCIe)
 

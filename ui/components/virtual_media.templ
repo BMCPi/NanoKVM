@@ -33,13 +33,14 @@ templ vmCurrentView() {
 				<div class="text-sm font-semibold">Virtual Media</div>
 				<div class="text-xs text-muted-foreground">Mount an image to boot from or install an OS.</div>
 			</div>
-			// Escape closes the dropdown menu; there is no imperative close
-			// API exposed by the vendored dropdownmenu.js.
+			// data-tui-dropdownmenu-item is the component's close-on-click
+			// contract: dropdownmenu.js closes the containing menu when a
+			// carrier of it is clicked.
 			@button.Button(button.Props{
 				Variant:    button.VariantGhost,
 				Size:       button.SizeSm,
 				Class:      "h-7 shrink-0",
-				Attributes: templ.Attributes{"onclick": "document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape'}))"},
+				Attributes: templ.Attributes{"data-tui-dropdownmenu-item": true},
 			}) {
 				Close
 			}
@@ -103,7 +104,7 @@ templ vmAddView() {
 		// Tab panels
 		<div id="vm-panel-existing" class="space-y-2">
 			<div class="flex items-center gap-2">
-				<select id="nav-vm-select" class="h-8 flex-1 rounded-md border border-input bg-transparent px-3 text-sm dark:bg-input/30"></select>
+				@NativeSelect("nav-vm-select", "flex-1 px-3")
 				@button.Button(button.Props{
 					Size:       button.SizeSm,
 					Attributes: templ.Attributes{"onclick": "navVmInsert()"},

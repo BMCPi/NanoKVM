@@ -65,7 +65,7 @@ templ SettingsDialog() {
 }
 
 // settingsNetworkCard groups network toggles (SSH) and the SSH key editor.
-// The BMC runs no sshd — the app is the SSH server (server/service/ssh) — so
+// The BMC runs no sshd — the app is the SSH server (pkg/ssh) — so
 // the toggle starts/stops an in-process listener and the textarea below is the
 // authorized_keys file it authenticates against.
 templ settingsNetworkCard() {
@@ -76,12 +76,7 @@ templ settingsNetworkCard() {
 			}
 		}
 		@card.Content(card.ContentProps{Class: "pt-0 space-y-2"}) {
-			<div class="flex items-center justify-between py-1">
-				@label.Label(label.Props{For: "ssh-switch"}) {
-					SSH
-				}
-				@switchcomp.Switch(switchcomp.Props{ID: "ssh-switch", Attributes: templ.Attributes{"onchange": "toggleSSH(this.checked)"}})
-			</div>
+			@settingsToggleRow("ssh-switch", "SSH", "toggleSSH(this.checked)")
 			@separator.Separator()
 			<div class="space-y-1.5">
 				@label.Label(label.Props{For: "ssh-keys"}) {
@@ -123,12 +118,7 @@ templ settingsSecurityCard() {
 			}
 		}
 		@card.Content(card.ContentProps{Class: "pt-0 space-y-2"}) {
-			<div class="flex items-center justify-between py-1">
-				@label.Label(label.Props{For: "tls-switch"}) {
-					TLS / HTTPS
-				}
-				@switchcomp.Switch(switchcomp.Props{ID: "tls-switch", Attributes: templ.Attributes{"onchange": "toggleTLS(this.checked)"}})
-			</div>
+			@settingsToggleRow("tls-switch", "TLS / HTTPS", "toggleTLS(this.checked)")
 			@separator.Separator()
 			@button.Button(button.Props{
 				Variant:    button.VariantOutline,
@@ -156,12 +146,7 @@ templ settingsAutoUpdateCard() {
 			}
 		}
 		@card.Content(card.ContentProps{Class: "pt-0 space-y-3"}) {
-			<div class="flex items-center justify-between py-1">
-				@label.Label(label.Props{For: "au-enabled"}) {
-					Enable auto-update
-				}
-				@switchcomp.Switch(switchcomp.Props{ID: "au-enabled", Attributes: templ.Attributes{"onchange": "saveAutoUpdate()"}})
-			</div>
+			@settingsToggleRow("au-enabled", "Enable auto-update", "saveAutoUpdate()")
 			<div class="space-y-1.5">
 				@label.Label(label.Props{For: "au-interval"}) {
 					Check interval (minutes)
@@ -174,18 +159,8 @@ templ settingsAutoUpdateCard() {
 				})
 			</div>
 			@separator.Separator()
-			<div class="flex items-center justify-between py-1">
-				@label.Label(label.Props{For: "au-application"}) {
-					Update application
-				}
-				@switchcomp.Switch(switchcomp.Props{ID: "au-application", Attributes: templ.Attributes{"onchange": "saveAutoUpdate()"}})
-			</div>
-			<div class="flex items-center justify-between py-1">
-				@label.Label(label.Props{For: "au-bios"}) {
-					Update BIOS (U-Boot)
-				}
-				@switchcomp.Switch(switchcomp.Props{ID: "au-bios", Attributes: templ.Attributes{"onchange": "saveAutoUpdate()"}})
-			</div>
+			@settingsToggleRow("au-application", "Update application", "saveAutoUpdate()")
+			@settingsToggleRow("au-bios", "Update BIOS (U-Boot)", "saveAutoUpdate()")
 			<p id="au-status" class="text-xs text-muted-foreground min-h-[1rem]"></p>
 		}
 	}
@@ -210,6 +185,16 @@ templ settingsSystemCard() {
 			}
 		}
 	}
+}
+
+// settingsToggleRow renders one "label + switch" settings row.
+templ settingsToggleRow(id, text, onchange string) {
+	<div class="flex items-center justify-between py-1">
+		@label.Label(label.Props{For: id}) {
+			{ text }
+		}
+		@switchcomp.Switch(switchcomp.Props{ID: id, Attributes: templ.Attributes{"onchange": onchange}})
+	</div>
 }
 
 templ settingsDialogScript() {

@@ -1,6 +1,7 @@
 package components
 
 import (
+	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 	"github.com/pi-bmc/nanokvm-app/ui/components/badge"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/card"
@@ -271,7 +272,8 @@ templ bootOverrideSelect() {
 			@selectcomp.Value(selectcomp.ValueProps{Placeholder: "None (default)"})
 		}
 		@selectcomp.Content() {
-			@selectcomp.Item(selectcomp.ItemProps{Value: "None", Selected: true}) {
+			// Select Props.Value "None" already marks this item selected.
+			@selectcomp.Item(selectcomp.ItemProps{Value: "None"}) {
 				None (default)
 			}
 			@selectcomp.Item(selectcomp.ItemProps{Value: "Pxe"}) {
@@ -294,10 +296,10 @@ templ bootOverrideSelect() {
 }
 
 // overviewKernelCard wraps the kernel-version selector + per-kernel actions
-// in a dedicated card. The Select starts empty; loadKernelVersions() in
-// overview_script.templ injects items dynamically via the standard
-// data-tui-select-item DOM structure (select.js uses event delegation so
-// dynamic items get picked up without any extra wiring).
+// in a dedicated card. The kernel list is compile-time data
+// (firmware.KernelUBootMap), so the items render server-side like every
+// other Select; loadKernelVersions() in overview_script.templ only updates
+// each item's downloaded/active state.
 templ overviewKernelCard() {
 	@card.Card() {
 		@card.Header() {
@@ -309,17 +311,20 @@ templ overviewKernelCard() {
 			}
 		}
 		@card.Content(card.ContentProps{Class: "py-2 space-y-1.5"}) {
-			// The Select Props ID names the portaled content element; the JS
-			// looks it up by that id and appends items into its viewport.
-			@selectcomp.Select(selectcomp.Props{ID: "bios-kernel-content", Name: "bios-kernel-select"}) {
+			@selectcomp.Select(selectcomp.Props{Name: "bios-kernel-select"}) {
 				@selectcomp.Trigger(selectcomp.TriggerProps{Class: "w-full"}) {
 					@selectcomp.Value(selectcomp.ValueProps{Placeholder: "Select kernel version…"})
 				}
 				@selectcomp.Content() {
-					// Items injected dynamically by loadKernelVersions() in
-					// overview_script.templ — select.js uses event delegation
-					// so dynamic items pick up click/select behaviour without
-					// re-binding.
+					for _, k := range firmware.KernelVersionsSorted() {
+						// The per-item id + the data-kernel-state span are the
+						// contract with loadKernelVersions(): it flips the
+						// dataset flags and the state suffix, nothing else.
+						@selectcomp.Item(selectcomp.ItemProps{ID: "kernel-item-" + k, Value: k}) {
+							Linux { k } → U-Boot { firmware.KernelUBootMap[k] }
+							<span data-kernel-state class="text-muted-foreground"></span>
+						}
+					}
 				}
 			}
 			<div id="bios-kernel-status" class="text-[0.6875rem] text-muted-foreground"></div>

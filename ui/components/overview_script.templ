@@ -30,8 +30,7 @@ templ OverviewDataScript() {
 		// and NetworkInterfaces is not implemented.
 		(async function() {
 			try {
-				const r = await fetch('/api/vm/info', { headers: getAuthHeaders() });
-				const data = await r.json();
+				const data = await apiGet('/api/vm/info');
 				if (data.code !== 0) return;
 				const i = data.data;
 				setRow('info-app', i.application);
@@ -46,8 +45,7 @@ templ OverviewDataScript() {
 
 		(async function() {
 			try {
-				const r = await fetch('/api/vm/hardware', { headers: getAuthHeaders() });
-				const data = await r.json();
+				const data = await apiGet('/api/vm/hardware');
 				if (data.code === 0) setRow('info-hw', data.data.version);
 			} catch(e) {}
 		})();
@@ -57,8 +55,7 @@ templ OverviewDataScript() {
 			const btn = document.getElementById('btn-app-update');
 			const badge = document.getElementById('info-app-latest-badge');
 			try {
-				const r = await fetch('/api/application/version', { headers: getAuthHeaders() });
-				const data = await r.json();
+				const data = await apiGet('/api/application/version');
 				if (data.code !== 0) return;
 				const cur = (data.data.current || '').replace(/^v/, '');
 				const latest = (data.data.latest || '').replace(/^v/, '');
@@ -361,46 +358,18 @@ templ OverviewDataScript() {
 		};
 
 		// ── Kernel-version → U-Boot image selector ─────────────────────────
-		// The select content is populated dynamically — select.js attaches via
-		// event delegation (document-level click handler) so dynamic
-		// data-tui-select-item children participate in selection without any
-		// per-item wiring.
-
-		// Class string for an item div, mirroring select.Item's classes so
-		// dynamic items render identically to server-rendered ones.
-		const KERNEL_ITEM_CLASS = [
-			'group/select-item', 'relative', 'flex', 'w-full',
-			'cursor-default', 'select-none', 'items-center', 'rounded-sm',
-			'gap-2', 'py-1.5', 'pr-8', 'pl-2', 'text-sm', 'outline-hidden',
-			'focus:bg-accent', 'focus:text-accent-foreground',
-			'data-[state=checked]:bg-accent',
-			'data-[state=checked]:text-accent-foreground',
-		].join(' ');
-
-		// The select content starts inside an inert <template> and is portaled
-		// to <body> by the deferred component bundle — which may run after this
-		// inline script. Look in the live DOM first, then fall back to the
-		// template fragments; items appended there move along on portal.
-		function kernelContent() {
-			let el = document.getElementById('bios-kernel-content');
-			if (!el) {
-				for (const tpl of document.querySelectorAll('template[data-tui-select-portal]')) {
-					el = tpl.content.querySelector('#bios-kernel-content');
-					if (el) break;
-				}
-			}
-			return el?.querySelector('[data-tui-select-viewport]') || null;
-		}
+		// The items are server-rendered (the kernel list is compile-time
+		// data); this script only refreshes each item's downloaded/active
+		// state via its id + the data-kernel-state span.
 
 		function kernelHiddenInput() {
 			return document.querySelector('input[name="bios-kernel-select"]');
 		}
 
 		function selectedKernelItem() {
-			const content = kernelContent();
 			const hidden = kernelHiddenInput();
-			if (!content || !hidden || !hidden.value) return null;
-			return content.querySelector(`[data-tui-select-item][data-tui-select-value="${CSS.escape(hidden.value)}"]`);
+			if (!hidden || !hidden.value) return null;
+			return document.getElementById('kernel-item-' + hidden.value);
 		}
 
 		async function loadKernelVersions() {
@@ -408,36 +377,21 @@ templ OverviewDataScript() {
 				const r = await fetch('/api/firmware/bios/kernels', { headers: getAuthHeaders() });
 				if (!r.ok) return;
 				const data = await r.json();
-				const content = kernelContent();
-				if (!content) return;
-				content.innerHTML = '';
 				for (const k of (data.kernels || [])) {
-					const item = document.createElement('div');
-					item.className = KERNEL_ITEM_CLASS;
-					item.setAttribute('role', 'option');
-					item.setAttribute('tabindex', '-1');
-					item.setAttribute('data-tui-select-item', '');
-					item.setAttribute('data-tui-select-value', k.kernel);
-					item.setAttribute('data-state', 'unchecked');
-					item.setAttribute('aria-selected', 'false');
+					const item = document.getElementById('kernel-item-' + k.kernel);
+					if (!item) continue;
 					item.dataset.downloaded = k.downloaded ? '1' : '';
 					item.dataset.active = k.active ? '1' : '';
-
-					const text = document.createElement('span');
-					text.className = 'flex flex-1 truncate';
-					text.setAttribute('data-tui-select-item-text', '');
-					let label = `Linux ${k.kernel} → U-Boot ${k.uboot}`;
-					if (k.active) label += ' ★ Active';
-					else if (k.downloaded) label += ' (Downloaded)';
-					text.textContent = label;
-					item.appendChild(text);
-
-					content.appendChild(item);
+					const state = item.querySelector('[data-kernel-state]');
+					if (state) state.textContent = k.active ? '★ Active' : (k.downloaded ? '(Downloaded)' : '');
 				}
 				updateKernelButtons();
 			} catch(e) { console.warn('kernel version list failed:', e); }
 		}
-		loadKernelVersions();
+		// Run after the deferred component bundle has portaled the select
+		// content into the live DOM (deferred scripts execute before
+		// DOMContentLoaded fires).
+		document.addEventListener('DOMContentLoaded', loadKernelVersions);
 
 		// Re-evaluate action buttons whenever the select's hidden input
 		// dispatches change (select.js does this on item click).

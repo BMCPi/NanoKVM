@@ -10,23 +10,24 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pi-bmc/nanokvm-app/server/config"
-	"github.com/pi-bmc/nanokvm-app/server/logger"
-	"github.com/pi-bmc/nanokvm-app/server/middleware"
-	"github.com/pi-bmc/nanokvm-app/server/router"
-	"github.com/pi-bmc/nanokvm-app/server/service/application"
-	"github.com/pi-bmc/nanokvm-app/server/service/autoupdate"
-	"github.com/pi-bmc/nanokvm-app/server/service/efivars"
-	"github.com/pi-bmc/nanokvm-app/server/service/firmware"
-	"github.com/pi-bmc/nanokvm-app/server/service/ipmi"
-	"github.com/pi-bmc/nanokvm-app/server/service/mdns"
-	"github.com/pi-bmc/nanokvm-app/server/service/network"
-	"github.com/pi-bmc/nanokvm-app/server/service/serial"
-	sshd "github.com/pi-bmc/nanokvm-app/server/service/ssh"
-	"github.com/pi-bmc/nanokvm-app/server/service/timesync"
-	"github.com/pi-bmc/nanokvm-app/server/service/usbgadget"
-	"github.com/pi-bmc/nanokvm-app/server/telemetry"
-	"github.com/pi-bmc/nanokvm-app/server/utils"
+	"github.com/pi-bmc/nanokvm-app/api"
+	"github.com/pi-bmc/nanokvm-app/pkg/application"
+	"github.com/pi-bmc/nanokvm-app/pkg/autoupdate"
+	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/efivars"
+	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
+	"github.com/pi-bmc/nanokvm-app/pkg/ipmi"
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
+	"github.com/pi-bmc/nanokvm-app/pkg/mdns"
+	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
+	"github.com/pi-bmc/nanokvm-app/pkg/network"
+	"github.com/pi-bmc/nanokvm-app/pkg/serial"
+	sshd "github.com/pi-bmc/nanokvm-app/pkg/ssh"
+	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
+	"github.com/pi-bmc/nanokvm-app/pkg/timesync"
+	"github.com/pi-bmc/nanokvm-app/pkg/usbgadget"
+	"github.com/pi-bmc/nanokvm-app/pkg/utils"
+	"github.com/pi-bmc/nanokvm-app/ui"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -192,9 +193,12 @@ func run() {
 		r.Use(cors.Default())
 	}
 
-	// router.Init wires the UI (which installs the templ HTML renderer with
-	// gin's default as fallback) and every API route group.
-	router.Init(r)
+	// Telemetry first so the otelgin middleware wraps every route, then the
+	// UI (which installs the templ HTML renderer with gin's default as
+	// fallback), then every API sub-router.
+	telemetry.Routes(r)
+	ui.Register(r)
+	api.Register(r)
 
 	httpAddr := fmt.Sprintf(":%d", conf.Port.Http)
 	httpsAddr := fmt.Sprintf(":%d", conf.Port.Https)

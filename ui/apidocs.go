@@ -8,7 +8,7 @@ package ui
 import (
 	"sync"
 
-	"github.com/pi-bmc/nanokvm-app/server/service/redfish"
+	"github.com/pi-bmc/nanokvm-app/pkg/redfish"
 	"github.com/pi-bmc/nanokvm-app/ui/pages"
 )
 

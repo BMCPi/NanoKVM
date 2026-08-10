@@ -7,7 +7,7 @@ import (
 	"io/fs"
 	"net/http"
 
-	"github.com/pi-bmc/nanokvm-app/server/middleware"
+	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
 	"github.com/pi-bmc/nanokvm-app/ui/assets"
 	"github.com/pi-bmc/nanokvm-app/ui/components"
 	"github.com/pi-bmc/nanokvm-app/ui/pages"
@@ -19,11 +19,8 @@ import (
 // Register installs the UI onto the gin engine: the templ HTML renderer
 // (falling back to gin's default for non-templ renders), the embedded static
 // assets, the component JS bundle, and every page route. API routes stay in
-// server/router.
+// the api package.
 func Register(r *gin.Engine) {
-	// Configure templ renderer with fallback to Gin's default HTML renderer.
-	r.HTMLRender = &HTMLTemplRenderer{FallbackHTMLRenderer: r.HTMLRender}
-
 	staticRoutes(r)
 	pageRoutes(r)
 }
@@ -41,14 +38,16 @@ func staticRoutes(r *gin.Engine) {
 	// Component JS bundle rendered into the layout by components.Scripts().
 	r.GET("/components/*filepath", gin.WrapH(components.ScriptsHandler()))
 
-	// Favicon shortcut
+	// Favicon shortcut for bare browser probes (pages link /img/favicon.ico).
+	// Read once — embed.FS.ReadFile copies, so a per-request read would
+	// allocate the icon on every hit.
+	favicon, _ := assets.Img.ReadFile("img/favicon.ico")
 	r.GET("/favicon.ico", func(c *gin.Context) {
-		data, err := assets.Img.ReadFile("img/favicon.ico")
-		if err != nil {
+		if favicon == nil {
 			c.Status(http.StatusNotFound)
 			return
 		}
-		c.Data(http.StatusOK, "image/x-icon", data)
+		c.Data(http.StatusOK, "image/x-icon", favicon)
 	})
 }
 
@@ -81,13 +80,13 @@ func pageRoutes(r *gin.Engine) {
 		render := newRender(c.Request.Context(), http.StatusOK, pages.Home())
 		c.Render(http.StatusOK, render)
 	})
+	// Legacy routes: the serial console and settings now live on the
+	// dashboard, so these redirect server-side for old links/bookmarks.
 	protected.GET("/console", func(c *gin.Context) {
-		render := newRender(c.Request.Context(), http.StatusOK, pages.ConsolePage())
-		c.Render(http.StatusOK, render)
+		c.Redirect(http.StatusFound, "/dashboard")
 	})
 	protected.GET("/settings", func(c *gin.Context) {
-		render := newRender(c.Request.Context(), http.StatusOK, pages.SettingsPage())
-		c.Render(http.StatusOK, render)
+		c.Redirect(http.StatusFound, "/dashboard")
 	})
 
 	// API docs — custom templ-rendered view of the embedded OpenAPI

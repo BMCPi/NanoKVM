@@ -81,20 +81,29 @@ templ powerGridBtn(onclick, class string, ico func(...icon.Props) templ.Componen
 
 // bootDeviceSelect drives the Redfish boot device override.
 templ bootDeviceSelect() {
-	<select id="boot-device" name="boot-device" class="h-8 w-full min-w-0 rounded-md border border-input bg-transparent px-2 text-sm dark:bg-input/30">
+	@NativeSelect("boot-device", "w-full min-w-0 px-2") {
 		<option value="None" selected>Default</option>
 		<option value="Pxe">PXE / Network</option>
 		<option value="Hdd">HDD / SD / NVMe</option>
 		<option value="Cd">USB / CD-ROM</option>
 		<option value="BiosSetup">BIOS Setup</option>
-	</select>
+	}
 }
 
 // bootPersistSelect chooses Once vs Continuous for the boot override.
 templ bootPersistSelect() {
-	<select id="boot-persist" name="boot-persist" class="h-8 w-full min-w-0 rounded-md border border-input bg-transparent px-2 text-sm dark:bg-input/30">
+	@NativeSelect("boot-persist", "w-full min-w-0 px-2") {
 		<option value="Once" selected>Once (default)</option>
 		<option value="Continuous">Continuous</option>
+	}
+}
+
+// NativeSelect renders a plain <select> styled to match the Input component.
+// Used where the composed Select can't go — inside dropdown menus, whose
+// outside-click dismiss would fire on the Select's body-portaled popup.
+templ NativeSelect(id string, class string) {
+	<select id={ id } name={ id } class={ "h-8 rounded-md border border-input bg-transparent text-sm dark:bg-input/30", class }>
+		{ children... }
 	</select>
 }
 

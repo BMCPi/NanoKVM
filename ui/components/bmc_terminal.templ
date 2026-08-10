@@ -204,8 +204,7 @@ templ bmcTerminalScript() {
 				bterm.open(el);
 				bfit.fit();
 
-				const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-				bws = new WebSocket(proto + '//' + window.location.host + '/api/vm/shell');
+				bws = new WebSocket(getWsUrl() + '/api/vm/shell');
 				setStatus('connecting…');
 
 				bws.onopen = () => {

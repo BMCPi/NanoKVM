@@ -155,7 +155,7 @@ func vmCurrentView() templ.Component {
 			Variant:    button.VariantGhost,
 			Size:       button.SizeSm,
 			Class:      "h-7 shrink-0",
-			Attributes: templ.Attributes{"onclick": "document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape'}))"},
+			Attributes: templ.Attributes{"data-tui-dropdownmenu-item": true},
 		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var5), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -306,7 +306,11 @@ func vmAddView() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "</div><div class=\"flex gap-0.5 rounded-md bg-muted p-0.5 text-xs\"><button id=\"vm-tab-existing\" class=\"vm-tab vm-tab-active\" onclick=\"navVmTab('existing')\">Existing</button> <button id=\"vm-tab-upload\" class=\"vm-tab\" onclick=\"navVmTab('upload')\">Upload</button> <button id=\"vm-tab-url\" class=\"vm-tab\" onclick=\"navVmTab('url')\">URL</button></div><div id=\"vm-panel-existing\" class=\"space-y-2\"><div class=\"flex items-center gap-2\"><select id=\"nav-vm-select\" class=\"h-8 flex-1 rounded-md border border-input bg-transparent px-3 text-sm dark:bg-input/30\"></select>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "</div><div class=\"flex gap-0.5 rounded-md bg-muted p-0.5 text-xs\"><button id=\"vm-tab-existing\" class=\"vm-tab vm-tab-active\" onclick=\"navVmTab('existing')\">Existing</button> <button id=\"vm-tab-upload\" class=\"vm-tab\" onclick=\"navVmTab('upload')\">Upload</button> <button id=\"vm-tab-url\" class=\"vm-tab\" onclick=\"navVmTab('url')\">URL</button></div><div id=\"vm-panel-existing\" class=\"space-y-2\"><div class=\"flex items-center gap-2\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = NativeSelect("nav-vm-select", "flex-1 px-3").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
