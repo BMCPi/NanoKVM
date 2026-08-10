@@ -110,6 +110,13 @@ const (
 // sequence holding mu. Lock order is mu → ledMu; nothing takes them the other
 // way round.
 type Controller struct {
+	// legacyMode and the GPIO pins are fixed at construction from config —
+	// set once by NewController, never re-read, so a controller's behaviour
+	// can't shift under a caller mid-request.
+	legacyMode   bool
+	gpioPower    config.GPIOPin
+	gpioPowerLED config.GPIOPin
+
 	mu    sync.Mutex
 	lines map[config.GPIOPin]*gpiocdev.Line
 
@@ -126,20 +133,17 @@ type Controller struct {
 	subs   map[chan bool]struct{}
 }
 
-var (
-	instance *Controller
-	once     sync.Once
-)
-
-// GetController returns the singleton power controller.
-func GetController() *Controller {
-	once.Do(func() {
-		instance = &Controller{
-			lines: make(map[config.GPIOPin]*gpiocdev.Line),
-			subs:  make(map[chan bool]struct{}),
-		}
-	})
-	return instance
+// NewController builds a power Controller from its config sections. Called
+// once by cmd/server/main.go; the returned Controller is then threaded to
+// every consumer via pkg/deps instead of a package-level singleton.
+func NewController(hw config.Hardware, pw config.Power) *Controller {
+	return &Controller{
+		legacyMode:   pw.LegacyMode,
+		gpioPower:    hw.GPIOPower,
+		gpioPowerLED: hw.GPIOPowerLED,
+		lines:        make(map[config.GPIOPin]*gpiocdev.Line),
+		subs:         make(map[chan bool]struct{}),
+	}
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -150,7 +154,7 @@ func GetController() *Controller {
 // stays responsive while a multi-second power sequence holds mu.
 // Legacy mode:  reads the button pin directly under mu.
 func (c *Controller) State() (bool, error) {
-	if !isLegacy() {
+	if !c.legacyMode {
 		if err := c.ensureLEDWatcher(); err != nil {
 			return false, err
 		}
@@ -176,7 +180,7 @@ func (c *Controller) State() (bool, error) {
 //
 // Returns ErrNoEdgeEvents in legacy mode, where the caller must poll State.
 func (c *Controller) Watch() (<-chan bool, func(), error) {
-	if isLegacy() {
+	if c.legacyMode {
 		return nil, nil, ErrNoEdgeEvents
 	}
 	if err := c.ensureLEDWatcher(); err != nil {
@@ -218,7 +222,7 @@ func (c *Controller) PowerOn() (retErr error) {
 		return nil
 	}
 
-	if !isLegacy() {
+	if !c.legacyMode {
 		log.Info("power: power-on (short button press)")
 		return c.buttonPress(shortPressDuration)
 	}
@@ -245,7 +249,7 @@ func (c *Controller) PowerOff() (retErr error) {
 		return nil
 	}
 
-	if !isLegacy() {
+	if !c.legacyMode {
 		log.Info("power: soft shutdown (short button press)")
 		return c.buttonPress(shortPressDuration)
 	}
@@ -272,7 +276,7 @@ func (c *Controller) ForceOff() (retErr error) {
 		return nil
 	}
 
-	if !isLegacy() {
+	if !c.legacyMode {
 		log.Info("power: force shutdown (long button press ≥5 s)")
 		return c.buttonPress(longPressDuration)
 	}
@@ -293,7 +297,7 @@ func (c *Controller) Reset() (retErr error) {
 	}
 
 	if on {
-		if !isLegacy() {
+		if !c.legacyMode {
 			log.Info("power: reset — force off (long button press)")
 			if err := c.buttonPress(longPressDuration); err != nil {
 				return fmt.Errorf("reset force-off: %w", err)
@@ -310,7 +314,7 @@ func (c *Controller) Reset() (retErr error) {
 		}
 	}
 
-	if !isLegacy() {
+	if !c.legacyMode {
 		log.Info("power: reset — power on (short press)")
 		return c.buttonPress(shortPressDuration)
 	}
@@ -340,7 +344,7 @@ func (c *Controller) Rpiboot() (retErr error) {
 	defer c.mu.Unlock()
 	defer func() { telemetry.PowerOperation(context.Background(), "rpiboot", retErr) }()
 
-	if isLegacy() {
+	if c.legacyMode {
 		return fmt.Errorf("rpiboot requires button-press mode (legacy mode has no power button to hold)")
 	}
 
@@ -364,17 +368,12 @@ func (c *Controller) Rpiboot() (retErr error) {
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
-// isLegacy reports whether legacy direct-GPIO mode is enabled via config.
-func isLegacy() bool {
-	return config.GetInstance().Power.LegacyMode
-}
-
 // readState returns true if the system is powered on.
 // Button mode: returns the edge-maintained LED cache.
 // Legacy mode:  reads the button/power pin directly.
 // Caller must hold c.mu.
 func (c *Controller) readState() (bool, error) {
-	if !isLegacy() {
+	if !c.legacyMode {
 		if err := c.ensureLEDWatcher(); err != nil {
 			return false, err
 		}
@@ -383,7 +382,7 @@ func (c *Controller) readState() (bool, error) {
 
 	// Legacy mode drives the power pin as output; reading it back reports the
 	// level we last drove.
-	v, err := c.readOutput(config.GetInstance().Hardware.GPIOPower)
+	v, err := c.readOutput(c.gpioPower)
 	if err != nil {
 		return false, fmt.Errorf("read power pin: %w", err)
 	}
@@ -403,7 +402,7 @@ func (c *Controller) ensureLEDWatcher() error {
 		return nil
 	}
 
-	pin := config.GetInstance().Hardware.GPIOPowerLED
+	pin := c.gpioPowerLED
 	if pin.IsZero() {
 		return fmt.Errorf("GPIOPowerLED not configured (required for button-press mode)")
 	}
@@ -476,7 +475,7 @@ func (c *Controller) setLED(on bool) {
 // for duration, then restores HIGH. The pin is always left at 1 (released).
 // Caller must hold c.mu.
 func (c *Controller) buttonPress(duration time.Duration) error {
-	pin := config.GetInstance().Hardware.GPIOPower
+	pin := c.gpioPower
 	if pin.IsZero() {
 		return fmt.Errorf("GPIOPower not configured")
 	}
@@ -548,7 +547,7 @@ func (c *Controller) waitForOff() error {
 // power pin is wired directly to the power supply enable.
 // Caller must hold c.mu.
 func (c *Controller) legacyBootSequence() error {
-	pin := config.GetInstance().Hardware.GPIOPower
+	pin := c.gpioPower
 	for _, v := range []int{1, 0, 1} {
 		if err := c.writeOutput(pin, v); err != nil {
 			return fmt.Errorf("boot sequence (write %d): %w", v, err)
@@ -561,7 +560,7 @@ func (c *Controller) legacyBootSequence() error {
 // legacyWritePin sets the power pin directly (0 = off, 1 = on).
 // Caller must hold c.mu.
 func (c *Controller) legacyWritePin(val int) error {
-	pin := config.GetInstance().Hardware.GPIOPower
+	pin := c.gpioPower
 	if err := c.writeOutput(pin, val); err != nil {
 		return fmt.Errorf("write power pin %d: %w", val, err)
 	}

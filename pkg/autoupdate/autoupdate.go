@@ -33,7 +33,21 @@ var (
 	mu      sync.Mutex
 	cancel  context.CancelFunc
 	running bool
+
+	// fw is the firmware controller injected once via Init. autoupdate is a
+	// background subsystem outside the Gin/templ request path, so it takes
+	// its one dependency via an explicit Init call at startup rather than a
+	// constructor argument threaded through every Start/Stop call site.
+	fw *firmware.Controller
 )
+
+// Init installs the firmware controller autoupdate acts on. Call once, before
+// the first Start, from cmd/server/main.go.
+func Init(fwCtrl *firmware.Controller) {
+	mu.Lock()
+	defer mu.Unlock()
+	fw = fwCtrl
+}
 
 // Start launches the background ticker if AutoUpdate.Enabled is true.
 // Safe to call multiple times — repeated calls cancel any existing ticker
@@ -136,7 +150,7 @@ func applyAppUpdateIfNewer() error {
 }
 
 func applyBIOSUpdateIfNewer() error {
-	info, err := firmware.GetController().GetUBootVersionInfo()
+	info, err := fw.GetUBootVersionInfo()
 	if err != nil {
 		return err
 	}
@@ -144,7 +158,7 @@ func applyBIOSUpdateIfNewer() error {
 		return nil
 	}
 	log.Infof("autoupdate: bios update available (%s → %s)", info.Current, info.Latest)
-	if err := firmware.GetController().UpdateUBoot(); err != nil {
+	if err := fw.UpdateUBoot(); err != nil {
 		return err
 	}
 	log.Info("autoupdate: bios update applied")

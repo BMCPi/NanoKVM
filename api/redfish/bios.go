@@ -33,7 +33,7 @@ import (
 // bootconf.txt embedded in pieeprom.bin (U-Boot's per-boot EEPROM
 // dump).
 func (s *Service) GetBios(c *gin.Context) {
-	ctrl := firmware.GetController()
+	ctrl := s.Firmware
 
 	attrs, diag, err := ctrl.GetBIOSAttributes()
 	if err != nil {
@@ -108,7 +108,7 @@ func (s *Service) GetBios(c *gin.Context) {
 // staged in pieeprom.upd. When no update is pending, Attributes is an
 // empty object and @Message.ExtendedInfo notes the absence.
 func (s *Service) GetBiosSettings(c *gin.Context) {
-	ctrl := firmware.GetController()
+	ctrl := s.Firmware
 
 	attrs, pending, diag, err := ctrl.GetPendingBIOSAttributes()
 	if err != nil {
@@ -197,7 +197,7 @@ func (s *Service) PatchBiosSettings(c *gin.Context) {
 		stringAttrs[name] = coerceAttribute(raw)
 	}
 
-	ctrl := firmware.GetController()
+	ctrl := s.Firmware
 	if _, err := ctrl.SetBIOSAttributes(c.Request.Context(), stringAttrs); err != nil {
 		redfishErrorResponse(c, http.StatusBadRequest, "stage bios update: "+err.Error())
 		return

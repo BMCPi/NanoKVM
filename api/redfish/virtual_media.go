@@ -60,7 +60,7 @@ func (s *Service) GetVirtualMediaCollection(c *gin.Context) {
 
 // GetVirtualMedia returns the single VirtualMedia resource (slot 1).
 func (s *Service) GetVirtualMedia(c *gin.Context) {
-	c.JSON(http.StatusOK, buildVirtualMediaResource())
+	c.JSON(http.StatusOK, buildVirtualMediaResource(s.Firmware))
 }
 
 // InsertMedia handles POST …/VirtualMedia/1/Actions/VirtualMedia.InsertMedia.
@@ -126,7 +126,7 @@ func (s *Service) insertMediaStream(c *gin.Context) {
 		return
 	}
 
-	if err := stageAndInsert(name, resp.Body); err != nil {
+	if err := stageAndInsert(s.Firmware, name, resp.Body); err != nil {
 		redfishErrorResponse(c, err.status, err.msg)
 		return
 	}
@@ -134,7 +134,7 @@ func (s *Service) insertMediaStream(c *gin.Context) {
 	protocol := strings.ToUpper(parsed.Scheme)
 	recordTransfer("Stream", protocol, req.Image)
 	log.Infof("redfish: virtual media inserted (stream): %s", name)
-	c.JSON(http.StatusOK, buildVirtualMediaResource())
+	c.JSON(http.StatusOK, buildVirtualMediaResource(s.Firmware))
 }
 
 // insertMediaUpload handles TransferMethod=Upload: the client pushes the
@@ -178,14 +178,14 @@ func (s *Service) insertMediaUpload(c *gin.Context) {
 		name = "vm.iso"
 	}
 
-	if err := stageAndInsert(name, file); err != nil {
+	if err := stageAndInsert(s.Firmware, name, file); err != nil {
 		redfishErrorResponse(c, err.status, err.msg)
 		return
 	}
 
 	recordTransfer("Upload", "", name)
 	log.Infof("redfish: virtual media inserted (upload): %s (%d bytes)", name, header.Size)
-	c.JSON(http.StatusOK, buildVirtualMediaResource())
+	c.JSON(http.StatusOK, buildVirtualMediaResource(s.Firmware))
 }
 
 type InsertError struct {
@@ -197,8 +197,7 @@ func (e *InsertError) Error() string { return e.msg }
 
 // stageAndInsert saves r to mediaDir/<name> then inserts it. Returns a
 // typed error so callers can map to the appropriate HTTP status.
-func stageAndInsert(name string, r io.Reader) *InsertError {
-	fwCtrl := firmware.GetController()
+func stageAndInsert(fwCtrl *firmware.Controller, name string, r io.Reader) *InsertError {
 	if _, err := fwCtrl.SaveMediaFile(name, r); err != nil {
 		return &InsertError{http.StatusInternalServerError, "save media failed: " + err.Error()}
 	}
@@ -229,7 +228,7 @@ type multipartHeader struct {
 
 // EjectMedia handles POST …/VirtualMedia/1/Actions/VirtualMedia.EjectMedia.
 func (s *Service) EjectMedia(c *gin.Context) {
-	fwCtrl := firmware.GetController()
+	fwCtrl := s.Firmware
 	if err := fwCtrl.EjectVirtualMedia(); err != nil {
 		redfishErrorResponse(c, http.StatusInternalServerError, "eject media failed: "+err.Error())
 		return
@@ -240,8 +239,7 @@ func (s *Service) EjectMedia(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-func buildVirtualMediaResource() VirtualMedia {
-	fwCtrl := firmware.GetController()
+func buildVirtualMediaResource(fwCtrl *firmware.Controller) VirtualMedia {
 	vm := fwCtrl.GetVirtualMediaState()
 
 	// ConnectedVia is a single Redfish enum string (NotConnected, URI,

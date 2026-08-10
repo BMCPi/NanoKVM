@@ -4,7 +4,6 @@ import (
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 	"github.com/pi-bmc/nanokvm-app/pkg/proto"
 	"github.com/pi-bmc/nanokvm-app/pkg/usbgadget"
 )
@@ -16,7 +15,7 @@ func (s *Service) GetVirtualDevice(c *gin.Context) {
 	var rsp proto.Response
 
 	st := usbgadget.Get().State()
-	media := firmware.GetController().GetVirtualMediaState().Inserted
+	media := s.Firmware.GetVirtualMediaState().Inserted
 
 	rsp.OkRspWithData(c, &proto.GetVirtualDeviceRsp{
 		Network: st.Ethernet != usbgadget.EthernetOff,

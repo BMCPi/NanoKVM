@@ -9,7 +9,7 @@ import (
 // JSON numbers, which gofish rejects outright ("cannot unmarshal number into
 // Go struct field .BitRate of type schemas.BitRate"). Pin the wire types.
 func TestSerialInterfaceEmitsStringEnums(t *testing.T) {
-	body := decodeBody(t, NewService().GetSerialInterface)
+	body := decodeBody(t, NewService(testDeps()).GetSerialInterface)
 
 	for _, prop := range []string{"BitRate", "DataBits", "StopBits", "Parity", "FlowControl"} {
 		v, present := body[prop]

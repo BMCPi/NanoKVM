@@ -1,6 +1,7 @@
 package components
 
 import (
+	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/dropdownmenu"
@@ -12,10 +13,9 @@ import (
 
 // MediaState snapshots the staged ISO list and insertion state; rendered
 // with the page and by the /ui/media fragments after every mutation.
-func MediaState() (files []string, inserted string) {
-	ctrl := firmware.GetController()
-	files, _ = ctrl.ListMediaFiles()
-	return files, ctrl.GetVirtualMediaState().ImageName
+func MediaState(fw *firmware.Controller) (files []string, inserted string) {
+	files, _ = fw.ListMediaFiles()
+	return files, fw.GetVirtualMediaState().ImageName
 }
 
 // VirtualMediaMenu is the navbar virtual-media picker. Two server-rendered
@@ -23,7 +23,7 @@ func MediaState() (files []string, inserted string) {
 // swapped into #vm-menu-body by the /ui/media fragment routes; opening the
 // menu re-fetches the current view so the state is always fresh.
 templ VirtualMediaMenu() {
-	{{ files, inserted := MediaState() }}
+	{{ files, inserted := MediaState(deps.FromContext(ctx).Firmware) }}
 	@dropdownmenu.DropdownMenu() {
 		@button.Button(button.Props{
 			Variant: button.VariantGhost,

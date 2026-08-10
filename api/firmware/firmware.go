@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 )
 
@@ -26,8 +27,8 @@ const (
 )
 
 // Register mounts the firmware routes on the shared authenticated group.
-func Register(api *gin.RouterGroup) {
-	ctrl := firmware.GetController()
+func Register(api *gin.RouterGroup, d *deps.Deps) {
+	ctrl := d.Firmware
 	fw := api.Group("/firmware")
 
 	registerImage(fw, ctrl)

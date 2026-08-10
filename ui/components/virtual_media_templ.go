@@ -9,6 +9,7 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
+	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/dropdownmenu"
@@ -20,10 +21,9 @@ import (
 
 // MediaState snapshots the staged ISO list and insertion state; rendered
 // with the page and by the /ui/media fragments after every mutation.
-func MediaState() (files []string, inserted string) {
-	ctrl := firmware.GetController()
-	files, _ = ctrl.ListMediaFiles()
-	return files, ctrl.GetVirtualMediaState().ImageName
+func MediaState(fw *firmware.Controller) (files []string, inserted string) {
+	files, _ = fw.ListMediaFiles()
+	return files, fw.GetVirtualMediaState().ImageName
 }
 
 // VirtualMediaMenu is the navbar virtual-media picker. Two server-rendered
@@ -51,7 +51,7 @@ func VirtualMediaMenu() templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		files, inserted := MediaState()
+		files, inserted := MediaState(deps.FromContext(ctx).Firmware)
 		templ_7745c5c3_Var2 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)

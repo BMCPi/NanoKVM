@@ -35,7 +35,7 @@ func decodeBody(t *testing.T, h gin.HandlerFunc) map[string]any {
 // its navigation links must survive the round-trip as @odata.id objects.
 // This is the contract the migration exists to satisfy.
 func TestServiceRootIsParsableByGofish(t *testing.T) {
-	svc := NewService()
+	svc := NewService(testDeps())
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/root", svc.GetServiceRoot)
@@ -88,7 +88,7 @@ func TestServiceRootIsParsableByGofish(t *testing.T) {
 // is what marshalling a gofish struct would produce — is schema-invalid, so
 // unset properties must be omitted entirely.
 func TestSystemOmitsEmptyEnums(t *testing.T) {
-	body := decodeBody(t, NewService().GetSystem)
+	body := decodeBody(t, NewService(testDeps()).GetSystem)
 
 	for _, prop := range []string{
 		"SystemType", "PowerState", "Manufacturer", "Model", "SKU",
@@ -114,7 +114,7 @@ func TestSystemOmitsEmptyEnums(t *testing.T) {
 // The Bios navigation property is the one gofish literally cannot express
 // (ComputerSystem.bios is unexported), so pin its wire form.
 func TestSystemBiosLinkIsODataRef(t *testing.T) {
-	body := decodeBody(t, NewService().GetSystem)
+	body := decodeBody(t, NewService(testDeps()).GetSystem)
 
 	bios, ok := body["Bios"].(map[string]any)
 	if !ok {
@@ -128,7 +128,7 @@ func TestSystemBiosLinkIsODataRef(t *testing.T) {
 // Boot must always advertise its allowable values so clients know what to
 // PATCH, and the enums must be the gofish-typed ones.
 func TestSystemBootBlock(t *testing.T) {
-	body := decodeBody(t, NewService().GetSystem)
+	body := decodeBody(t, NewService(testDeps()).GetSystem)
 
 	boot, ok := body["Boot"].(map[string]any)
 	if !ok {
@@ -153,10 +153,10 @@ func TestSystemBootBlock(t *testing.T) {
 // drift, which is why newCollection derives one from the other.
 func TestCollectionCountMatchesMembers(t *testing.T) {
 	for name, h := range map[string]gin.HandlerFunc{
-		"Systems":           NewService().GetSystemCollection,
-		"Managers":          NewService().GetManagerCollection,
-		"Sessions":          NewService().GetSessionCollection,
-		"FirmwareInventory": NewService().GetFirmwareInventoryCollection,
+		"Systems":           NewService(testDeps()).GetSystemCollection,
+		"Managers":          NewService(testDeps()).GetManagerCollection,
+		"Sessions":          NewService(testDeps()).GetSessionCollection,
+		"FirmwareInventory": NewService(testDeps()).GetFirmwareInventoryCollection,
 	} {
 		t.Run(name, func(t *testing.T) {
 			body := decodeBody(t, h)
@@ -188,7 +188,7 @@ func TestCollectionCountMatchesMembers(t *testing.T) {
 // gofish must be able to read the Manager, including the Dell OEM block the
 // terraform provider depends on.
 func TestManagerIsParsableByGofish(t *testing.T) {
-	svc := NewService()
+	svc := NewService(testDeps())
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/m", svc.GetManager)
@@ -217,7 +217,7 @@ func TestManagerIsParsableByGofish(t *testing.T) {
 
 // Reset must advertise exactly the types ResetSystem can service.
 func TestSystemResetAllowableValues(t *testing.T) {
-	body := decodeBody(t, NewService().GetSystem)
+	body := decodeBody(t, NewService(testDeps()).GetSystem)
 
 	actions, ok := body["Actions"].(map[string]any)
 	if !ok {
@@ -248,7 +248,7 @@ func TestSystemResetAllowableValues(t *testing.T) {
 
 // The base /redfish document must point at the trailing-slash root.
 func TestRedfishBasePointsAtDefaultServiceRoot(t *testing.T) {
-	body := decodeBody(t, NewService().GetRedfishBase)
+	body := decodeBody(t, NewService(testDeps()).GetRedfishBase)
 	if body["v1"] != schemas.DefaultServiceRoot {
 		t.Errorf("v1 = %v, want %q", body["v1"], schemas.DefaultServiceRoot)
 	}
@@ -256,7 +256,7 @@ func TestRedfishBasePointsAtDefaultServiceRoot(t *testing.T) {
 
 // Every @odata.id we emit must sit under the service root.
 func TestODataIDsAreRooted(t *testing.T) {
-	svc := NewService()
+	svc := NewService(testDeps())
 	for name, h := range map[string]gin.HandlerFunc{
 		"ServiceRoot":       svc.GetServiceRoot,
 		"SystemCollection":  svc.GetSystemCollection,

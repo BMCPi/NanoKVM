@@ -15,6 +15,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/api/network"
 	"github.com/pi-bmc/nanokvm-app/api/redfish"
 	"github.com/pi-bmc/nanokvm-app/api/vm"
+	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
 )
 
@@ -23,14 +24,14 @@ import (
 // subpackage cannot accidentally register an unauthenticated /api route;
 // the few public endpoints (login, token check, the Redfish tree with its
 // own session auth) take the engine explicitly.
-func Register(r *gin.Engine) {
+func Register(r *gin.Engine, d *deps.Deps) {
 	authed := r.Group("/api", middleware.CheckToken())
 
 	auth.Register(r, authed)
 	application.Register(authed)
-	vm.Register(authed)
+	vm.Register(authed, d)
 	network.Register(authed)
-	redfish.Register(r)
-	firmware.Register(authed)
+	redfish.Register(r, d)
+	firmware.Register(authed, d)
 	autoupdate.Register(authed)
 }

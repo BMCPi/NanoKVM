@@ -13,6 +13,7 @@ import (
 	"github.com/warthog618/go-gpiosim"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/power"
 )
 
 const ledOffset = 4
@@ -62,10 +63,11 @@ func TestStreamGpioPushesEdges(t *testing.T) {
 	cfg := config.GetInstance()
 	cfg.Power.LegacyMode = false
 	cfg.Hardware.GPIOPowerLED = config.GPIOPin{Chip: sim.ChipName(), Line: ledOffset}
+	ctrl := power.NewController(cfg.Hardware, cfg.Power)
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.GET("/api/vm/gpio/events", NewService().StreamGpio)
+	r.GET("/api/vm/gpio/events", (&Service{Power: ctrl}).StreamGpio)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 

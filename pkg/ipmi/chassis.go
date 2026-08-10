@@ -4,7 +4,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
-	"github.com/pi-bmc/nanokvm-app/pkg/power"
 )
 
 // handleGetDeviceID returns BMC device identification per IPMI Table 20-2.
@@ -29,12 +28,10 @@ func handleGetDeviceID() []byte {
 	return resp
 }
 
-// handleGetChassisStatus reads the power state via the central controller.
-func handleGetChassisStatus() []byte {
-	ctrl := power.GetController()
-
+// handleGetChassisStatus reads the power state via the injected controller.
+func (sm *sessionManager) handleGetChassisStatus() []byte {
 	powerOn := false
-	on, err := ctrl.State()
+	on, err := sm.power.State()
 	if err != nil {
 		log.Errorf("IPMI: failed to read power state: %s", err)
 	} else {
@@ -52,14 +49,14 @@ func handleGetChassisStatus() []byte {
 	return resp
 }
 
-// handleChassisControl executes power/reset operations via the central controller.
-func handleChassisControl(cmdData []byte) []byte {
+// handleChassisControl executes power/reset operations via the injected controller.
+func (sm *sessionManager) handleChassisControl(cmdData []byte) []byte {
 	if len(cmdData) < 1 {
 		return []byte{ccInvalidParam}
 	}
 
 	action := cmdData[0] & 0x0F
-	ctrl := power.GetController()
+	ctrl := sm.power
 
 	switch action {
 	case controlPowerUp:
@@ -111,7 +108,7 @@ func handleChassisControl(cmdData []byte) []byte {
 }
 
 // handleSetSystemBootOptions stores boot device override in firmware env.
-func handleSetSystemBootOptions(cmdData []byte) []byte {
+func (sm *sessionManager) handleSetSystemBootOptions(cmdData []byte) []byte {
 	if len(cmdData) < 1 {
 		return []byte{ccInvalidParam}
 	}
@@ -135,7 +132,7 @@ func handleSetSystemBootOptions(cmdData []byte) []byte {
 		log.Debugf("IPMI: set boot device=0x%02x valid=%v persistent=%v", device, valid, persistent)
 
 		// Persist to firmware env if available.
-		fwCtrl := firmware.GetController()
+		fwCtrl := sm.firmware
 		ubootTargets, ok := firmware.IPMIDeviceToUBoot[device]
 		if !ok {
 			ubootTargets = ""
@@ -169,7 +166,7 @@ func handleSetSystemBootOptions(cmdData []byte) []byte {
 }
 
 // handleGetSystemBootOptions returns the stored boot device override.
-func handleGetSystemBootOptions(cmdData []byte) []byte {
+func (sm *sessionManager) handleGetSystemBootOptions(cmdData []byte) []byte {
 	if len(cmdData) < 1 {
 		return []byte{ccInvalidParam}
 	}
@@ -179,7 +176,7 @@ func handleGetSystemBootOptions(cmdData []byte) []byte {
 	switch paramSelector {
 	case bootParamBootFlags:
 		// Read from firmware env — prefer persistent, fall back to once.
-		fwCtrl := firmware.GetController()
+		fwCtrl := sm.firmware
 		var dev byte
 		var valid bool
 		var persistent bool

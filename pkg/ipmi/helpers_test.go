@@ -7,6 +7,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
+	"github.com/pi-bmc/nanokvm-app/pkg/power"
 )
 
 const (
@@ -34,7 +38,9 @@ func findFreePort(t *testing.T) int {
 func startServer(t *testing.T) (*Server, int) {
 	t.Helper()
 	port := findFreePort(t)
-	srv, err := Start(port)
+	powerCtrl := power.NewController(config.Hardware{}, config.Power{})
+	fwCtrl := firmware.NewController(&config.Config{})
+	srv, err := Start(port, powerCtrl, fwCtrl)
 	if err != nil {
 		t.Fatalf("start IPMI server: %v", err)
 	}

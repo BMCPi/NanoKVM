@@ -18,6 +18,7 @@ import (
 	"github.com/a-h/templ"
 	"github.com/gin-gonic/gin"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
 )
 
@@ -25,13 +26,13 @@ import (
 // has ResolveAuth applied and does its own auth rejection: RequireAuth's 302
 // to /auth/login would be followed transparently by the browser and the
 // login page swapped into whatever target the fragment was bound to.
-func fragmentRoutes(r *gin.RouterGroup) {
+func fragmentRoutes(r *gin.RouterGroup, d *deps.Deps) {
 	frag := r.Group("/ui")
 	frag.Use(requireAuthFragment())
 
-	overviewFragmentRoutes(frag)
-	powerFragmentRoutes(frag)
-	settingsFragmentRoutes(frag)
+	overviewFragmentRoutes(frag, d)
+	powerFragmentRoutes(frag, d)
+	settingsFragmentRoutes(frag, d)
 }
 
 // requireAuthFragment answers an unauthenticated fragment request with the

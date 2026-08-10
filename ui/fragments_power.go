@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/power"
+	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 )
 
 // powerActionLabels turns an action into the past-tense label used in the
@@ -25,42 +25,44 @@ var powerActionLabels = map[string]string{
 	"rpiboot":  "Recovery (rpiboot)",
 }
 
-func powerFragmentRoutes(g *gin.RouterGroup) {
+func powerFragmentRoutes(g *gin.RouterGroup, d *deps.Deps) {
 	p := g.Group("/power")
-	p.POST("/:action", postPowerAction)
+	p.POST("/:action", postPowerAction(d))
 }
 
-func postPowerAction(c *gin.Context) {
-	action := c.Param("action")
-	label, ok := powerActionLabels[action]
-	if !ok {
-		hxToast(c, "error", "Power action failed", fmt.Sprintf("unknown action %q", action))
-		c.Status(http.StatusBadRequest)
-		return
-	}
+func postPowerAction(d *deps.Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		action := c.Param("action")
+		label, ok := powerActionLabels[action]
+		if !ok {
+			hxToast(c, "error", "Power action failed", fmt.Sprintf("unknown action %q", action))
+			c.Status(http.StatusBadRequest)
+			return
+		}
 
-	ctrl := power.GetController()
-	var err error
-	switch action {
-	case "on":
-		err = ctrl.PowerOn()
-	case "off":
-		err = ctrl.PowerOff()
-	case "forceoff":
-		err = ctrl.ForceOff()
-	case "reset":
-		err = ctrl.Reset()
-	case "rpiboot":
-		err = ctrl.Rpiboot()
-	}
+		ctrl := d.Power
+		var err error
+		switch action {
+		case "on":
+			err = ctrl.PowerOn()
+		case "off":
+			err = ctrl.PowerOff()
+		case "forceoff":
+			err = ctrl.ForceOff()
+		case "reset":
+			err = ctrl.Reset()
+		case "rpiboot":
+			err = ctrl.Rpiboot()
+		}
 
-	if err != nil {
-		log.Errorf("ui: power action %s failed: %v", action, err)
-		hxToast(c, "error", label+" failed", err.Error())
-		c.Status(http.StatusConflict)
-		return
-	}
+		if err != nil {
+			log.Errorf("ui: power action %s failed: %v", action, err)
+			hxToast(c, "error", label+" failed", err.Error())
+			c.Status(http.StatusConflict)
+			return
+		}
 
-	hxToast(c, "success", label, "")
-	c.Status(http.StatusOK)
+		hxToast(c, "success", label, "")
+		c.Status(http.StatusOK)
+	}
 }

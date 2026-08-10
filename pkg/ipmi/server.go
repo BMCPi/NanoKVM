@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
+	"github.com/pi-bmc/nanokvm-app/pkg/power"
 	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
 	log "github.com/sirupsen/logrus"
 )
@@ -28,8 +30,10 @@ type Server struct {
 	sem      chan struct{}
 }
 
-// Start creates and starts the IPMI UDP server on the given port.
-func Start(port int) (*Server, error) {
+// Start creates and starts the IPMI UDP server on the given port. powerCtrl
+// and fwCtrl are injected into the session manager for the chassis/OEM
+// command handlers instead of being reached via package-level singletons.
+func Start(port int, powerCtrl *power.Controller, fwCtrl *firmware.Controller) (*Server, error) {
 	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return nil, fmt.Errorf("resolve udp addr: %w", err)
@@ -42,7 +46,7 @@ func Start(port int) (*Server, error) {
 
 	s := &Server{
 		conn:     conn,
-		sessions: newSessionManager(),
+		sessions: newSessionManager(powerCtrl, fwCtrl),
 		stop:     make(chan struct{}),
 		sem:      make(chan struct{}, maxConcurrentHandlers),
 	}

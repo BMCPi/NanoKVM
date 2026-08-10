@@ -27,8 +27,8 @@ type EthernetInterface struct {
 }
 
 // hostMACAddress returns the managed host's onboard MAC, or "".
-func hostMACAddress() string {
-	inv, err := firmware.GetController().GetInventory()
+func hostMACAddress(fw *firmware.Controller) string {
+	inv, err := fw.GetInventory()
 	if err != nil {
 		return ""
 	}
@@ -37,7 +37,7 @@ func hostMACAddress() string {
 
 func (s *Service) GetEthernetInterfaceCollection(c *gin.Context) {
 	var links []Link
-	if hostMACAddress() != "" {
+	if hostMACAddress(s.Firmware) != "" {
 		links = append(links, Link(ethernetInterfacePath))
 	}
 	c.JSON(http.StatusOK, newCollection(
@@ -50,7 +50,7 @@ func (s *Service) GetEthernetInterface(c *gin.Context) {
 		redfishErrorResponse(c, http.StatusNotFound, "ethernet interface not found")
 		return
 	}
-	mac := hostMACAddress()
+	mac := hostMACAddress(s.Firmware)
 	if mac == "" {
 		redfishErrorResponse(c, http.StatusNotFound, "no NIC inventory available")
 		return

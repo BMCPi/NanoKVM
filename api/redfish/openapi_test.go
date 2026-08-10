@@ -18,7 +18,7 @@ import (
 func TestGetOpenAPIYAML_ServesEmbeddedBytes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	svc := NewService()
+	svc := NewService(testDeps())
 	r.GET("/openapi.yaml", svc.GetOpenAPIYAML)
 
 	w := httptest.NewRecorder()
@@ -41,7 +41,7 @@ func TestGetOpenAPIYAML_ServesEmbeddedBytes(t *testing.T) {
 func TestGetOpenAPIJSON_RoundTrip(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	svc := NewService()
+	svc := NewService(testDeps())
 	r.GET("/openapi.json", svc.GetOpenAPIJSON)
 
 	w := httptest.NewRecorder()

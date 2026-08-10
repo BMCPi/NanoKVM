@@ -3,6 +3,7 @@ package components
 import (
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/sysinfo"
 	"github.com/pi-bmc/nanokvm-app/ui/components/badge"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
@@ -230,7 +231,7 @@ templ overviewBiosCard() {
 			}
 		}
 		<div class="contents" hx-get="/ui/overview/bios" hx-trigger="load, fw-changed from:body">
-			@OverviewBiosBody(OverviewBiosFirstPaint())
+			@OverviewBiosBody(OverviewBiosFirstPaint(deps.FromContext(ctx).Firmware))
 		</div>
 	}
 }
@@ -415,7 +416,7 @@ templ overviewKernelCard() {
 			hx-trigger="change, fw-changed from:body"
 			hx-include="find input[name='kernel']"
 		>
-			@OverviewKernelsBody(OverviewKernelsFirstPaint())
+			@OverviewKernelsBody(OverviewKernelsFirstPaint(deps.FromContext(ctx).Firmware))
 		</div>
 	}
 }

@@ -67,26 +67,20 @@ type Controller struct {
 	vmState VirtualMediaState // current virtual media insertion state
 }
 
-var (
-	instance *Controller
-	once     sync.Once
-)
-
-// GetController returns the singleton Controller, initializing it on first call.
-func GetController() *Controller {
-	once.Do(func() {
-		cfg := config.GetInstance()
-		instance = &Controller{
-			imageURL:    cfg.Firmware.ImageURL,
-			imagePath:   cfg.Firmware.ImagePath,
-			seedPath:    cfg.Firmware.SeedPath,
-			mountPoint:  cfg.Firmware.MountPoint,
-			firmwareDir: cfg.Firmware.FirmwareDir,
-			mediaDir:    cfg.Firmware.MediaDir,
-		}
-		instance.env = newEnvStore(cfg.UbootEnv)
-	})
-	return instance
+// NewController builds the firmware Controller from config. Called once by
+// cmd/server/main.go; the returned Controller is then threaded to every
+// consumer via pkg/deps instead of a package-level singleton.
+func NewController(cfg *config.Config) *Controller {
+	c := &Controller{
+		imageURL:    cfg.Firmware.ImageURL,
+		imagePath:   cfg.Firmware.ImagePath,
+		seedPath:    cfg.Firmware.SeedPath,
+		mountPoint:  cfg.Firmware.MountPoint,
+		firmwareDir: cfg.Firmware.FirmwareDir,
+		mediaDir:    cfg.Firmware.MediaDir,
+	}
+	c.env = newEnvStore(cfg.UbootEnv)
+	return c
 }
 
 // newEnvStore builds the EEPROM-backed U-Boot environment store from config.

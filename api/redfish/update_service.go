@@ -12,7 +12,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stmcginnis/gofish/schemas"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 	"github.com/pi-bmc/nanokvm-app/pkg/smbios"
 )
 
@@ -49,7 +48,7 @@ func (s *Service) GetFirmwareInventoryCollection(c *gin.Context) {
 // GetFirmwareInventoryUBoot returns the U-Boot firmware inventory entry
 // (exposed under the "BIOS" id since U-Boot serves the BIOS role here).
 func (s *Service) GetFirmwareInventoryUBoot(c *gin.Context) {
-	ctrl := firmware.GetController()
+	ctrl := s.Firmware
 	info, err := ctrl.GetUBootVersionInfo()
 	current := info.Current
 	if current == "" {
@@ -104,7 +103,7 @@ func (s *Service) SimpleUpdate(c *gin.Context) {
 	}
 	_ = c.ShouldBindJSON(&req) // all fields optional
 
-	ctrl := firmware.GetController()
+	ctrl := s.Firmware
 	if ctrl.IsDownloading() {
 		redfishErrorResponse(c, http.StatusConflict, "update already in progress")
 		return
@@ -133,7 +132,7 @@ func (s *Service) SimpleUpdate(c *gin.Context) {
 // StartUpdate is an alias for SimpleUpdate with no parameters: always
 // fetches the latest release from GitHub.
 func (s *Service) StartUpdate(c *gin.Context) {
-	ctrl := firmware.GetController()
+	ctrl := s.Firmware
 	if ctrl.IsDownloading() {
 		redfishErrorResponse(c, http.StatusConflict, "update already in progress")
 		return

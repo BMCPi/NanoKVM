@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net/http"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
 	"github.com/pi-bmc/nanokvm-app/ui/assets"
 	"github.com/pi-bmc/nanokvm-app/ui/components"
@@ -20,9 +21,10 @@ import (
 // (falling back to gin's default for non-templ renders), the embedded static
 // assets, the component JS bundle, and every page route. API routes stay in
 // the api package.
-func Register(r *gin.Engine) {
+func Register(r *gin.Engine, d *deps.Deps) {
+	r.Use(deps.Middleware(d))
 	staticRoutes(r)
-	pageRoutes(r)
+	pageRoutes(r, d)
 }
 
 // staticRoutes serves the embedded static assets and the component JS bundle.
@@ -52,7 +54,7 @@ func staticRoutes(r *gin.Engine) {
 }
 
 // pageRoutes registers every templ-rendered page.
-func pageRoutes(r *gin.Engine) {
+func pageRoutes(r *gin.Engine, d *deps.Deps) {
 	// Public auth page. ResolveAuth only flags the session; an already
 	// authed visitor is bounced to the dashboard server-side instead of
 	// via a client-side /api/auth/check probe.
@@ -72,7 +74,7 @@ func pageRoutes(r *gin.Engine) {
 	// htmx fragment endpoints. Registered on pageGroup rather than protected
 	// so they can reject with HX-Redirect instead of RequireAuth's 302, which
 	// htmx would follow and swap the login page into the fragment's target.
-	fragmentRoutes(pageGroup)
+	fragmentRoutes(pageGroup, d)
 
 	// Password reset is reachable both logged-in and as a guest.
 	pageGroup.GET("/auth/password", func(c *gin.Context) {

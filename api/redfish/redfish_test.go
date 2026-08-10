@@ -23,7 +23,7 @@ func TestRedfishRouterServesBothServiceRootForms(t *testing.T) {
 	}()
 
 	r := gin.New()
-	Register(r)
+	Register(r, testDeps())
 
 	// schemas.DefaultServiceRoot is what gofish requests on Login; the bare
 	// form is what pre-migration clients use. Both must answer 200 directly,
@@ -45,7 +45,7 @@ func TestRedfishRouterServesBothServiceRootForms(t *testing.T) {
 func TestRedfishRouterProtectedRoutesStillMatch(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	Register(r)
+	Register(r, testDeps())
 
 	for _, path := range []string{
 		"/redfish/v1/Systems",

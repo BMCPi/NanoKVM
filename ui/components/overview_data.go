@@ -72,8 +72,8 @@ func (m OverviewKernels) SelectedKernel() (OverviewKernel, bool) {
 
 // OverviewBiosFirstPaint is the local-only BIOS model rendered with the
 // page: firmware cache state now, boot rows and update check by fragment.
-func OverviewBiosFirstPaint() OverviewBios {
-	st := firmware.GetController().GetStatus()
+func OverviewBiosFirstPaint(fw *firmware.Controller) OverviewBios {
+	st := fw.GetStatus()
 	m := OverviewBios{
 		FirmwareStatus: "Not downloaded",
 		DownloadNeeded: !st.Downloaded,
@@ -91,8 +91,8 @@ func OverviewBiosFirstPaint() OverviewBios {
 // OverviewKernelsModel builds the kernel card from local state. activeVer ==
 // "" is fine — rows just show no ★. selected names the row whose action
 // buttons render.
-func OverviewKernelsModel(selected, activeVer string) OverviewKernels {
-	ctrl := firmware.GetController()
+func OverviewKernelsModel(fw *firmware.Controller, selected, activeVer string) OverviewKernels {
+	ctrl := fw
 	m := OverviewKernels{Selected: selected, Downloading: ctrl.IsDownloading()}
 	for _, k := range firmware.KernelVersionsSorted() {
 		ub := firmware.KernelUBootMap[k]
@@ -110,8 +110,8 @@ func OverviewKernelsModel(selected, activeVer string) OverviewKernels {
 // OverviewKernelsFirstPaint renders with the page, so it reads only the
 // activation-tracking file — the machine.env fallback (which can touch the
 // firmware image) is left to the fragment refresh.
-func OverviewKernelsFirstPaint() OverviewKernels {
-	return OverviewKernelsModel("", firmware.GetController().ActiveUBootVersion())
+func OverviewKernelsFirstPaint(fw *firmware.Controller) OverviewKernels {
+	return OverviewKernelsModel(fw, "", fw.ActiveUBootVersion())
 }
 
 // versionDisplay normalizes a version to v-prefixed form; "" and "dev" pass

@@ -13,6 +13,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
+	"github.com/pi-bmc/nanokvm-app/pkg/power"
 	"github.com/pi-bmc/nanokvm-app/pkg/serial"
 	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
 )
@@ -66,17 +68,24 @@ type session struct {
 	lastActivity atomic.Int64
 }
 
-// sessionManager tracks all active sessions.
+// sessionManager tracks all active sessions. It also carries the power and
+// firmware controllers the chassis/OEM command handlers act on — injected
+// once at construction instead of reached via package-level singletons.
 type sessionManager struct {
 	mu       sync.RWMutex
 	sessions map[uint32]*session
+
+	power    *power.Controller
+	firmware *firmware.Controller
 }
 
 var sessionIDCounter uint32
 
-func newSessionManager() *sessionManager {
+func newSessionManager(powerCtrl *power.Controller, fwCtrl *firmware.Controller) *sessionManager {
 	return &sessionManager{
 		sessions: make(map[uint32]*session),
+		power:    powerCtrl,
+		firmware: fwCtrl,
 	}
 }
 
@@ -517,13 +526,13 @@ func (sm *sessionManager) handleIPMIPayload(sess *session, payload []byte, authe
 	case netFnChassisReq:
 		switch cmd {
 		case cmdGetChassisStatus:
-			respData = handleGetChassisStatus()
+			respData = sm.handleGetChassisStatus()
 		case cmdChassisControl:
-			respData = handleChassisControl(cmdData)
+			respData = sm.handleChassisControl(cmdData)
 		case cmdSetSystemBootOptions:
-			respData = handleSetSystemBootOptions(cmdData)
+			respData = sm.handleSetSystemBootOptions(cmdData)
 		case cmdGetSystemBootOptions:
-			respData = handleGetSystemBootOptions(cmdData)
+			respData = sm.handleGetSystemBootOptions(cmdData)
 		default:
 			respData = []byte{ccInvalidCommand}
 		}
@@ -549,9 +558,9 @@ func (sm *sessionManager) handleIPMIPayload(sess *session, payload []byte, authe
 	case netFnOEMReq:
 		switch cmd {
 		case cmdOEMGetUBootVersion:
-			respData = handleOEMGetUBootVersion()
+			respData = sm.handleOEMGetUBootVersion()
 		case cmdOEMUpdateUBoot:
-			respData = handleOEMUpdateUBoot()
+			respData = sm.handleOEMUpdateUBoot()
 		default:
 			respData = []byte{ccInvalidCommand}
 		}

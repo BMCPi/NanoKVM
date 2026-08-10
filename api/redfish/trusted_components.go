@@ -28,8 +28,8 @@ import (
 // from the firmware controller. Returns a zero value when U-Boot has not
 // published the variables yet; the resources still exist (the RoT is physical),
 // they just omit the version until it is reported.
-func bootloaderProvenance() firmware.BootloaderProvenance {
-	return firmware.GetController().GetBootloaderProvenance()
+func bootloaderProvenance(fw *firmware.Controller) firmware.BootloaderProvenance {
+	return fw.GetBootloaderProvenance()
 }
 
 // bootloaderFirmware returns the running bootloader's version and release date
@@ -63,7 +63,7 @@ func (s *Service) GetTrustedComponentCollection(c *gin.Context) {
 }
 
 func (s *Service) GetTrustedComponentBootloader(c *gin.Context) {
-	prov := bootloaderProvenance()
+	prov := bootloaderProvenance(s.Firmware)
 	version, _ := bootloaderFirmware(prov)
 
 	activeImage := Link(bootloaderSoftwarePath)
@@ -94,7 +94,7 @@ func (s *Service) GetTrustedComponentBootloader(c *gin.Context) {
 }
 
 func (s *Service) GetBootloaderSoftwareInventory(c *gin.Context) {
-	prov := bootloaderProvenance()
+	prov := bootloaderProvenance(s.Firmware)
 	version, releaseDate := bootloaderFirmware(prov)
 
 	inv := SoftwareInventory{

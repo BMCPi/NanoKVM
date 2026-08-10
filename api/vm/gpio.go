@@ -34,7 +34,7 @@ func (s *Service) SetGpio(c *gin.Context) {
 		return
 	}
 
-	ctrl := power.GetController()
+	ctrl := s.Power
 	var err error
 
 	switch req.Action {
@@ -65,7 +65,7 @@ func (s *Service) SetGpio(c *gin.Context) {
 func (s *Service) GetGpio(c *gin.Context) {
 	var rsp proto.Response
 
-	ctrl := power.GetController()
+	ctrl := s.Power
 	pwr, err := ctrl.State()
 	if err != nil {
 		rsp.ErrRsp(c, -2, fmt.Sprintf("failed to read power state: %s", err))
@@ -91,7 +91,7 @@ func (s *Service) GetGpio(c *gin.Context) {
 //	event: power
 //	data: {"pwr":true,"hdd":false}
 func (s *Service) StreamGpio(c *gin.Context) {
-	ctrl := power.GetController()
+	ctrl := s.Power
 
 	// Subscribe before reading the initial state: a transition landing between
 	// the two is then queued on changes rather than lost. The client may see the

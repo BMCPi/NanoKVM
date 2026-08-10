@@ -14,8 +14,6 @@ package ipmi
 
 import (
 	log "github.com/sirupsen/logrus"
-
-	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 )
 
 const (
@@ -26,9 +24,8 @@ const (
 	cmdOEMUpdateUBoot     byte = 0x02
 )
 
-func handleOEMGetUBootVersion() []byte {
-	ctrl := firmware.GetController()
-	info, err := ctrl.GetUBootVersionInfo()
+func (sm *sessionManager) handleOEMGetUBootVersion() []byte {
+	info, err := sm.firmware.GetUBootVersionInfo()
 	if err != nil {
 		log.Debugf("IPMI OEM: GetUBootVersionInfo: %v", err)
 	}
@@ -49,8 +46,8 @@ func handleOEMGetUBootVersion() []byte {
 	return resp
 }
 
-func handleOEMUpdateUBoot() []byte {
-	ctrl := firmware.GetController()
+func (sm *sessionManager) handleOEMUpdateUBoot() []byte {
+	ctrl := sm.firmware
 	if ctrl.IsDownloading() {
 		// Use generic "node busy" completion code.
 		return []byte{0xC0}

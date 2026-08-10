@@ -4,10 +4,12 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 )
 
-func Register(r *gin.Engine) {
-	service := NewService()
+func Register(r *gin.Engine, d *deps.Deps) {
+	service := NewService(d)
 
 	// Public endpoints
 	r.GET("/redfish", service.GetRedfishBase)

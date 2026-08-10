@@ -29,13 +29,10 @@ func newSimController(t *testing.T) (*Controller, *gpiosim.Simpleton) {
 	}
 	t.Cleanup(sim.Close)
 
-	cfg := config.GetInstance()
-	cfg.Power.LegacyMode = false
-	cfg.Hardware.GPIOPowerLED = config.GPIOPin{Chip: sim.ChipName(), Line: ledOffset}
-
 	c := &Controller{
-		lines: make(map[config.GPIOPin]*gpiocdev.Line),
-		subs:  make(map[chan bool]struct{}),
+		gpioPowerLED: config.GPIOPin{Chip: sim.ChipName(), Line: ledOffset},
+		lines:        make(map[config.GPIOPin]*gpiocdev.Line),
+		subs:         make(map[chan bool]struct{}),
 	}
 	t.Cleanup(func() {
 		if c.ledLine != nil {
@@ -247,10 +244,7 @@ func TestWaitForOffReturnsImmediatelyWhenAlreadyOff(t *testing.T) {
 // polling rather than silently never firing.
 func TestWatchRejectsLegacyMode(t *testing.T) {
 	c, _ := newSimController(t)
-
-	cfg := config.GetInstance()
-	cfg.Power.LegacyMode = true
-	t.Cleanup(func() { cfg.Power.LegacyMode = false })
+	c.legacyMode = true
 
 	if _, _, err := c.Watch(); !errors.Is(err, ErrNoEdgeEvents) {
 		t.Fatalf("Watch in legacy mode = %v, want ErrNoEdgeEvents", err)
@@ -262,13 +256,10 @@ func TestWatchRejectsLegacyMode(t *testing.T) {
 // than glitch the supply. The guard fires before any GPIO access, so no sim
 // chip is needed.
 func TestRpibootRejectsLegacyMode(t *testing.T) {
-	cfg := config.GetInstance()
-	cfg.Power.LegacyMode = true
-	t.Cleanup(func() { cfg.Power.LegacyMode = false })
-
 	c := &Controller{
-		lines: make(map[config.GPIOPin]*gpiocdev.Line),
-		subs:  make(map[chan bool]struct{}),
+		legacyMode: true,
+		lines:      make(map[config.GPIOPin]*gpiocdev.Line),
+		subs:       make(map[chan bool]struct{}),
 	}
 	if err := c.Rpiboot(); err == nil {
 		t.Fatal("Rpiboot in legacy mode succeeded, want error")

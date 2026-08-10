@@ -18,16 +18,17 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/api/redfish"
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
+	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 	"github.com/pi-bmc/nanokvm-app/pkg/smbios"
 	"github.com/pi-bmc/nanokvm-app/ui/components"
 )
 
-func overviewFragmentRoutes(g *gin.RouterGroup) {
+func overviewFragmentRoutes(g *gin.RouterGroup, d *deps.Deps) {
 	o := g.Group("/overview")
 
 	o.GET("/server", func(c *gin.Context) {
-		renderFragment(c, components.OverviewServerBody(overviewServerModel()))
+		renderFragment(c, components.OverviewServerBody(overviewServerModel(d)))
 	})
 	o.GET("/app-update", func(c *gin.Context) {
 		renderFragment(c, components.OverviewAppUpdateBody(overviewAppUpdateModel()))
@@ -35,19 +36,19 @@ func overviewFragmentRoutes(g *gin.RouterGroup) {
 	o.POST("/app/update", postOverviewAppUpdate)
 
 	o.GET("/bios", func(c *gin.Context) {
-		renderFragment(c, components.OverviewBiosBody(overviewBiosModel()))
+		renderFragment(c, components.OverviewBiosBody(overviewBiosModel(d)))
 	})
-	o.POST("/bios/update", postOverviewBiosUpdate)
-	o.POST("/fw/download", postOverviewFwDownload)
-	o.GET("/fw/progress", getOverviewFwProgress)
+	o.POST("/bios/update", postOverviewBiosUpdate(d))
+	o.POST("/fw/download", postOverviewFwDownload(d))
+	o.GET("/fw/progress", getOverviewFwProgress(d))
 
 	o.GET("/kernels", func(c *gin.Context) {
-		renderFragment(c, components.OverviewKernelsBody(overviewKernelsModel(c.Query("kernel"))))
+		renderFragment(c, components.OverviewKernelsBody(overviewKernelsModel(d, c.Query("kernel"))))
 	})
-	o.POST("/kernel/download", postOverviewKernelDownload)
-	o.POST("/kernel/activate", postOverviewKernelActivate)
+	o.POST("/kernel/download", postOverviewKernelDownload(d))
+	o.POST("/kernel/activate", postOverviewKernelActivate(d))
 
-	o.POST("/boot-override", postOverviewBootOverride)
+	o.POST("/boot-override", postOverviewBootOverride(d))
 }
 
 // oemString reads one string out of the Oem.NanoKVM block.
@@ -59,8 +60,8 @@ func oemString(sys redfish.ComputerSystem, key string) string {
 
 // overviewServerModel maps the merged Redfish inventory onto the Server
 // Information card.
-func overviewServerModel() components.OverviewServer {
-	sys := redfish.SystemInventory()
+func overviewServerModel(d *deps.Deps) components.OverviewServer {
+	sys := redfish.SystemInventory(d.Firmware, d.Power)
 
 	m := components.OverviewServer{
 		Board:    sys.Model,
@@ -90,7 +91,7 @@ func overviewServerModel() components.OverviewServer {
 	}
 
 	// The onboard MAC lives in the firmware inventory (U-Boot's ethaddr).
-	if inv, err := firmware.GetController().GetInventory(); err == nil {
+	if inv, err := d.Firmware.GetInventory(); err == nil {
 		m.MAC = inv["ethaddr"]
 	}
 
@@ -117,9 +118,9 @@ func overviewAppUpdateModel() components.OverviewUpdateCheck {
 
 // overviewBiosModel extends the first-paint model with the boot rows from
 // the Redfish inventory and the U-Boot release check.
-func overviewBiosModel() components.OverviewBios {
-	m := components.OverviewBiosFirstPaint()
-	sys := redfish.SystemInventory()
+func overviewBiosModel(d *deps.Deps) components.OverviewBios {
+	m := components.OverviewBiosFirstPaint(d.Firmware)
+	sys := redfish.SystemInventory(d.Firmware, d.Power)
 
 	m.DeviceTree = oemString(sys, "DeviceTree")
 	m.BootMethods = oemString(sys, "BootMethods")
@@ -141,7 +142,7 @@ func overviewBiosModel() components.OverviewBios {
 		m.BootOverride = "none"
 	}
 
-	info, err := firmware.GetController().GetUBootVersionInfo()
+	info, err := d.Firmware.GetUBootVersionInfo()
 	current := info.Current
 	if current == "" {
 		current = sys.BiosVersion
@@ -158,8 +159,8 @@ func overviewBiosModel() components.OverviewBios {
 // overviewKernelsModel resolves the active version with the machine.env
 // fallback the JSON API uses: the activation-tracking file wins, machine.env
 // covers installs that predate it.
-func overviewKernelsModel(selected string) components.OverviewKernels {
-	ctrl := firmware.GetController()
+func overviewKernelsModel(d *deps.Deps, selected string) components.OverviewKernels {
+	ctrl := d.Firmware
 	active := ctrl.ActiveUBootVersion()
 	if active == "" {
 		if info, err := ctrl.GetUBootVersionInfo(); err == nil {
@@ -169,7 +170,7 @@ func overviewKernelsModel(selected string) components.OverviewKernels {
 	if _, ok := firmware.KernelUBootMap[selected]; !ok {
 		selected = ""
 	}
-	return components.OverviewKernelsModel(selected, active)
+	return components.OverviewKernelsModel(ctrl, selected, active)
 }
 
 // ovFwProgressDone is the terminal polling response: swap the poller out,
@@ -180,12 +181,14 @@ func ovFwProgressDone(c *gin.Context, title string) {
 	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte("<div></div>"))
 }
 
-func getOverviewFwProgress(c *gin.Context) {
-	if firmware.GetController().IsDownloading() {
-		renderFragment(c, components.OvFwPoller())
-		return
+func getOverviewFwProgress(d *deps.Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if d.Firmware.IsDownloading() {
+			renderFragment(c, components.OvFwPoller())
+			return
+		}
+		ovFwProgressDone(c, "Firmware download complete")
 	}
-	ovFwProgressDone(c, "Firmware download complete")
 }
 
 func postOverviewAppUpdate(c *gin.Context) {
@@ -207,108 +210,118 @@ func postOverviewAppUpdate(c *gin.Context) {
 	}()
 }
 
-func postOverviewBiosUpdate(c *gin.Context) {
-	ctrl := firmware.GetController()
-	if ctrl.IsDownloading() {
-		hxToast(c, "warning", "Download already in progress", "")
-		c.Status(http.StatusConflict)
-		return
-	}
-
-	// DELIBERATELY DETACHED: the download runs past the request.
-	go func() {
-		if err := ctrl.UpdateUBoot(); err != nil {
-			log.Errorf("ui: u-boot update failed: %v", err)
+func postOverviewBiosUpdate(d *deps.Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctrl := d.Firmware
+		if ctrl.IsDownloading() {
+			hxToast(c, "warning", "Download already in progress", "")
+			c.Status(http.StatusConflict)
+			return
 		}
-	}()
 
-	hxToast(c, "info", "U-Boot update started", "Env files are preserved.")
-	renderFragment(c, components.OvFwPoller())
+		// DELIBERATELY DETACHED: the download runs past the request.
+		go func() {
+			if err := ctrl.UpdateUBoot(); err != nil {
+				log.Errorf("ui: u-boot update failed: %v", err)
+			}
+		}()
+
+		hxToast(c, "info", "U-Boot update started", "Env files are preserved.")
+		renderFragment(c, components.OvFwPoller())
+	}
 }
 
-func postOverviewFwDownload(c *gin.Context) {
-	ctrl := firmware.GetController()
-	if ctrl.IsDownloading() {
-		hxToast(c, "warning", "Download already in progress", "")
-		c.Status(http.StatusConflict)
-		return
-	}
-
-	// DELIBERATELY DETACHED: the download runs past the request.
-	go func() {
-		if err := ctrl.DownloadAndInit(); err != nil {
-			log.Errorf("ui: firmware download failed: %v", err)
+func postOverviewFwDownload(d *deps.Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctrl := d.Firmware
+		if ctrl.IsDownloading() {
+			hxToast(c, "warning", "Download already in progress", "")
+			c.Status(http.StatusConflict)
+			return
 		}
-	}()
 
-	hxToast(c, "info", "Firmware download started", "")
-	renderFragment(c, components.OvFwPoller())
+		// DELIBERATELY DETACHED: the download runs past the request.
+		go func() {
+			if err := ctrl.DownloadAndInit(); err != nil {
+				log.Errorf("ui: firmware download failed: %v", err)
+			}
+		}()
+
+		hxToast(c, "info", "Firmware download started", "")
+		renderFragment(c, components.OvFwPoller())
+	}
 }
 
-func postOverviewKernelDownload(c *gin.Context) {
-	kernel := c.PostForm("kernel")
-	force := c.PostForm("force") == "true"
+func postOverviewKernelDownload(d *deps.Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		kernel := c.PostForm("kernel")
+		force := c.PostForm("force") == "true"
 
-	reactivating, err := firmware.GetController().StartKernelDownload(kernel, force)
-	if err != nil {
-		hxToast(c, "error", "Download not started", err.Error())
-		c.Status(http.StatusConflict)
-		return
-	}
+		reactivating, err := d.Firmware.StartKernelDownload(kernel, force)
+		if err != nil {
+			hxToast(c, "error", "Download not started", err.Error())
+			c.Status(http.StatusConflict)
+			return
+		}
 
-	if reactivating {
-		hxToast(c, "info", "Re-downloading "+kernel, "The active image is replaced when the download completes.")
-	} else {
-		hxToast(c, "info", "Downloading U-Boot for Linux "+kernel, "")
+		if reactivating {
+			hxToast(c, "info", "Re-downloading "+kernel, "The active image is replaced when the download completes.")
+		} else {
+			hxToast(c, "info", "Downloading U-Boot for Linux "+kernel, "")
+		}
+		renderFragment(c, components.OvFwPoller())
 	}
-	renderFragment(c, components.OvFwPoller())
 }
 
-func postOverviewKernelActivate(c *gin.Context) {
-	kernel := c.PostForm("kernel")
-	ubootVer, ok := firmware.KernelUBootMap[kernel]
-	if !ok {
-		hxToast(c, "error", "Activation failed", fmt.Sprintf("unknown kernel version %q", kernel))
-		c.Status(http.StatusBadRequest)
-		return
-	}
-	if err := firmware.GetController().ActivateVersionedImage(ubootVer); err != nil {
-		hxToast(c, "error", "Activation failed", err.Error())
-		c.Status(http.StatusConflict)
-		return
-	}
+func postOverviewKernelActivate(d *deps.Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		kernel := c.PostForm("kernel")
+		ubootVer, ok := firmware.KernelUBootMap[kernel]
+		if !ok {
+			hxToast(c, "error", "Activation failed", fmt.Sprintf("unknown kernel version %q", kernel))
+			c.Status(http.StatusBadRequest)
+			return
+		}
+		if err := d.Firmware.ActivateVersionedImage(ubootVer); err != nil {
+			hxToast(c, "error", "Activation failed", err.Error())
+			c.Status(http.StatusConflict)
+			return
+		}
 
-	hxToast(c, "success", "U-Boot for Linux "+kernel+" activated", "Env files preserved.")
-	appendTrigger(c, map[string]any{"fw-changed": nil})
-	c.Status(http.StatusOK)
+		hxToast(c, "success", "U-Boot for Linux "+kernel+" activated", "Env files preserved.")
+		appendTrigger(c, map[string]any{"fw-changed": nil})
+		c.Status(http.StatusOK)
+	}
 }
 
 // postOverviewBootOverride serves both boot-override forms (the overview
 // card and the power menu): mode selects once/continuous, and "clear" or a
 // None target clears the override.
-func postOverviewBootOverride(c *gin.Context) {
-	target := c.PostForm("boot-override")
-	mode := c.PostForm("mode")
+func postOverviewBootOverride(d *deps.Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		target := c.PostForm("boot-override")
+		mode := c.PostForm("mode")
 
-	enabled := schemas.OnceBootSourceOverrideEnabled
-	switch mode {
-	case "continuous":
-		enabled = schemas.ContinuousBootSourceOverrideEnabled
-	case "clear":
-		target, enabled = "None", schemas.DisabledBootSourceOverrideEnabled
-	}
+		enabled := schemas.OnceBootSourceOverrideEnabled
+		switch mode {
+		case "continuous":
+			enabled = schemas.ContinuousBootSourceOverrideEnabled
+		case "clear":
+			target, enabled = "None", schemas.DisabledBootSourceOverrideEnabled
+		}
 
-	if err := redfish.ApplyBootOverride(schemas.BootSource(target), enabled); err != nil {
-		hxToast(c, "error", "Boot override failed", err.Error())
-		c.Status(http.StatusBadRequest)
-		return
-	}
+		if err := redfish.ApplyBootOverride(schemas.BootSource(target), enabled, d.Firmware); err != nil {
+			hxToast(c, "error", "Boot override failed", err.Error())
+			c.Status(http.StatusBadRequest)
+			return
+		}
 
-	if target == "" || target == "None" {
-		hxToast(c, "success", "Boot override cleared", "")
-	} else {
-		hxToast(c, "success", "Boot override set", target+" ("+mode+")")
+		if target == "" || target == "None" {
+			hxToast(c, "success", "Boot override cleared", "")
+		} else {
+			hxToast(c, "success", "Boot override set", target+" ("+mode+")")
+		}
+		appendTrigger(c, map[string]any{"fw-changed": nil})
+		c.Status(http.StatusOK)
 	}
-	appendTrigger(c, map[string]any{"fw-changed": nil})
-	c.Status(http.StatusOK)
 }

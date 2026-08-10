@@ -19,7 +19,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
 	"github.com/pi-bmc/nanokvm-app/pkg/autoupdate"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
-	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
+	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/mdns"
 	"github.com/pi-bmc/nanokvm-app/pkg/network"
 	sshsvc "github.com/pi-bmc/nanokvm-app/pkg/ssh"
@@ -28,7 +28,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/ui/components"
 )
 
-func settingsFragmentRoutes(g *gin.RouterGroup) {
+func settingsFragmentRoutes(g *gin.RouterGroup, d *deps.Deps) {
 	s := g.Group("/settings")
 
 	s.GET("/general", func(c *gin.Context) {
@@ -45,9 +45,9 @@ func settingsFragmentRoutes(g *gin.RouterGroup) {
 	})
 
 	s.GET("/hardware", func(c *gin.Context) {
-		renderFragment(c, components.SettingsHardwareBody(hardwareModel()))
+		renderFragment(c, components.SettingsHardwareBody(hardwareModel(d)))
 	})
-	s.POST("/hardware", postHardware)
+	s.POST("/hardware", postHardware(d))
 
 	s.GET("/access", func(c *gin.Context) {
 		renderFragment(c, components.SettingsAccessBody(accessModel()))
@@ -195,14 +195,14 @@ func splitList(s string) []string {
 
 // ── Hardware ────────────────────────────────────────────────────────────
 
-func hardwareModel() components.SettingsHardware {
+func hardwareModel(d *deps.Deps) components.SettingsHardware {
 	st := usbgadget.Get().State()
 	m := components.SettingsHardware{
 		USBNetwork: st.Ethernet != usbgadget.EthernetOff,
 		USBDisk:    st.Disk,
 		MediaState: "Not inserted",
 	}
-	if firmware.GetController().GetVirtualMediaState().Inserted {
+	if d.Firmware.GetVirtualMediaState().Inserted {
 		m.MediaState = "Inserted"
 	}
 	return m
@@ -211,23 +211,25 @@ func hardwareModel() components.SettingsHardware {
 // postHardware sets the gadget functions to the submitted state rather than
 // toggling them: the form carries the state the user wants, and the gadget
 // package no-ops when a value already matches.
-func postHardware(c *gin.Context) {
-	gadget := usbgadget.Get()
+func postHardware(d *deps.Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		gadget := usbgadget.Get()
 
-	mode := usbgadget.EthernetOff
-	if checked(c, "network") {
-		mode = usbgadget.EthernetECM
-	}
-	if err := gadget.SetEthernet(mode); err != nil {
-		log.Errorf("ui: set ethernet %s failed: %s", mode, err)
-		hxToast(c, "error", "USB Ethernet unchanged", err.Error())
-	}
-	if err := gadget.SetDisk(checked(c, "disk")); err != nil {
-		log.Errorf("ui: set disk failed: %s", err)
-		hxToast(c, "error", "USB Mass Storage unchanged", err.Error())
-	}
+		mode := usbgadget.EthernetOff
+		if checked(c, "network") {
+			mode = usbgadget.EthernetECM
+		}
+		if err := gadget.SetEthernet(mode); err != nil {
+			log.Errorf("ui: set ethernet %s failed: %s", mode, err)
+			hxToast(c, "error", "USB Ethernet unchanged", err.Error())
+		}
+		if err := gadget.SetDisk(checked(c, "disk")); err != nil {
+			log.Errorf("ui: set disk failed: %s", err)
+			hxToast(c, "error", "USB Mass Storage unchanged", err.Error())
+		}
 
-	renderFragment(c, components.SettingsHardwareBody(hardwareModel()))
+		renderFragment(c, components.SettingsHardwareBody(hardwareModel(d)))
+	}
 }
 
 // ── Access ──────────────────────────────────────────────────────────────

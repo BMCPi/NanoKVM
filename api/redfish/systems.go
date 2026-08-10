@@ -8,6 +8,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stmcginnis/gofish/schemas"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 	"github.com/pi-bmc/nanokvm-app/pkg/power"
 )
 
@@ -19,7 +20,7 @@ func (s *Service) GetSystemCollection(c *gin.Context) {
 }
 
 func (s *Service) GetSystem(c *gin.Context) {
-	c.JSON(http.StatusOK, buildSystemResource())
+	c.JSON(http.StatusOK, buildSystemResource(s.Firmware, s.Power))
 }
 
 func (s *Service) ResetSystem(c *gin.Context) {
@@ -35,7 +36,7 @@ func (s *Service) ResetSystem(c *gin.Context) {
 		return
 	}
 
-	ctrl := power.GetController()
+	ctrl := s.Power
 	var err error
 
 	switch req.ResetType {
@@ -87,9 +88,9 @@ func (s *Service) PatchSystem(c *gin.Context) {
 
 	// Disabled clears the override regardless of target.
 	if enabled == schemas.DisabledBootSourceOverrideEnabled || target == schemas.NoneBootSource {
-		clearBootOverride()
+		clearBootOverride(s.Firmware)
 		log.Debugf("redfish boot override cleared")
-		c.JSON(http.StatusOK, buildSystemResource())
+		c.JSON(http.StatusOK, buildSystemResource(s.Firmware, s.Power))
 		return
 	}
 
@@ -99,43 +100,43 @@ func (s *Service) PatchSystem(c *gin.Context) {
 		return
 	}
 
-	if err := setBootOverride(target, enabled); err != nil {
+	if err := setBootOverride(target, enabled, s.Firmware); err != nil {
 		log.Warnf("redfish: boot override write failed: %v", err)
 	}
 
 	log.Debugf("redfish boot override: target=%s enabled=%s", target, enabled)
-	c.JSON(http.StatusOK, buildSystemResource())
+	c.JSON(http.StatusOK, buildSystemResource(s.Firmware, s.Power))
 }
 
 // SystemInventory returns the merged ComputerSystem resource for in-process
 // consumers — the ui package's overview fragments render the Server
 // Information card from it. Same data GET /redfish/v1/Systems/1 serves.
 // (Precedent: api/vm exports EnableTLS/DisableTLS for the settings fragments.)
-func SystemInventory() ComputerSystem {
-	return buildSystemResource()
+func SystemInventory(fw *firmware.Controller, pw *power.Controller) ComputerSystem {
+	return buildSystemResource(fw, pw)
 }
 
 // ApplyBootOverride sets or clears the boot-source override for in-process
 // consumers (the ui boot-override fragments), with the same semantics as
 // PATCH /redfish/v1/Systems/1: empty enabled means Once, and Disabled or a
 // None target clears the override.
-func ApplyBootOverride(target schemas.BootSource, enabled schemas.BootSourceOverrideEnabled) error {
+func ApplyBootOverride(target schemas.BootSource, enabled schemas.BootSourceOverrideEnabled, fw *firmware.Controller) error {
 	if enabled == "" {
 		enabled = schemas.OnceBootSourceOverrideEnabled
 	}
 	if enabled == schemas.DisabledBootSourceOverrideEnabled || target == schemas.NoneBootSource {
-		clearBootOverride()
+		clearBootOverride(fw)
 		return nil
 	}
 	if !bootSourceSupported(target) {
 		return fmt.Errorf("invalid BootSourceOverrideTarget: %s", target)
 	}
-	return setBootOverride(target, enabled)
+	return setBootOverride(target, enabled, fw)
 }
 
-func buildSystemResource() ComputerSystem {
+func buildSystemResource(fw *firmware.Controller, pw *power.Controller) ComputerSystem {
 	powerState := schemas.OffPowerState
-	if on, err := power.GetController().State(); err == nil && on {
+	if on, err := pw.State(); err == nil && on {
 		powerState = schemas.OnPowerState
 	}
 
@@ -154,7 +155,7 @@ func buildSystemResource() ComputerSystem {
 		},
 		SystemType: schemas.PhysicalSystemType,
 		PowerState: powerState,
-		Boot:       readBoot(),
+		Boot:       readBoot(fw),
 		// Bios points the client at the EEPROM configuration surface (see
 		// bios.go). Standard navigation property — clients follow @odata.id
 		// to GET the current bootloader settings.
@@ -182,7 +183,7 @@ func buildSystemResource() ComputerSystem {
 	}
 
 	// Environment first, SMBIOS overlaid on top — see inventory.go.
-	applyEnvInventory(&sys)
+	applyEnvInventory(fw, &sys)
 	applySMBIOSInventory(&sys)
 
 	return sys

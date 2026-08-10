@@ -16,6 +16,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
 	"github.com/pi-bmc/nanokvm-app/pkg/autoupdate"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/efivars"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 	"github.com/pi-bmc/nanokvm-app/pkg/ipmi"
@@ -23,6 +24,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/mdns"
 	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
 	"github.com/pi-bmc/nanokvm-app/pkg/network"
+	"github.com/pi-bmc/nanokvm-app/pkg/power"
 	"github.com/pi-bmc/nanokvm-app/pkg/serial"
 	sshd "github.com/pi-bmc/nanokvm-app/pkg/ssh"
 	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
@@ -45,6 +47,11 @@ var (
 var (
 	ipmiServer    *ipmi.Server
 	mdnsResponder *mdns.Responder
+
+	// powerCtrl and fwCtrl are the composition root's controllers, built once
+	// in initialize() and shared by run() (via deps.Deps) and the IPMI server.
+	powerCtrl *power.Controller
+	fwCtrl    *firmware.Controller
 
 	// instanceLock holds the abstract unix socket that marks this process as
 	// THE server instance; the kernel releases it on any exit path.
@@ -115,8 +122,15 @@ func initialize(ctx context.Context) {
 		log.Printf("telemetry init: %v", err)
 	}
 
+	// Build the composition-root controllers. These replace the old lazy
+	// singletons: constructed once here, shared by every subsystem that needs
+	// them (IPMI, the auto-update ticker, the HTTP API and UI via deps.Deps).
+	cfg := config.GetInstance()
+	powerCtrl = power.NewController(cfg.Hardware, cfg.Power)
+	fwCtrl = firmware.NewController(cfg)
+
 	// Start IPMI server on standard port 623
-	srv, err := ipmi.Start(623)
+	srv, err := ipmi.Start(623, powerCtrl, fwCtrl)
 	if err != nil {
 		log.Printf("IPMI server failed to start: %v", err)
 	} else {
@@ -140,7 +154,7 @@ func initialize(ctx context.Context) {
 	network.Start()
 
 	// Initialize firmware controller (mount image if available).
-	if err := firmware.GetController().Init(); err != nil {
+	if err := fwCtrl.Init(); err != nil {
 		log.Printf("Firmware controller init: %v", err)
 	}
 
@@ -155,6 +169,7 @@ func initialize(ctx context.Context) {
 	serial.StartCapture()
 
 	// Start the auto-update ticker (no-op when AutoUpdate.Enabled is false).
+	autoupdate.Init(fwCtrl)
 	autoupdate.Start()
 
 	// Start the SSH server. The image ships no sshd — this is the BMC's only
@@ -215,9 +230,10 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 	// Telemetry first so the otelgin middleware wraps every route, then the
 	// UI (which installs the templ HTML renderer with gin's default as
 	// fallback), then every API sub-router.
+	d := &deps.Deps{Config: conf, Power: powerCtrl, Firmware: fwCtrl}
 	telemetry.Routes(r)
-	ui.Register(r)
-	api.Register(r)
+	ui.Register(r, d)
+	api.Register(r, d)
 
 	httpAddr := fmt.Sprintf(":%d", conf.Port.Http)
 	httpsAddr := fmt.Sprintf(":%d", conf.Port.Https)

@@ -8,8 +8,9 @@
   },
   "rtl": false,
   "iconLibrary": "lucide",
-  "menuColor": "default",
+  "menuColor": "default-translucent",
   "menuAccent": "subtle",
+  "menu": "default-translucent",
   "aliases": {
     "components": "github.com/pi-bmc/nanokvm-app/ui/components",
     "utils": "github.com/pi-bmc/nanokvm-app/ui/utils"

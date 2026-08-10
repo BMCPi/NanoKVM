@@ -38,7 +38,7 @@ type Processor struct {
 
 // processorResource assembles the member from SMBIOS, falling back to the
 // env's cpu string. Returns false when neither source knows anything.
-func processorResource() (Processor, bool) {
+func processorResource(fw *firmware.Controller) (Processor, bool) {
 	res := Processor{
 		Resource: Resource{
 			ODataType:    "#Processor.v1_16_0.Processor",
@@ -74,7 +74,7 @@ func processorResource() (Processor, bool) {
 		return res, true
 	}
 
-	if inv, err := firmware.GetController().GetInventory(); err == nil {
+	if inv, err := fw.GetInventory(); err == nil {
 		if cpu := inv["cpu"]; cpu != "" {
 			res.Model = cpu
 			return res, true
@@ -85,7 +85,7 @@ func processorResource() (Processor, bool) {
 
 func (s *Service) GetProcessorCollection(c *gin.Context) {
 	var links []Link
-	if _, ok := processorResource(); ok {
+	if _, ok := processorResource(s.Firmware); ok {
 		links = append(links, Link(processorPath))
 	}
 	c.JSON(http.StatusOK, newCollection(
@@ -97,7 +97,7 @@ func (s *Service) GetProcessor(c *gin.Context) {
 		redfishErrorResponse(c, http.StatusNotFound, "processor not found")
 		return
 	}
-	res, ok := processorResource()
+	res, ok := processorResource(s.Firmware)
 	if !ok {
 		redfishErrorResponse(c, http.StatusNotFound, "no processor inventory available")
 		return

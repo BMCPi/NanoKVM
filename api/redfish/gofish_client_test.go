@@ -26,7 +26,7 @@ import (
 func testServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	svc := NewService()
+	svc := NewService(testDeps())
 	r := gin.New()
 
 	r.GET("/redfish", svc.GetRedfishBase)

@@ -67,9 +67,8 @@ type Drive struct {
 
 // gadgetDrives returns the currently backed LUNs as (id, resource) pairs in
 // stable order.
-func gadgetDrives() []Drive {
+func gadgetDrives(fw *firmware.Controller) []Drive {
 	var drives []Drive
-	fw := firmware.GetController()
 
 	if st := fw.GetStatus(); st.ImagePath != "" {
 		if fi, err := os.Stat(st.ImagePath); err == nil && fi.Size() > 0 {
@@ -212,7 +211,7 @@ func (s *Service) GetStorage(c *gin.Context) {
 	switch c.Param("storage") {
 	case storageID:
 		c.JSON(http.StatusOK, storageSubsystem(storageID, storagePath,
-			"USB Mass Storage (BMC gadget)", gadgetDrives()))
+			"USB Mass Storage (BMC gadget)", gadgetDrives(s.Firmware)))
 	case hostStorageID:
 		c.JSON(http.StatusOK, storageSubsystem(hostStorageID, hostStoragePath,
 			"Host Storage (U-Boot probe)", hostDrives()))
@@ -225,7 +224,7 @@ func (s *Service) GetDrive(c *gin.Context) {
 	var drives []Drive
 	switch c.Param("storage") {
 	case storageID:
-		drives = gadgetDrives()
+		drives = gadgetDrives(s.Firmware)
 	case hostStorageID:
 		drives = hostDrives()
 	default:

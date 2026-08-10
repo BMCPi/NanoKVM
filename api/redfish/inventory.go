@@ -106,8 +106,8 @@ func oemNanoKVM(sys *ComputerSystem) map[string]any {
 }
 
 // applyEnvInventory fills identity fields from the U-Boot environment.
-func applyEnvInventory(sys *ComputerSystem) bool {
-	inv, err := firmware.GetController().GetInventory()
+func applyEnvInventory(fw *firmware.Controller, sys *ComputerSystem) bool {
+	inv, err := fw.GetInventory()
 	if err != nil || len(inv) == 0 {
 		return false
 	}
@@ -256,7 +256,7 @@ func applySMBIOSInfo(sys *ComputerSystem, info *smbios.Info) {
 // authoritative: a pending BootNext reads back as "Once", and a continuous
 // override is a plain BootOrder reorder that reads back as "Disabled".
 // Otherwise we fall back to the legacy U-Boot env boot_targets semantics.
-func readBoot() Boot {
+func readBoot(fw *firmware.Controller) Boot {
 	boot := Boot{
 		BootSourceOverrideTarget:  schemas.NoneBootSource,
 		BootSourceOverrideEnabled: schemas.DisabledBootSourceOverrideEnabled,
@@ -289,7 +289,7 @@ func readBoot() Boot {
 	}
 
 	// Legacy env fallback — persistent takes precedence over once.
-	fwCtrl := firmware.GetController()
+	fwCtrl := fw
 	if targets, err := fwCtrl.GetBootTarget(); err == nil && targets != "" {
 		if rt, ok := firmware.UBootToRedfish[targets]; ok {
 			boot.BootSourceOverrideTarget = schemas.BootSource(rt)
@@ -311,7 +311,7 @@ func readBoot() Boot {
 // store is available it drives the EFI boot manager directly: BootNext for
 // Once, a BootOrder reorder for Continuous. Otherwise it falls back to the
 // U-Boot env boot_targets.
-func setBootOverride(target schemas.BootSource, enabled schemas.BootSourceOverrideEnabled) error {
+func setBootOverride(target schemas.BootSource, enabled schemas.BootSourceOverrideEnabled, fw *firmware.Controller) error {
 	if mgr := efivars.GetManager(); mgr.Available() {
 		// BiosSetup has no Boot#### entry to point at; treat it as a no-op,
 		// matching the env path which maps it to an empty boot_targets.
@@ -322,7 +322,7 @@ func setBootOverride(target schemas.BootSource, enabled schemas.BootSourceOverri
 			enabled != schemas.ContinuousBootSourceOverrideEnabled)
 	}
 
-	fwCtrl := firmware.GetController()
+	fwCtrl := fw
 	ubootTargets := firmware.RedfishToUBoot[string(target)]
 	if enabled == schemas.ContinuousBootSourceOverrideEnabled {
 		return fwCtrl.SetBootTarget(ubootTargets)
@@ -331,7 +331,7 @@ func setBootOverride(target schemas.BootSource, enabled schemas.BootSourceOverri
 }
 
 // clearBootOverride removes any pending boot source override.
-func clearBootOverride() {
+func clearBootOverride(fw *firmware.Controller) {
 	if mgr := efivars.GetManager(); mgr.Available() {
 		if err := mgr.ClearBootSourceOverride(); err != nil {
 			log.Warnf("redfish: clear BootNext failed: %v", err)
@@ -339,7 +339,7 @@ func clearBootOverride() {
 		return
 	}
 
-	fwCtrl := firmware.GetController()
+	fwCtrl := fw
 	if err := fwCtrl.SetBootTarget(""); err != nil {
 		log.Warnf("redfish: clear persistent boot failed: %v", err)
 	}
