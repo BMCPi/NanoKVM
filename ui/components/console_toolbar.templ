@@ -17,7 +17,11 @@ templ ConsoleToolbar() {
 			<span class="text-xs font-medium">Serial Console</span>
 			<span class="text-xs text-muted-foreground">/dev/ttyS1 @ 115200 8N1</span>
 			// One badge per connection state, server-styled; setConnStatus
-			// only swaps `hidden` between them.
+			// swaps the `hidden` DOM property between them. The hidden
+			// ATTRIBUTE (not the utility class) is load-bearing: preflight's
+			// `[hidden] { display: none !important }` beats the component's
+			// own display utility, whereas a `hidden` class both loses that
+			// fight at runtime and gets stripped by TwMerge at render.
 			@badge.Badge(badge.Props{
 				ID:      "conn-status-disconnected",
 				Variant: badge.VariantDestructive,
@@ -26,23 +30,26 @@ templ ConsoleToolbar() {
 				Disconnected
 			}
 			@badge.Badge(badge.Props{
-				ID:      "conn-status-connecting",
-				Variant: badge.VariantSecondary,
-				Class:   "hidden text-[0.6875rem] bg-yellow-500/15 text-yellow-500",
+				ID:         "conn-status-connecting",
+				Variant:    badge.VariantSecondary,
+				Class:      "text-[0.6875rem] bg-yellow-500/15 text-yellow-500",
+				Attributes: templ.Attributes{"hidden": true},
 			}) {
 				Connecting…
 			}
 			@badge.Badge(badge.Props{
-				ID:      "conn-status-connected",
-				Variant: badge.VariantSecondary,
-				Class:   "hidden text-[0.6875rem] bg-green-500/15 text-green-500",
+				ID:         "conn-status-connected",
+				Variant:    badge.VariantSecondary,
+				Class:      "text-[0.6875rem] bg-green-500/15 text-green-500",
+				Attributes: templ.Attributes{"hidden": true},
 			}) {
 				Connected
 			}
 		</div>
 		<div class="flex items-center gap-1">
 			// Connect / Disconnect are separate server-styled buttons; the
-			// script swaps `hidden` instead of rebuilding innerHTML.
+			// script swaps the `hidden` DOM property instead of rebuilding
+			// innerHTML (see the badge comment above for why the attribute).
 			@button.Button(button.Props{
 				ID:         "btn-serial-connect",
 				Variant:    button.VariantOutline,
@@ -55,10 +62,9 @@ templ ConsoleToolbar() {
 			}
 			@button.Button(button.Props{
 				ID:         "btn-serial-disconnect",
-				Variant:    button.VariantOutline,
+				Variant:    button.VariantDestructive,
 				Size:       button.SizeSm,
-				Class:      "hidden border-destructive text-destructive",
-				Attributes: templ.Attributes{"onclick": "disconnectSerial()"},
+				Attributes: templ.Attributes{"onclick": "disconnectSerial()", "hidden": true},
 			}) {
 				@icon.X()
 				<span>Disconnect</span>

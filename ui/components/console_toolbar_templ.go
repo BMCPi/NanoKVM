@@ -89,9 +89,10 @@ func ConsoleToolbar() templ.Component {
 			return nil
 		})
 		templ_7745c5c3_Err = badge.Badge(badge.Props{
-			ID:      "conn-status-connecting",
-			Variant: badge.VariantSecondary,
-			Class:   "hidden text-[0.6875rem] bg-yellow-500/15 text-yellow-500",
+			ID:         "conn-status-connecting",
+			Variant:    badge.VariantSecondary,
+			Class:      "text-[0.6875rem] bg-yellow-500/15 text-yellow-500",
+			Attributes: templ.Attributes{"hidden": true},
 		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -115,9 +116,10 @@ func ConsoleToolbar() templ.Component {
 			return nil
 		})
 		templ_7745c5c3_Err = badge.Badge(badge.Props{
-			ID:      "conn-status-connected",
-			Variant: badge.VariantSecondary,
-			Class:   "hidden text-[0.6875rem] bg-green-500/15 text-green-500",
+			ID:         "conn-status-connected",
+			Variant:    badge.VariantSecondary,
+			Class:      "text-[0.6875rem] bg-green-500/15 text-green-500",
+			Attributes: templ.Attributes{"hidden": true},
 		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -182,10 +184,9 @@ func ConsoleToolbar() templ.Component {
 		})
 		templ_7745c5c3_Err = button.Button(button.Props{
 			ID:         "btn-serial-disconnect",
-			Variant:    button.VariantOutline,
+			Variant:    button.VariantDestructive,
 			Size:       button.SizeSm,
-			Class:      "hidden border-destructive text-destructive",
-			Attributes: templ.Attributes{"onclick": "disconnectSerial()"},
+			Attributes: templ.Attributes{"onclick": "disconnectSerial()", "hidden": true},
 		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var6), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err

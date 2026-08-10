@@ -22,20 +22,23 @@ templ ConsoleScript() {
 			return proto + '//' + window.location.host;
 		}
 
-		// setConnStatus / updateSerialButtons swap `hidden` between the
-		// server-rendered state variants of the badge and the connect /
-		// disconnect buttons — no class or innerHTML rebuilding.
+		// setConnStatus / updateSerialButtons swap the `hidden` property
+		// between the server-rendered state variants of the badge and the
+		// connect / disconnect buttons — no class or innerHTML rebuilding.
+		// The hidden ATTRIBUTE, not the utility class: preflight's
+		// [hidden] { display: none !important } always beats the components'
+		// own display utilities, while a `hidden` class does not.
 		function setConnStatus(state) {
 			for (const s of ['disconnected', 'connecting', 'connected']) {
-				document.getElementById('conn-status-' + s).classList.toggle('hidden', s !== state);
+				document.getElementById('conn-status-' + s).hidden = (s !== state);
 			}
 		}
 
 		function updateSerialButtons(busy) {
 			const connect = document.getElementById('btn-serial-connect');
-			connect.classList.toggle('hidden', serialConnected);
+			connect.hidden = serialConnected;
 			connect.disabled = !!busy;
-			document.getElementById('btn-serial-disconnect').classList.toggle('hidden', !serialConnected);
+			document.getElementById('btn-serial-disconnect').hidden = !serialConnected;
 		}
 
 		// Raw input path for the virtual keyboard: write bytes to the serial

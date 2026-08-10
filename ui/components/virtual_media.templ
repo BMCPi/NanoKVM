@@ -1,15 +1,34 @@
 package components
 
 import (
+	"fmt"
+
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/dropdownmenu"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
 	"github.com/pi-bmc/nanokvm-app/ui/components/input"
+	"github.com/pi-bmc/nanokvm-app/ui/components/progress"
+	"github.com/pi-bmc/nanokvm-app/ui/components/spinner"
 	"github.com/pi-bmc/nanokvm-app/ui/components/tabs"
 	"github.com/pi-bmc/nanokvm-app/ui/utils"
 )
+
+// formatBytes renders a byte count as a human-readable size — used by the
+// fetch-progress view since remote Content-Lengths can be gigabytes.
+func formatBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for v := n / unit; v >= unit; v /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
+}
 
 // MediaState snapshots the staged ISO list and insertion state; rendered
 // with the page and by the /ui/media fragments after every mutation.
@@ -168,6 +187,7 @@ templ VMAddBody(files []string) {
 			}
 			@tabs.Content(tabs.ContentProps{Value: "upload", Class: "space-y-2"}) {
 				<form
+					id="vm-upload-form"
 					class="flex items-center gap-2"
 					hx-post="/ui/media/upload"
 					hx-encoding="multipart/form-data"
@@ -181,13 +201,20 @@ templ VMAddBody(files []string) {
 						Accept: ".iso,.img",
 						Class:  "flex-1 h-8",
 					})
-					@button.Button(button.Props{Size: button.SizeSm, Type: button.TypeSubmit}) {
+					@button.Button(button.Props{
+						ID:       "vm-upload-submit",
+						Size:     button.SizeSm,
+						Type:     button.TypeSubmit,
+						Disabled: true,
+					}) {
 						Upload
 					}
 				</form>
+				@progress.Progress(progress.Props{ID: "vm-upload-progress", Class: "hidden"})
 			}
 			@tabs.Content(tabs.ContentProps{Value: "url", Class: "space-y-2"}) {
 				<form
+					id="vm-fetch-form"
 					class="space-y-2"
 					hx-post="/ui/media/fetch"
 					hx-target="#vm-menu-body"
@@ -206,12 +233,42 @@ templ VMAddBody(files []string) {
 							Placeholder: "filename.iso (optional)",
 							Class:       "flex-1",
 						})
-						@button.Button(button.Props{Size: button.SizeSm, Type: button.TypeSubmit}) {
+						@button.Button(button.Props{
+							ID:       "vm-fetch-submit",
+							Size:     button.SizeSm,
+							Type:     button.TypeSubmit,
+							Disabled: true,
+						}) {
 							Fetch
 						}
 					</div>
 				</form>
 			}
+		}
+	</div>
+}
+
+// VMFetchProgress is swapped into #vm-menu-body while a URL fetch runs;
+// GET /ui/media/fetch/progress polls it every second until the download
+// reaches a terminal state (success renders VMMenuBody, failure re-renders
+// VMAddBody with a toast).
+templ VMFetchProgress(name string, loaded, total int64) {
+	<div
+		class="p-3 space-y-2"
+		hx-get="/ui/media/fetch/progress"
+		hx-trigger="every 1s"
+		hx-swap="outerHTML"
+	>
+		<div class="text-sm font-semibold truncate">Fetching { name }…</div>
+		if total > 0 {
+			{{ pct := int(loaded * 100 / total) }}
+			@progress.Progress(progress.Props{Value: pct, Max: 100})
+			<div class="text-xs text-muted-foreground">{ formatBytes(loaded) } / { formatBytes(total) }</div>
+		} else {
+			<div class="flex items-center gap-2 text-xs text-muted-foreground">
+				@spinner.Spinner(spinner.Props{Class: "size-3.5"})
+				{ formatBytes(loaded) } downloaded…
+			</div>
 		}
 	</div>
 }
