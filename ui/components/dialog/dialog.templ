@@ -38,6 +38,11 @@ type ContentProps struct {
 	Attributes      templ.Attributes
 	HideCloseButton bool
 	DisableModal    bool
+	// OverlayClass merges onto the backdrop behind this dialog only — every
+	// other dialog keeps the shared bg-black/20 + blur look. Pass e.g.
+	// "bg-transparent supports-backdrop-filter:backdrop-blur-none" to make
+	// this one dialog's backdrop fully see-through.
+	OverlayClass string
 }
 
 type HeaderProps struct {
@@ -167,7 +172,7 @@ templ Content(props ...ContentProps) {
 	{{ s := state(ctx) }}
 	// 1:1 base/ui/dialog.tsx DialogContent: Portal > Overlay > Popup.
 	@Portal() {
-		@Overlay()
+		@Overlay(OverlayProps{Class: p.OverlayClass})
 			// 1:1 base/ui/dialog.tsx DialogContent (Dialog.Popup): the look
 			// comes from. tabindex is managed at runtime
 			// like Base UI's handleTabIndex.

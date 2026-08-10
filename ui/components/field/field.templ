@@ -83,8 +83,15 @@ type ErrorProps struct {
 // 1:1 the fieldVariants cva from base/ui/field.tsx; the [data-slot=checkbox],
 // [data-slot=radio] selectors are our pendants of the tsx [role=checkbox],
 // [role=radio] ones, our items carry data-slot instead of a role.
+// The trailing space on base matters: without it the concatenation below
+// welds "w-full" onto the first orientation class ("w-fullflex-col"), an
+// invalid Tailwind token that parses as nothing — the field then falls back
+// to flex's row default instead of the intended column/row-per-orientation
+// layout. Regressed once already (a fresh field.templ rewrite dropped it);
+// if you see a vertical-orientation field rendering as a row, check here
+// first.
 func fieldClasses(o Orientation) string {
-	base := "data-[invalid=true]:text-destructive gap-3 group/field flex w-full"
+	base := "data-[invalid=true]:text-destructive gap-3 group/field flex w-full "
 	switch o {
 	case OrientationHorizontal:
 		return base + "flex-row items-center has-[>[data-slot=field-content]]:items-start *:data-[slot=field-label]:flex-auto has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio]]:mt-px has-[>[data-slot=field-content]]:[&>[data-slot=checkbox],[data-slot=radio]]:mt-px"

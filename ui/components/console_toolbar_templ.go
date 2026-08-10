@@ -40,7 +40,7 @@ func ConsoleToolbar() templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"flex items-center justify-between rounded-t-md border border-border bg-card px-3 py-1.5\"><div class=\"flex items-center gap-3\"><span class=\"text-xs font-medium\">Serial Console</span> <span class=\"text-xs text-muted-foreground\">/dev/ttyS1 @ 115200 8N1</span>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"flex flex-wrap items-center justify-between gap-y-1.5 rounded-t-md border border-border bg-card px-3 py-1.5 sm:flex-nowrap\"><div class=\"flex items-center gap-3\"><span class=\"text-xs font-medium\">Serial Console</span> <span class=\"text-xs text-muted-foreground\">/dev/ttyS1 @ 115200 8N1</span>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -124,7 +124,7 @@ func ConsoleToolbar() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</div><div class=\"flex items-center gap-1\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</div><div class=\"ml-auto flex items-center gap-1\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

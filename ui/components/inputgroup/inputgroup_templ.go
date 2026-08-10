@@ -388,8 +388,13 @@ func Addon(props ...AddonProps) templ.Component {
 }
 
 // 1:1 the inputGroupButtonVariants cva from base/ui/input-group.tsx.
+//
+// base needs its trailing space: without it the concatenation below welds
+// onto the first size class (e.g. "shadow-nonesize-6"), an invalid Tailwind
+// token that drops both the base style and the size — see the identical bug
+// (and postmortem) in field.fieldClasses.
 func inputGroupButtonClasses(size ButtonSize) string {
-	base := "gap-2 rounded-none text-sm flex items-center shadow-none"
+	base := "gap-2 rounded-none text-sm flex items-center shadow-none "
 	switch size {
 	case ButtonSizeSm:
 		return base + ""
@@ -514,7 +519,7 @@ func Text(props ...TextProps) templ.Component {
 			var templ_7745c5c3_Var16 string
 			templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(p.ID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/inputgroup/inputgroup.templ`, Line: 235, Col: 12}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/inputgroup/inputgroup.templ`, Line: 240, Col: 12}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 			if templ_7745c5c3_Err != nil {

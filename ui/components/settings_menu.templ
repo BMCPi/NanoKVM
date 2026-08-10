@@ -74,6 +74,10 @@ templ SettingsDialog() {
 		@dialog.Content(dialog.ContentProps{
 			HideCloseButton: true,
 			Class:           "bg-background flex flex-col gap-0 p-3 sm:max-w-3xl lg:max-w-5xl h-[min(46rem,calc(100svh-3rem))]",
+			// Requested: no dimming behind the settings dialog specifically —
+			// every other dialog (EEPROM, confirm, forgot-password) keeps the
+			// default backdrop.
+			OverlayClass: "bg-transparent supports-backdrop-filter:backdrop-blur-none",
 		}) {
 			// The visible headings live in each panel, so the dialog's own
 			// title/description — what aria-labelledby/-describedby point at —
@@ -274,14 +278,14 @@ templ SettingsNetworkBody(m SettingsNetwork) {
 				}
 				@settingsSwitchRow("net-enabled", "enabled", "Managed networking",
 					"Let the BMC configure eth0 over netlink instead of leaving it to the boot scripts.", m.Enabled)
-				@settingsRow("net-mac", "MAC Address",
+				@settingsRowWide("net-mac", "MAC Address",
 					"Hardware identifier for the network interface. Blank keeps the kernel MAC.") {
 					@input.Input(input.Props{
 						ID:          "net-mac",
 						Name:        "mac",
 						Value:       m.MAC,
 						Placeholder: "aa:bb:cc:dd:ee:ff",
-						Class:       "w-48 font-mono",
+						Class:       "w-full @md/field-group:w-48 font-mono",
 						Attributes:  templ.Attributes{"spellcheck": "false", "autocomplete": "off"},
 					})
 					@button.Button(button.Props{
@@ -315,13 +319,13 @@ templ SettingsNetworkBody(m SettingsNetwork) {
 					data-active={ utils.IfElse(m.IsStatic(), "true", "false") }
 					class="flex flex-col gap-4 data-[active=false]:hidden"
 				>
-					@settingsRow("net-address", "IPv4 Address", "Static address in CIDR notation, e.g. 192.168.1.50/24.") {
+					@settingsRowWide("net-address", "IPv4 Address", "Static address in CIDR notation, e.g. 192.168.1.50/24.") {
 						@settingsTextInput("net-address", "address", m.Address, "192.168.1.50/24")
 					}
-					@settingsRow("net-gateway", "Gateway", "Default-route next hop. Blank adds no default route.") {
+					@settingsRowWide("net-gateway", "Gateway", "Default-route next hop. Blank adds no default route.") {
 						@settingsTextInput("net-gateway", "gateway", m.Gateway, "192.168.1.1")
 					}
-					@settingsRow("net-dns", "DNS Servers", "Nameservers written to /etc/resolv.conf, comma separated.") {
+					@settingsRowWide("net-dns", "DNS Servers", "Nameservers written to /etc/resolv.conf, comma separated.") {
 						@settingsTextInput("net-dns", "dns", m.DNS, "1.1.1.1, 9.9.9.9")
 					}
 				</div>
@@ -330,11 +334,11 @@ templ SettingsNetworkBody(m SettingsNetwork) {
 				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
 					USB host interface
 				}
-				@settingsRow("rhi-address", "BMC Address",
+				@settingsRowWide("rhi-address", "BMC Address",
 					"Link-local CIDR the BMC takes on the USB link to the managed host.") {
 					@settingsTextInput("rhi-address", "rhiAddress", m.RHIAddress, "169.254.10.1/16")
 				}
-				@settingsRow("rhi-lease", "Host Lease",
+				@settingsRowWide("rhi-lease", "Host Lease",
 					"Single address offered to the host. Blank disables the DHCP server.") {
 					@settingsTextInput("rhi-lease", "rhiLease", m.RHILease, "169.254.10.2")
 				}
@@ -580,6 +584,36 @@ templ settingsRow(forID, title, description string) {
 	}
 }
 
+// settingsRowWide is settingsRow for the free-text address/MAC rows: their
+// descriptions run long enough (e.g. "Link-local CIDR the BMC takes on the
+// USB link to the managed host.") that sharing a horizontal row with even a
+// modest input leaves the label+description column too narrow on mobile —
+// confirmed at 500px: MAC Address wrapped to 128.5px tall in a 128px-wide
+// column. Responsive orientation stacks label/description above the control
+// below the field-group's own @md container-query breakpoint (~448px) and
+// stays side-by-side above it, so desktop is unchanged.
+templ settingsRowWide(forID, title, description string) {
+	@field.Field(field.Props{Orientation: field.OrientationResponsive}) {
+		@field.Content() {
+			if forID != "" {
+				@field.Label(field.LabelProps{For: forID}) {
+					{ title }
+				}
+			} else {
+				@field.Title() {
+					{ title }
+				}
+			}
+			@field.Description() {
+				{ description }
+			}
+		}
+		<div class="flex shrink-0 items-center gap-2">
+			{ children... }
+		</div>
+	}
+}
+
 // settingsSwitchRow is a row whose control is a switch. name is the form field
 // the enclosing form submits; an unchecked switch submits nothing, which the
 // handlers read as false.
@@ -590,13 +624,16 @@ templ settingsSwitchRow(id, name, title, description string, checked bool) {
 }
 
 // settingsTextInput is the monospace text field the addressing rows use.
+// Only ever placed inside settingsRowWide, so the width tracks that same
+// field-group container query: full width once the row has stacked (no
+// label column competing for space), fixed width once it hasn't.
 templ settingsTextInput(id, name, value, placeholder string) {
 	@input.Input(input.Props{
 		ID:          id,
 		Name:        name,
 		Value:       value,
 		Placeholder: placeholder,
-		Class:       "w-48 font-mono",
+		Class:       "w-full @md/field-group:w-48 font-mono",
 		Attributes:  templ.Attributes{"spellcheck": "false", "autocomplete": "off"},
 	})
 }

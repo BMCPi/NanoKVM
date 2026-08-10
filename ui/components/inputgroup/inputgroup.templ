@@ -180,8 +180,13 @@ templ Addon(props ...AddonProps) {
 }
 
 // 1:1 the inputGroupButtonVariants cva from base/ui/input-group.tsx.
+//
+// base needs its trailing space: without it the concatenation below welds
+// onto the first size class (e.g. "shadow-nonesize-6"), an invalid Tailwind
+// token that drops both the base style and the size — see the identical bug
+// (and postmortem) in field.fieldClasses.
 func inputGroupButtonClasses(size ButtonSize) string {
-	base := "gap-2 rounded-none text-sm flex items-center shadow-none"
+	base := "gap-2 rounded-none text-sm flex items-center shadow-none "
 	switch size {
 	case ButtonSizeSm:
 		return base + ""

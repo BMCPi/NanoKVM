@@ -12,7 +12,12 @@ import (
 // connect/disconnect, search, expand, fullscreen. Icon-buttons use SizeIcon
 // so the icon centres correctly; Button auto-sizes <svg> children to size-4.
 templ ConsoleToolbar() {
-	<div class="flex items-center justify-between rounded-t-md border border-border bg-card px-3 py-1.5">
+	// flex-wrap below sm: the info group (title + device + status badge) and
+	// the controls group (Connect + 4 icon buttons) together need ~490px,
+	// more than fits beside each other under ~530px wide. Below that they
+	// drop to their own rows instead of the controls group spilling past
+	// <main>'s overflow-hidden and clipping the Fullscreen button off-screen.
+	<div class="flex flex-wrap items-center justify-between gap-y-1.5 rounded-t-md border border-border bg-card px-3 py-1.5 sm:flex-nowrap">
 		<div class="flex items-center gap-3">
 			<span class="text-xs font-medium">Serial Console</span>
 			<span class="text-xs text-muted-foreground">/dev/ttyS1 @ 115200 8N1</span>
@@ -46,7 +51,12 @@ templ ConsoleToolbar() {
 				Connected
 			}
 		</div>
-		<div class="flex items-center gap-1">
+		// ml-auto keeps this group pinned to the row's trailing edge whether
+		// it shares the line with the info group (desktop) or wraps to its
+		// own row (mobile) — justify-between alone only positions items
+		// within a shared line, and a lone wrapped item would otherwise
+		// collapse to the leading edge.
+		<div class="ml-auto flex items-center gap-1">
 			// Connect / Disconnect are separate server-styled buttons; the
 			// script swaps the `hidden` DOM property instead of rebuilding
 			// innerHTML (see the badge comment above for why the attribute).
