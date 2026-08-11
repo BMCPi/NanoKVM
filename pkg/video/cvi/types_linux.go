@@ -252,3 +252,222 @@ type VENCStreamAdvanceInfoH264 struct {
 	U32MoveScene16x16Num uint32
 	U32MoveSceneBits     uint32
 }
+
+type VBExtControl struct {
+	Id        uint32
+	Reserved  [1]uint32
+	Value     int32
+	Pad_cgo_0 [4]byte
+}
+
+type VBPoolCfg struct {
+	Blk_size   uint32
+	Blk_cnt    uint32
+	Remap_mode uint8
+	Pool_name  [32]uint8
+	Pool_id    uint32
+	Mem_base   uint64
+}
+
+type VBCfg struct {
+	Pool_cnt uint32
+	Pool     [16]VBPoolCfg
+}
+
+type VBBlkCfg struct {
+	Pool_id  uint32
+	Blk_size uint32
+	Blk      uint64
+}
+
+type VBBlkInfo struct {
+	Blk       uint64
+	Pool_id   uint32
+	Phy_addr  uint64
+	Usr_cnt   uint32
+	Pad_cgo_0 [4]byte
+}
+
+type VideoFrameInfoEx struct {
+	PstFrame    *VideoFrameInfo
+	S32MilliSec int32
+	Pad_cgo_0   [4]byte
+}
+
+type ComboDevAttr struct {
+	Input_mode uint32
+	Mac_clk    uint32
+	Mclk       MclkPll
+	Mipi_attr  MipiDevAttr
+	Pad_cgo_0  [108]byte
+	Devno      uint32
+	Img_size   ImgSize
+	Wdr_manu   ManualWdrAttr
+}
+
+type MipiDevAttr struct {
+	Raw_data_type uint32
+	Lane_id       [5]int16
+	Wdr_mode      uint32
+	Data_type     [2]int16
+	Pn_swap       [5]uint8
+	Dphy          DPhy
+	Demux         MipiDemuxInfo
+}
+
+type DPhy struct {
+	Enable uint8
+	Settle uint8
+}
+
+type MipiDemuxInfo struct {
+	Demux_en   uint32
+	Vc_mapping [4]uint8
+}
+
+type MclkPll struct {
+	Cam  uint32
+	Freq uint32
+}
+
+type ImgSize struct {
+	Width  uint32
+	Height uint32
+}
+
+type ManualWdrAttr struct {
+	Manual_en             uint32
+	L2s_distance          uint16
+	Lsef_length           uint16
+	Discard_padding_lines uint32
+	Update                uint32
+}
+
+type VIExtControl struct {
+	Id        uint32
+	Sdk_id    uint32
+	Sdk_cfg   VISdkCfg
+	Value     int32
+	Pad_cgo_0 [4]byte
+}
+
+type VISdkCfg struct {
+	Dev       int32
+	Pipe      int32
+	Chn       int32
+	Ptr       *byte
+	Val       int32
+	Pad_cgo_0 [4]byte
+}
+
+type VIDevAttr struct {
+	EnIntfMode      uint32
+	EnWorkMode      uint32
+	EnScanMode      uint32
+	As32AdChnId     [4]int32
+	EnDataSeq       uint32
+	StSynCfg        VISyncCfg
+	EnInputDataType uint32
+	StSize          Size
+	StWDRAttr       VIWDRAttr
+	EnBayerFormat   uint32
+	Num             uint32
+	SnrFps          uint32
+	IsMux           uint8
+	SwitchGpioPin   uint32
+	SwitchGPioPol   uint8
+	DisEnableSbm    uint8
+	Pad_cgo_0       [2]byte
+}
+
+type VIPipeAttr struct {
+	EnPipeBypassMode uint32
+	BYuvSkip         uint8
+	BIspBypass       uint8
+	U32MaxW          uint32
+	U32MaxH          uint32
+	EnPixFmt         uint32
+	EnCompressMode   uint32
+	EnBitWidth       uint32
+	BNrEn            uint8
+	BSharpenEn       uint8
+	StFrameRate      FrameRateCtrl
+	BDiscardProPic   uint8
+	BYuvBypassPath   uint8
+	Pad_cgo_0        [2]byte
+}
+
+type VIChnAttr struct {
+	StSize         Size
+	EnPixelFormat  uint32
+	EnDynamicRange uint32
+	EnVideoFormat  uint32
+	EnCompressMode uint32
+	BMirror        uint8
+	BFlip          uint8
+	U32Depth       uint32
+	StFrameRate    FrameRateCtrl
+	U32BindVbPool  uint32
+}
+
+type VIWDRAttr struct {
+	EnWDRMode     uint32
+	U32CacheLine  uint32
+	BSyntheticWDR uint8
+	Pad_cgo_0     [3]byte
+}
+
+type VISyncCfg struct {
+	EnVsync         uint32
+	EnVsyncNeg      uint32
+	EnHsync         uint32
+	EnHsyncNeg      uint32
+	EnVsyncValid    uint32
+	EnVsyncValidNeg uint32
+	StTimingBlank   VITimingBlank
+}
+
+type VITimingBlank struct {
+	U32HsyncHfb   uint32
+	U32HsyncAct   uint32
+	U32HsyncHbb   uint32
+	U32VsyncVfb   uint32
+	U32VsyncVact  uint32
+	U32VsyncVbb   uint32
+	U32VsyncVbfb  uint32
+	U32VsyncVbact uint32
+	U32VsyncVbbb  uint32
+}
+
+type VPSSCreateGrpCfg struct {
+	VpssGrp   int32
+	StGrpAttr VPSSGrpAttr
+}
+
+type VPSSStartGrpCfg struct {
+	VpssGrp int32
+}
+
+type VPSSGrpAttrCfg struct {
+	VpssGrp   int32
+	StGrpAttr VPSSGrpAttr
+}
+
+type VPSSChnAttrCfg struct {
+	VpssGrp   int32
+	VpssChn   int32
+	StChnAttr VPSSChnAttr
+}
+
+type VPSSEnChnCfg struct {
+	VpssGrp int32
+	VpssChn int32
+}
+
+type SysBindCfg struct {
+	Is_bind     uint32
+	Get_by_src  uint32
+	Mmf_chn_src MMFChn
+	Mmf_chn_dst MMFChn
+	Bind_dst    MMFBindDest
+}

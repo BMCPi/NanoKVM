@@ -37,6 +37,20 @@ typedef uint32_t VB_POOL;
 #include <linux/cvi_comm_vpss.h>
 #include <linux/cvi_comm_vi.h>
 #include <linux/cvi_comm_sys.h>
+#include <linux/cvi_base.h>
+#include <linux/vb_uapi.h>
+#include <linux/cif_uapi.h>
+#include <linux/vi_uapi.h>
+#include <linux/vpss_uapi.h>
+#include <linux/sys_uapi.h>
+
+// VIDEO_FRAME_INFO_EX_S is the SEND_FRAME ioctl argument. Like
+// VENC_STREAM_EX_S it lives only in the driver-private cvi_vc_drv.h, so
+// repeat it here. Keep in sync with cvi_vc_drv.h.
+typedef struct _VIDEO_FRAME_INFO_EX_S {
+	VIDEO_FRAME_INFO_S *pstFrame;
+	CVI_S32 s32MilliSec;
+} VIDEO_FRAME_INFO_EX_S;
 
 // VENC_STREAM_EX_S is the GET_STREAM/RELEASE_STREAM ioctl argument, but it is
 // declared in the driver-private cvi_vc_drv/cvi_vc_drv.h rather than anywhere
@@ -134,3 +148,93 @@ type VENCGopNormalP C.VENC_GOP_NORMALP_S
 type VENCStreamInfoH264 C.VENC_STREAM_INFO_H264_S
 
 type VENCStreamAdvanceInfoH264 C.VENC_STREAM_ADVANCE_INFO_H264_S
+
+// --- base/vb: physically contiguous frame buffers ---
+//
+// The encoder reads frames by physical address out of the ION carveout, so
+// anything feeding it from userspace has to allocate through VB rather than
+// with make([]byte). vb_ext_control is the envelope every VB command travels
+// in: IOCTL_VB_CMD on /dev/cvi-base, with id naming the VB_IOCTL and the union
+// carrying a pointer to the command's own struct.
+
+type VBExtControl C.struct_vb_ext_control
+
+type VBPoolCfg C.struct_cvi_vb_pool_cfg
+
+type VBCfg C.struct_cvi_vb_cfg
+
+type VBBlkCfg C.struct_cvi_vb_blk_cfg
+
+type VBBlkInfo C.struct_cvi_vb_blk_info
+
+// VideoFrameInfoEx is the SEND_FRAME argument -- a pointer to a frame plus a
+// timeout, the same shape as VENCStreamEx.
+
+type VideoFrameInfoEx C.VIDEO_FRAME_INFO_EX_S
+
+// --- cif: the MIPI CSI-2 receiver in front of VI ---
+//
+// ComboDevAttr is what tells the receiver how to interpret the lanes coming
+// off the HDMI bridge. It is a union over MIPI/LVDS/parallel attributes, so
+// the MIPI half is named separately to be reachable.
+
+type ComboDevAttr C.struct_combo_dev_attr_s
+
+type MipiDevAttr C.struct_mipi_dev_attr_s
+
+type DPhy C.struct_dphy_s
+
+type MipiDemuxInfo C.struct_mipi_demux_info_s
+
+// Nested members of ComboDevAttr. Unused by this package but named because
+// godefs emits a dangling _Ctype_struct_ reference for any struct it reaches
+// through a field and cannot name.
+
+type MclkPll C.struct_mclk_pll_s
+
+type ImgSize C.struct_img_size_s
+
+type ManualWdrAttr C.struct_manual_wdr_attr_s
+
+// --- vi: capture device, pipe and channel ---
+//
+// VI has two command spaces over one pair of ioctls. VIExtControl.Id selects
+// an ISP-side VI_IOCTL, while SdkId selects a VI_SDK_CTRL -- the dev/pipe/chn
+// lifecycle this package drives. SdkCfg carries which dev, pipe and channel
+// the command applies to, plus the pointer to its own argument.
+
+type VIExtControl C.struct_vi_ext_control
+
+type VISdkCfg C.struct__vi_sdk_cfg
+
+type VIDevAttr C.VI_DEV_ATTR_S
+
+type VIPipeAttr C.VI_PIPE_ATTR_S
+
+type VIChnAttr C.VI_CHN_ATTR_S
+
+type VIWDRAttr C.VI_WDR_ATTR_S
+
+type VISyncCfg C.VI_SYNC_CFG_S
+
+type VITimingBlank C.VI_TIMING_BLANK_S
+
+// --- vpss: scaler and format converter ---
+
+type VPSSCreateGrpCfg C.struct_vpss_crt_grp_cfg
+
+type VPSSStartGrpCfg C.struct_vpss_str_grp_cfg
+
+type VPSSGrpAttrCfg C.struct_vpss_grp_attr
+
+type VPSSChnAttrCfg C.struct_vpss_chn_attr
+
+type VPSSEnChnCfg C.struct_vpss_en_chn_cfg
+
+// --- sys: wiring the stages together ---
+//
+// SysBindCfg is the whole reason the capture path never enters userspace:
+// binding VI -> VPSS -> VENC hands frames between stages inside the kernel,
+// and this process only ever sees the encoded bitstream at the end.
+
+type SysBindCfg C.struct_sys_bind_cfg
