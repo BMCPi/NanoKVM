@@ -82,22 +82,42 @@ var ErrNotPresent = errors.New("cvi: multimedia devices not present")
 // command that does embed a pointer (GET_STREAM, via VENCStreamEx.PstStream)
 // is handled in venc.go, which keeps the pointee alive across the call.
 func ioctl(f *os.File, req uintptr, arg unsafe.Pointer) error {
-	_, _, errno := unix.Syscall(unix.SYS_IOCTL, f.Fd(), req, uintptr(arg))
+	r1, _, errno := unix.Syscall(unix.SYS_IOCTL, f.Fd(), req, uintptr(arg))
 	// The argument is reachable only through a uintptr for the duration of
 	// the syscall, so pin it until the call returns.
 	runtime.KeepAlive(arg)
-	if errno != 0 {
-		return errno
-	}
-	return nil
+	return status(r1, errno)
 }
 
 // ioctlNoArg issues a request that takes no argument (DESTROY_CHN,
 // STOP_RECV_FRAME, ...). The driver ignores arg entirely for these.
 func ioctlNoArg(f *os.File, req uintptr) error {
-	_, _, errno := unix.Syscall(unix.SYS_IOCTL, f.Fd(), req, 0)
+	r1, _, errno := unix.Syscall(unix.SYS_IOCTL, f.Fd(), req, 0)
+	return status(r1, errno)
+}
+
+// status turns an ioctl return into an error.
+//
+// Both halves matter. errno covers the kernel's own failures (a bad fd, a
+// command the driver does not implement). The return value covers the vendor
+// API's, because these handlers return CVI_S32 rather than a negative errno:
+// cvi_vc_drv_venc_ioctl() ends every case with `return s32Ret`, where s32Ret is
+// CVI_SUCCESS or a packed code such as 0xC0078005. Linux only maps a return
+// into errno when it falls in [-4095, -1], and a vendor code does not, so the
+// syscall reports success and delivers the failure as r1.
+//
+// This is not theoretical: creating a VENC channel and then reading its
+// attributes back appeared to succeed while the driver was logging
+// "s32Ret = -1073250299" (venc: resource does not exist) for the same call.
+// Anything checking errno alone silently believes the pipeline came up.
+func status(r1 uintptr, errno unix.Errno) error {
 	if errno != 0 {
 		return errno
+	}
+	// The driver's CVI_S32 is sign-extended into a long on the way out, so
+	// take the low word back as int32 to recover the packed code.
+	if code := int32(uint32(r1)); code != 0 {
+		return Errno(code)
 	}
 	return nil
 }
