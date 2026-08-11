@@ -17,6 +17,8 @@ func Register(api *gin.RouterGroup, d *deps.Deps) {
 	api.GET("/vm/gpio", service.GetGpio)           // get gpio
 	api.GET("/vm/gpio/events", service.StreamGpio) // stream power state (SSE)
 
+	api.GET("/vm/video", service.Video) // WebRTC signaling for the HDMI console
+
 	api.GET("/vm/terminal", service.Terminal)                // web terminal (host serial console)
 	api.GET("/vm/terminal/capture", service.TerminalCapture) // persisted serial capture (host boot logs)
 	api.GET("/vm/shell", service.Shell)                      // web terminal (BMC shell)

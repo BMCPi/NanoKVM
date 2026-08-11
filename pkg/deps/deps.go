@@ -22,6 +22,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 	"github.com/pi-bmc/nanokvm-app/pkg/power"
+	"github.com/pi-bmc/nanokvm-app/pkg/video/rtc"
 )
 
 // Deps holds the process-wide subsystem controllers built once at startup.
@@ -29,6 +30,13 @@ type Deps struct {
 	Config   *config.Config
 	Power    *power.Controller
 	Firmware *firmware.Controller
+
+	// Video is the WebRTC hub over the HDMI capture pipeline. It is nil on a
+	// board with no capture hardware, or when the pipeline failed to
+	// initialize -- the rest of the BMC (Redfish, IPMI, the serial console)
+	// has to keep working in that case, so handlers check for nil rather
+	// than the server refusing to start.
+	Video *rtc.Hub
 }
 
 type ctxKey struct{}

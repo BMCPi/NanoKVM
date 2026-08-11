@@ -14,7 +14,10 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/insomniacslk/dhcp v0.0.0-20260728151720-c308df0fdcef
 	github.com/mervick/aes-everywhere/go/aes256 v0.0.0-20240803013625-6759956693c0
+	github.com/pion/interceptor v0.1.47
 	github.com/pion/mdns/v2 v2.1.0
+	github.com/pion/rtcp v1.2.17
+	github.com/pion/webrtc/v4 v4.2.18
 	github.com/prometheus/client_golang v1.23.2
 	github.com/siderolabs/go-smbios v0.3.4
 	github.com/sirupsen/logrus v1.9.4
@@ -88,7 +91,18 @@ require (
 	github.com/natefinch/atomic v1.0.1 // indirect
 	github.com/pelletier/go-toml/v2 v2.3.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.26 // indirect
+	github.com/pion/datachannel v1.6.2 // indirect
+	github.com/pion/dtls/v3 v3.1.5 // indirect
+	github.com/pion/ice/v4 v4.4.0 // indirect
 	github.com/pion/logging v0.2.4 // indirect
+	github.com/pion/randutil v0.1.0 // indirect
+	github.com/pion/rtp v1.10.5 // indirect
+	github.com/pion/sctp v1.11.1 // indirect
+	github.com/pion/sdp/v3 v3.0.19 // indirect
+	github.com/pion/srtp/v3 v3.0.12 // indirect
+	github.com/pion/stun/v3 v3.1.6 // indirect
+	github.com/pion/transport/v4 v4.0.2 // indirect
+	github.com/pion/turn/v5 v5.0.12 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pkg/xattr v0.4.12 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
@@ -108,6 +122,7 @@ require (
 	github.com/u-root/uio v0.0.0-20230220225925-ffce2a382923 // indirect
 	github.com/ugorji/go/codec v1.3.1 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
+	github.com/wlynxg/anet v0.0.5 // indirect
 	go.mongodb.org/mongo-driver/v2 v2.5.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
@@ -118,6 +133,7 @@ require (
 	golang.org/x/mod v0.34.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/text v0.36.0 // indirect
+	golang.org/x/time v0.14.0 // indirect
 	golang.org/x/tools v0.43.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260401024825-9d38bb4040a9 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260401024825-9d38bb4040a9 // indirect

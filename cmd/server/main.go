@@ -31,10 +31,13 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/timesync"
 	"github.com/pi-bmc/nanokvm-app/pkg/usbgadget"
 	"github.com/pi-bmc/nanokvm-app/pkg/utils"
+	"github.com/pi-bmc/nanokvm-app/pkg/video"
+	"github.com/pi-bmc/nanokvm-app/pkg/video/rtc"
 	"github.com/pi-bmc/nanokvm-app/ui"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/pion/webrtc/v4"
 )
 
 // Set by goreleaser ldflags.
@@ -52,6 +55,10 @@ var (
 	// in initialize() and shared by run() (via deps.Deps) and the IPMI server.
 	powerCtrl *power.Controller
 	fwCtrl    *firmware.Controller
+
+	// videoHub is the WebRTC hub over the HDMI capture pipeline, or nil on a
+	// device with no capture hardware.
+	videoHub *rtc.Hub
 
 	// instanceLock holds the abstract unix socket that marks this process as
 	// THE server instance; the kernel releases it on any exit path.
@@ -128,6 +135,7 @@ func initialize(ctx context.Context) {
 	cfg := config.GetInstance()
 	powerCtrl = power.NewController(cfg.Hardware, cfg.Power)
 	fwCtrl = firmware.NewController(cfg)
+	videoHub = newVideoHub(cfg)
 
 	// Start IPMI server on standard port 623
 	srv, err := ipmi.Start(623, powerCtrl, fwCtrl)
@@ -230,7 +238,7 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 	// Telemetry first so the otelgin middleware wraps every route, then the
 	// UI (which installs the templ HTML renderer with gin's default as
 	// fallback), then every API sub-router.
-	d := &deps.Deps{Config: conf, Power: powerCtrl, Firmware: fwCtrl}
+	d := &deps.Deps{Config: conf, Power: powerCtrl, Firmware: fwCtrl, Video: videoHub}
 	telemetry.Routes(r)
 	ui.Register(r, d)
 	api.Register(r, d)
@@ -293,7 +301,55 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 	return nil
 }
 
+// newVideoHub builds the WebRTC hub over this board's HDMI capture pipeline.
+//
+// The SG2002 backend (pkg/video/cvi) currently provides the ioctl bindings but
+// not yet a video.Capturer over them, so the null implementation is what gets
+// wired today: the hub builds, /api/vm/video stays registered, and a session
+// fails with video.ErrNotSupported saying why -- which the UI can tell apart
+// from a server fault, unlike a missing route. Swapping in the real capturer
+// here is the only change this function needs.
+func newVideoHub(cfg *config.Config) *rtc.Hub {
+	capturer := video.Capturer(&video.Unsupported{})
+
+	hub, err := rtc.NewHub(capturer, rtc.Options{
+		ICEServers: iceServers(cfg),
+		// Everything but the codec is left at the pipeline's own defaults;
+		// H.264 is pinned because it is the one codec every browser
+		// decodes, and rtc.Hub fixes the track codec at construction.
+		Capture: video.Config{Codec: video.CodecH264},
+	})
+	if err != nil {
+		log.Printf("video: hub init: %v", err)
+		return nil
+	}
+	return hub
+}
+
+// iceServers maps the configured STUN/TURN servers onto pion's form. Both are
+// empty by default -- see pkg/config/default.go for why a management controller
+// does not contact a public STUN server on its own.
+func iceServers(cfg *config.Config) []webrtc.ICEServer {
+	var servers []webrtc.ICEServer
+	if cfg.Stun != "" {
+		servers = append(servers, webrtc.ICEServer{URLs: []string{"stun:" + cfg.Stun}})
+	}
+	if cfg.Turn.TurnAddr != "" {
+		servers = append(servers, webrtc.ICEServer{
+			URLs:       []string{"turn:" + cfg.Turn.TurnAddr},
+			Username:   cfg.Turn.TurnUser,
+			Credential: cfg.Turn.TurnCred,
+		})
+	}
+	return servers
+}
+
 func dispose() {
+	if videoHub != nil {
+		if err := videoHub.Close(); err != nil {
+			log.Printf("video: hub close: %v", err)
+		}
+	}
 	autoupdate.Stop()
 	serial.StopCapture()
 	sshd.Stop()

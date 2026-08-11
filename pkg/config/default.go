@@ -33,7 +33,14 @@ var defaultConfig = &Config{
 		RefreshTokenDuration: 2678400,
 		RevokeTokensOnLogout: true,
 	},
-	Stun: "stun.l.google.com:19302",
+	// No STUN server by default. This field was inherited from upstream
+	// NanoKVM, whose console is reachable over the internet through their
+	// relay; a BMC and its operator share a management network, where WebRTC
+	// connects on host candidates alone. Defaulting to a public server would
+	// have every console session announce this device to a third party for no
+	// benefit on the network it is deployed on. Set it (and Turn below) when
+	// the BMC really is behind NAT from its operators.
+	Stun: "",
 	Turn: Turn{
 		TurnAddr: "",
 		TurnUser: "",
@@ -223,9 +230,9 @@ func checkDefaultValue() {
 		instance.JWT.RefreshTokenDuration = 2678400
 	}
 
-	if instance.Stun == "" {
-		instance.Stun = "stun.l.google.com:19302"
-	}
+	// Stun is deliberately not defaulted here: empty means "LAN only", which
+	// is the right answer for a management controller, and filling it in
+	// would make an unset key indistinguishable from an opt-in.
 
 	if instance.Authentication == "" {
 		instance.Authentication = "enable"
