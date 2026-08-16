@@ -60,6 +60,18 @@ const (
 	Yuv422_8Bit uint32 = 3
 	// MipiWdrModeNone: no wide-dynamic-range multiplexing.
 	MipiWdrModeNone uint32 = 0
+
+	// RxMacClk600M is RX_MAC_CLK_600M (rx_mac_clk_e, cif_uapi.h).
+	//
+	// Note that zero in this enum is not "unset" but RX_MAC_CLK_200M, which
+	// is nowhere near enough for 1080p YUV422 -- leaving the field alone
+	// silently clocks the receiver too slowly to lock.
+	RxMacClk600M uint32 = 4
+
+	// DPhyHsSettle is the D-PHY HS settle time the vendor uses for this
+	// bridge. It is a receiver-side timing parameter, not a bridge one: it
+	// says how long to wait after the lanes leave LP mode before sampling.
+	DPhyHsSettle uint8 = 8
 )
 
 // Module ids from MOD_ID_E, needed to name the endpoints of a bind.
@@ -121,26 +133,44 @@ func (m *MipiRx) devCmd(nr uintptr, dev uint32, what string) error {
 // LT6911ComboAttr builds the receiver configuration for the LT6911 HDMI
 // bridge on this board.
 //
-// Lane mapping is the one value not derivable from the headers: it describes
-// how the bridge's CSI lanes are physically routed to the SoC's pads, so it
-// comes from the board, not the part. This is the straight-through order --
-// clock on lane 0, data on 1..4, no PN swaps -- which is the common layout and
-// the one to change first if the receiver reports ECC or CRC errors while the
-// bridge itself reports a locked signal.
+// Transcribed from lt6911_rx_attr in Sipeed's LicheeRV-Nano-Build, middleware
+// component isp/sensor/cv182x/lontium_lt6911/lt6911_cmos_param.h. That is the
+// authoritative copy: the sensor driver's sensor_patch_rx_attr() only ever
+// overrides lane_id, pn_swap and mclk from the board's RX_INIT_ATTR, so every
+// other field here is the vendor's own value for this exact part.
 func LT6911ComboAttr(dev uint32) *ComboDevAttr {
 	var attr ComboDevAttr
 
 	attr.Input_mode = InputModeMipi
 	attr.Devno = dev
 
+	// Zero in rx_mac_clk_e is RX_MAC_CLK_200M, not "leave it alone". The
+	// receiver has to be clocked fast enough for the pixel rate it is being
+	// handed, and at 200M a 1080p YUV422 stream never locks -- which presents
+	// as a receiver that takes no interrupts at all rather than as an error.
+	attr.Mac_clk = RxMacClk600M
+
 	mipi := &attr.Mipi_attr
 	mipi.Raw_data_type = Yuv422_8Bit
 	mipi.Wdr_mode = MipiWdrModeNone
 
-	// lane_id[0] is the clock lane; the rest are data. -1 marks an unused
-	// lane, which is how a 2-lane routing would be spelled.
-	mipi.Lane_id = [5]int16{0, 1, 2, 3, 4}
+	// lane_id[0] is the clock lane; the rest are data. This is NOT the
+	// straight-through order it looks like it should be -- it is how the
+	// bridge's lanes are physically routed to the SoC's pads on this board,
+	// and the vendor header carries a trail of the other permutations that
+	// were tried before this one. It cannot be derived from anything; it has
+	// to be copied.
+	mipi.Lane_id = [5]int16{2, 4, 3, 1, 0}
 	mipi.Pn_swap = [5]uint8{0, 0, 0, 0, 0}
+
+	// The D-PHY block has to be enabled explicitly, with a settle time. Left
+	// at zero the receiver samples the lanes at the wrong moment coming out
+	// of LP mode and never achieves sync.
+	mipi.Dphy.Enable = 1
+	mipi.Dphy.Settle = DPhyHsSettle
+
+	// mclk stays zero: cam 0 with CAMPLL_FREQ_NONE. The bridge runs from its
+	// own crystal, so the SoC drives no sensor master clock here.
 
 	return &attr
 }
