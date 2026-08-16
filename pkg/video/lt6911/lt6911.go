@@ -45,8 +45,9 @@ const i2cSlave = 0x0703
 const (
 	regBank = 0xFF // bank select, valid in every bank
 
-	bankEnable = 0x80 // holds the I2C-access enable
-	regEnable  = 0xEE // 0x01 opens register access, 0x00 closes it
+	bankEnable  = 0x80 // holds the I2C-access enable
+	regEnable   = 0xEE // 0x01 opens register access, 0x00 closes it
+	regWatchdog = 0x10 // 0x00 stops the bridge's internal watchdog
 
 	// Input timing and lock status.
 	//
@@ -169,7 +170,21 @@ func (b *Bridge) setEnabled(on bool) error {
 	if on {
 		v = 0x01
 	}
-	return b.write(regEnable, v)
+	if err := b.write(regEnable, v); err != nil {
+		return err
+	}
+	if !on {
+		return nil
+	}
+
+	// Stop the bridge's watchdog while its registers are open.
+	//
+	// Sipeed's driver does this for the C variant and it is not cosmetic: a
+	// running watchdog resets the bridge's firmware periodically, which
+	// re-acquires HDMI lock each time and can leave the CSI transmitter
+	// never reaching a steady state -- exactly the "HDMI locked, lanes idle"
+	// shape seen on this board.
+	return b.write(regWatchdog, 0x00)
 }
 
 // Signal describes what the bridge currently sees on its HDMI input.
