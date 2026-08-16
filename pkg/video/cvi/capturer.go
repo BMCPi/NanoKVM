@@ -107,6 +107,10 @@ type Capturer struct {
 	// whoever put it there.
 	ownedModules []string
 
+	// Puts the kernel console loglevel back as it was; never nil once Open
+	// has returned. See quietKernelConsole.
+	restoreConsole func()
+
 	cfg     video.Config
 	started bool
 	closed  bool
@@ -149,6 +153,11 @@ func Open(i2cDevice string) (*Capturer, error) {
 			c.closeDevices()
 		}
 	}()
+
+	// Before the drivers, not after: they start reporting back-pressure the
+	// moment a pipeline runs, and at 60 KERN_ERR a second that reporting is
+	// itself capable of taking the board down. See quietKernelConsole.
+	c.restoreConsole = quietKernelConsole()
 
 	// The media drivers first: none of the devices below exists until they
 	// are inserted, and nothing else on the system loads them.
@@ -317,6 +326,12 @@ func (c *Capturer) closeDevices() {
 		}
 		c.ownedModules = nil
 	}
+
+	// Last, once nothing is left that could still be spamming.
+	if c.restoreConsole != nil {
+		c.restoreConsole()
+		c.restoreConsole = nil
+	}
 }
 
 // supervise follows the input signal, building and rebuilding the pipeline to
@@ -415,6 +430,12 @@ func (c *Capturer) rebuild(w, h int) {
 
 	spec := c.specLocked(w, h)
 	if err := c.bringUp(spec); err != nil {
+		// Log as well as publish. The published state reaches the UI as
+		// "not ready", which is indistinguishable from having no cable
+		// attached -- so without this a pipeline that fails every time
+		// looks exactly like a host that is switched off.
+		log.Printf("cvi: bring-up failed at %dx%d: %v", w, h, err)
+
 		// Leave nothing half-built: a partially assembled pipeline is
 		// what turns the next attempt's "already inited" into a
 		// permanent failure.
@@ -422,6 +443,7 @@ func (c *Capturer) rebuild(w, h int) {
 		c.publish(video.State{Err: err.Error()})
 		return
 	}
+	log.Printf("cvi: pipeline up, %dx%d in, %dx%d out at %dfps", w, h, spec.outW, spec.outH, spec.fps)
 
 	c.runW, c.runH = w, h
 	c.publish(video.State{
