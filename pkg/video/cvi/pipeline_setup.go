@@ -109,6 +109,15 @@ func (c *Capturer) bringUp(s pipeSpec) error {
 	if err := c.setupVIPipe(s); err != nil {
 		return err
 	}
+
+	// VI has no DMA memory of its own until it is given some, and it does not
+	// complain when it has none -- it just never completes a frame. This has
+	// to follow the pipe attributes, because the driver sizes the pool by
+	// dry-running its own allocation against the configured scene.
+	if err := c.setupISPMem(); err != nil {
+		return err
+	}
+
 	if err := c.setupVPSS(s); err != nil {
 		return err
 	}
@@ -488,6 +497,11 @@ func (c *Capturer) teardown() error {
 		fail(c.vi.DisableDev(viDev))
 		c.devEnabled = false
 	}
+
+	// Return VI's DMA pool once the device that writes into it is disabled,
+	// and not before -- the carveout is small enough that leaking a pool per
+	// mode change would exhaust it.
+	fail(c.releaseISPMem())
 
 	fail(c.mipi.DisableClock(mipiDev))
 

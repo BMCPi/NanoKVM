@@ -97,6 +97,11 @@ type Capturer struct {
 	viChnEnabled   bool
 	devEnabled     bool
 
+	// VI's DMA working memory, held for as long as the pipeline is up. Zero
+	// means nothing is allocated; see setupISPMem.
+	ispBufPaddr uint64
+	ispBufSize  uint32
+
 	cfg     video.Config
 	started bool
 	closed  bool
