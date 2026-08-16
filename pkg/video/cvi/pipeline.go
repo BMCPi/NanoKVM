@@ -192,9 +192,22 @@ func (v *VI) Close() error {
 	return err
 }
 
+// viIOCTLSdkCtrl is VI_IOCTL_SDK_CTRL, the 49th member of enum VI_IOCTL
+// (vi_uapi.h). It is the outer selector: vi_ext_control carries two command
+// fields, and the driver dispatches on Id first, only reading Sdk_id once Id
+// says this is an SDK call.
+//
+// Leaving Id at zero does not fail -- zero is VI_IOCTL_ONLINE, a real command --
+// so the ioctl returns success having set the online-mode flag from whatever
+// happened to be in the struct, and every SetDevAttr/CreatePipe/EnableChn is
+// silently discarded. The symptom is a pipeline that builds without error and
+// produces no frames, with VI's proc tables empty.
+const viIOCTLSdkCtrl uint32 = 48
+
 // sdk issues one VI_SDK_CTRL command against a dev/pipe/chn triple.
 func (v *VI) sdk(id uint32, dev, pipe, chn int32, ptr unsafe.Pointer, val int32, what string) error {
 	ctl := VIExtControl{
+		Id:     viIOCTLSdkCtrl,
 		Sdk_id: id,
 		Sdk_cfg: VISdkCfg{
 			Dev:  dev,
