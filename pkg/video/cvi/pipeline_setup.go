@@ -94,10 +94,17 @@ func (c *Capturer) bringUp(s pipeSpec) error {
 	// of reset, and before VI starts looking for data. Nothing downstream
 	// starts the transmitter for us -- without this the whole pipeline builds
 	// correctly and VI never takes a single interrupt.
-	if err := c.bridge.StartOutput(); err != nil {
-		return err
+	// Sipeed's own bring-up writes no bridge register at all -- lt6911_probe()
+	// is the pad mux plus an i2c open, and lt6911_init() is the open on its
+	// own -- so on this board the transmitter is expected to free-run. Every
+	// write here costs a window open, which halts the firmware driving that
+	// transmitter, immediately before VI starts looking for data.
+	if _, skip := envUint("NANOKVM_NO_TX_START"); !skip {
+		if err := c.bridge.StartOutput(); err != nil {
+			return err
+		}
+		c.txStarted = true
 	}
-	c.txStarted = true
 
 	if err := c.setupVIPipe(s); err != nil {
 		return err

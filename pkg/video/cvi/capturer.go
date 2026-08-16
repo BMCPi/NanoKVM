@@ -9,6 +9,7 @@ package cvi
 import (
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -146,6 +147,20 @@ func Open(i2cDevice string) (*Capturer, error) {
 	// except while a read is in flight, because holding it open takes the part
 	// away from its own firmware and the CSI transmitter goes idle with it.
 	// Signal brackets its own window; nothing else here needs one.
+
+	// Give the bridge an EDID if it has none. The host picks its output mode
+	// from what the bridge advertises, and this part ships from the factory
+	// with its EDID storage erased, so without this the host is guessing.
+	//
+	// Not fatal: a bridge with no EDID still locks whatever the host decides
+	// to send, so failing to program one is a degraded mode rather than a
+	// reason to refuse to capture. It is also a flash erase/write, so it only
+	// happens when what is stored is not a valid EDID.
+	if wrote, edidErr := c.bridge.EnsureEDID(); edidErr != nil {
+		log.Printf("cvi: bridge EDID: %v", edidErr)
+	} else if wrote {
+		log.Printf("cvi: bridge EDID was blank or invalid, programmed the default")
+	}
 	if c.base, err = OpenBase(); err != nil {
 		return nil, err
 	}
