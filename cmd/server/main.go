@@ -206,6 +206,12 @@ func initialize(ctx context.Context) {
 // context is cancelled; connections still open after it are closed hard.
 const shutdownTimeout = 10 * time.Second
 
+// disposeTimeout bounds subsystem cleanup after the drain. It is deliberately
+// shorter than the drain: by this point nothing is being served, so time spent
+// here is time the supervisor cannot use to restart a process that has already
+// decided to exit. See dispose.
+const disposeTimeout = 5 * time.Second
+
 func run(ctx context.Context, stop context.CancelFunc) error {
 	// Hold the HTTP/HTTPS listeners until the initial interface configuration
 	// pass has been applied (eth0 addressing attempted, RHI address asserted).
@@ -351,7 +357,51 @@ func iceServers(cfg *config.Config) []webrtc.ICEServer {
 	return servers
 }
 
+// dispose releases every subsystem, and gives up if that takes too long.
+//
+// The bound is the point. Cleanup runs in series, video first, and closing the
+// video hub joins the capture supervisor -- which may be part-way through
+// bringing a pipeline up, inside an ioctl on a driver that has stopped
+// answering. There is no way to interrupt that from here, so an unbounded
+// dispose means the process simply never exits.
+//
+// Which is worse than it sounds, because the subsystems that would have been
+// stopped *after* video never are. The observed shape of this was an app that
+// logged "draining requests", kept accepting SSH connections, and ignored
+// every SIGTERM after -- so `killall NanoKVM-Server` looked like it did
+// nothing and the supervisor never got the chance to restart it.
+//
+// Exiting with a subsystem un-stopped is fine here in a way it would not be in
+// a general-purpose program: this process is supervised and about to be
+// replaced, and the kernel reclaims descriptors, mappings and modules on exit
+// regardless of whether we asked nicely first.
 func dispose() {
+	if !runBounded(disposeTimeout, disposeAll) {
+		log.Printf("shutdown: cleanup still running after %s, exiting anyway", disposeTimeout)
+	}
+}
+
+// runBounded runs fn and reports whether it finished within timeout.
+//
+// On expiry fn is abandoned rather than cancelled -- it is blocked in a syscall
+// that will not return, which is the whole reason for the bound -- so this is
+// only sound where the caller is about to exit the process.
+func runBounded(timeout time.Duration, fn func()) bool {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		fn()
+	}()
+
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+func disposeAll() {
 	if videoHub != nil {
 		if err := videoHub.Close(); err != nil {
 			log.Printf("video: hub close: %v", err)

@@ -577,5 +577,15 @@ func (c *Capturer) teardown() error {
 		fail(c.bridge.StopOutput())
 		c.txStarted = false
 	}
+
+	// Then hand the VI device back, which is the only way to reach the driver's
+	// own release path: it is what drops the MAC clock this bring-up took, and
+	// what lets the next one program a new frame size. See VI.Recycle. This is
+	// last because it is only correct once everything above has been unwound --
+	// the driver tears its state down on the way through, and anything still
+	// holding a pipe or a channel would be doing so against state that has just
+	// been freed.
+	fail(c.vi.Recycle())
+
 	return firstErr
 }

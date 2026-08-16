@@ -230,6 +230,57 @@ func (v *VI) Close() error {
 	return err
 }
 
+// Recycle closes the device and opens it again.
+//
+// This looks like a no-op and is not. The VI driver hangs a good deal of
+// one-time work off the transition of its open count through zero, and the
+// half of that work which is supposed to undo the other half is reachable
+// *only* that way:
+//
+//	vi_open    count 0 -> 1   _vi_clk_ctrl(true), vi_init(), _vi_sw_init()
+//	vi_release count 1 -> 0   _vi_sdk_release(), _vi_release_op()
+//
+// Two things follow from that, and both bite a process which -- like this one
+// -- holds the device open for its lifetime and builds the pipeline many times
+// over.
+//
+// The MAC clock leaks. vi_enable_dev calls vi_mac_clk_ctrl(dev, true) on every
+// enable (vi_sdk_layer.c:294), and the only matching false is in
+// _vi_release_op. Disabling the device does not undo it. So clk_csi_mac0_vip's
+// enable count climbs by one per bring-up and never falls -- 15, 22, 32 over a
+// morning's testing -- and the clock can never actually go idle.
+//
+// And the ISP keeps the first frame size it was ever given. _vi_ctrl_init
+// returns early once is_ctrl_inited is set (vi.c:2485), and that flag is
+// cleared only in _vi_sw_init. Since it is _vi_ctrl_init that programs
+// csibdg_width from the sensor info, a host switching from 1080p to 720p would
+// leave the CSI bridge still checking frames against 1920x1080 -- the same
+// mismatch that the bridge reports as "frm width less than setting", just with
+// a stale number instead of a zero.
+//
+// Recycling the descriptor at the end of teardown makes the driver's lifetime
+// match the pipeline's, which is what it was written to expect. It is safe
+// only once nothing else holds this device: the counter is global to the
+// driver, so an open descriptor anywhere keeps the release path from running
+// and turns this into a genuine no-op rather than a broken one.
+func (v *VI) Recycle() error {
+	if v.f == nil {
+		return nil
+	}
+	if err := v.f.Close(); err != nil {
+		v.f = nil
+		return fmt.Errorf("cvi: vi recycle: close: %w", err)
+	}
+	v.f = nil
+
+	f, err := openDev(VIDev)
+	if err != nil {
+		return fmt.Errorf("cvi: vi recycle: reopen: %w", err)
+	}
+	v.f = f
+	return nil
+}
+
 // viIOCTLSdkCtrl is VI_IOCTL_SDK_CTRL, the 49th member of enum VI_IOCTL
 // (vi_uapi.h). It is the outer selector: vi_ext_control carries two command
 // fields, and the driver dispatches on Id first, only reading Sdk_id once Id
