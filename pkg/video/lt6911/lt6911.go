@@ -277,3 +277,21 @@ func (b *Bridge) ReadBank(bank, reg byte, n int) ([]byte, error) {
 	}
 	return b.read(reg, n)
 }
+
+// WriteBank sets one register in a bank. It is the write half of ReadBank and
+// exists for the same reason: with no datasheet, confirming what a register
+// does means writing it and watching what the rest of the system reports.
+//
+// It is deliberately not wrapped in a friendlier name. Everything this package
+// does routinely has its own method; a caller reaching for a raw bank write is
+// doing something whose effect is not yet understood, and the call site should
+// say so.
+func (b *Bridge) WriteBank(bank, reg, val byte) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if err := b.selectBank(bank); err != nil {
+		return err
+	}
+	return b.write(reg, val)
+}
