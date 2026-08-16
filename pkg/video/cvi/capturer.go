@@ -102,6 +102,11 @@ type Capturer struct {
 	ispBufPaddr uint64
 	ispBufSize  uint32
 
+	// The media modules this process inserted, in load order. Only these are
+	// unloaded on the way out -- anything that was already there belongs to
+	// whoever put it there.
+	ownedModules []string
+
 	cfg     video.Config
 	started bool
 	closed  bool
@@ -144,6 +149,12 @@ func Open(i2cDevice string) (*Capturer, error) {
 			c.closeDevices()
 		}
 	}()
+
+	// The media drivers first: none of the devices below exists until they
+	// are inserted, and nothing else on the system loads them.
+	if c.ownedModules, err = loadMediaModules(); err != nil {
+		return nil, err
+	}
 
 	if c.bridge, err = lt6911.Open(i2cDevice); err != nil {
 		return nil, err
@@ -295,6 +306,16 @@ func (c *Capturer) closeDevices() {
 		},
 	} {
 		_ = closer()
+	}
+
+	// Modules last, once every descriptor into them is closed -- delete_module
+	// fails on a module that is still in use, and a device left open here
+	// would be exactly that.
+	if len(c.ownedModules) > 0 {
+		if err := unloadMediaModules(c.ownedModules); err != nil {
+			log.Printf("cvi: %v", err)
+		}
+		c.ownedModules = nil
 	}
 }
 
