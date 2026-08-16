@@ -55,17 +55,27 @@ type SysIonData struct {
 	Name     [32]byte
 }
 
-// ctl issues a plain (non-SDK) VI ioctl.
+// The two VI control entry points. They are not interchangeable: vi_ioctl
+// dispatches G_CTRL to _vi_g_ctrl and S_CTRL to _vi_s_ctrl, and each knows
+// only its own half of enum VI_IOCTL. Sending a get through the setter does
+// not fail loudly -- it falls through that handler's default and comes back as
+// EINVAL, which reads like a bad argument rather than a wrong door.
+const (
+	viIOCGetCtrl uintptr = 0x20 // VI_IOC_G_CTRL  -> _vi_g_ctrl
+	viIOCSetCtrl uintptr = 0x21 // VI_IOC_S_CTRL  -> _vi_s_ctrl
+)
+
+// ctl issues a plain (non-SDK) VI ioctl through the given entry point.
 //
 // The control's trailing union is a value or a pointer depending on the
 // command, and cgo renders it as an int32 plus padding. Writing a pointer
 // therefore means writing all eight bytes, not just the int32 half.
-func (v *VI) ctl(id uint32, ptr unsafe.Pointer, value int32) (int32, error) {
+func (v *VI) ctl(base uintptr, id uint32, ptr unsafe.Pointer, value int32) (int32, error) {
 	ctl := VIExtControl{Id: id, Value: value}
 	if ptr != nil {
 		*(*uint64)(unsafe.Pointer(&ctl.Value)) = uint64(uintptr(ptr))
 	}
-	req := ioc(iocRead|iocWrite, 'V', 0x21, unsafe.Sizeof(VIExtControl{}))
+	req := ioc(iocRead|iocWrite, 'V', base, unsafe.Sizeof(VIExtControl{}))
 	if err := ioctl(v.f, req, unsafe.Pointer(&ctl)); err != nil {
 		return 0, err
 	}
@@ -77,13 +87,19 @@ func (v *VI) ctl(id uint32, ptr unsafe.Pointer, value int32) (int32, error) {
 // The answer depends on the configured scene -- the driver dry-runs its own
 // allocation against the current pipe setup and reports the total -- so this
 // has to be called after the device and pipe attributes are set, not before.
+// Zero is a legitimate answer, not a failure. For a YUV source the driver
+// takes the bypass path in _vi_pre_fe_get_dma_size and, with an offline
+// scaler, allocates nothing at all -- frames land in VB blocks instead. Only a
+// raw Bayer sensor, or a YUV source feeding the scaler online, needs this
+// pool. So "VI total reserved memory(0x0)" is the expected reading for this
+// pipeline rather than the smoking gun it looks like.
 func (v *VI) ISPBufSize() (uint32, error) {
-	size, err := v.ctl(viIOCTLGetBufSize, nil, 0)
+	size, err := v.ctl(viIOCGetCtrl, viIOCTLGetBufSize, nil, 0)
 	if err != nil {
 		return 0, fmt.Errorf("cvi: vi get isp buf size: %w", err)
 	}
-	if size <= 0 {
-		return 0, fmt.Errorf("cvi: vi reported isp buf size %d", size)
+	if size < 0 {
+		return 0, fmt.Errorf("cvi: vi reported a negative isp buf size %d", size)
 	}
 	return uint32(size), nil
 }
@@ -91,7 +107,7 @@ func (v *VI) ISPBufSize() (uint32, error) {
 // SetISPDMABuf gives the driver the pool its DMA engines write into.
 func (v *VI) SetISPDMABuf(paddr uint64, size uint32) error {
 	info := VIDMABufInfo{Paddr: paddr, Size: size}
-	if _, err := v.ctl(viIOCTLSetDMABufInfo, unsafe.Pointer(&info), 0); err != nil {
+	if _, err := v.ctl(viIOCSetCtrl, viIOCTLSetDMABufInfo, unsafe.Pointer(&info), 0); err != nil {
 		return fmt.Errorf("cvi: vi set isp dma buf: %w", err)
 	}
 	return nil
@@ -133,6 +149,10 @@ func (c *Capturer) setupISPMem() error {
 	size, err := c.vi.ISPBufSize()
 	if err != nil {
 		return err
+	}
+	if size == 0 {
+		// Nothing to do, and nothing wrong: see ISPBufSize.
+		return nil
 	}
 
 	paddr, _, err := c.sys.IonAlloc(size, ionBufName)
