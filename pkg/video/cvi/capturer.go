@@ -75,6 +75,7 @@ type Capturer struct {
 	// Stage-by-stage record of what has actually been brought up, so
 	// teardown only unwinds what exists. A partial bring-up that failed
 	// halfway is the common case here, not an edge case.
+	txStarted      bool
 	boundViVpss    bool
 	boundVpssVenc  bool
 	pipeStarted    bool

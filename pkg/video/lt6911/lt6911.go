@@ -49,6 +49,22 @@ const (
 	regEnable   = 0xEE // 0x01 opens register access, 0x00 closes it
 	regWatchdog = 0x10 // 0x00 stops the bridge's internal watchdog
 
+	// Output control, in the same bank as the enable.
+	//
+	// This is what puts the bridge's CSI-2 transmitter on the lanes. Nothing
+	// starts it implicitly -- a bridge that is locked to a source and has
+	// correct timing in its registers still transmits nothing until this is
+	// written, which reads downstream as a perfectly configured VI that never
+	// takes an interrupt.
+	//
+	// From sipeed/NanoKVM's kvm_system lib/hdmi/hdmi.cpp, which is a different
+	// file from the kvm_vision.cpp the rest of this package follows -- and the
+	// reason this took a while to find, because kvm_vision.cpp contains no
+	// transmitter control at all.
+	regOutput = 0x5A
+	outputOn  = 0x80
+	outputOff = 0x88
+
 	// Lock status.
 	//
 	// This part answers as Sipeed's hdmi_version 1 (LT6911UXC): bank 0x86
@@ -211,6 +227,41 @@ func (b *Bridge) setEnabledLocked(on bool) error {
 	// mid-read returns a torn measurement. It is restored implicitly when the
 	// window closes and the part resumes running its own firmware.
 	return b.write(regWatchdog, 0x00)
+}
+
+// StartOutput puts the bridge's CSI-2 transmitter on the lanes.
+//
+// This has to happen before the receiver is expected to see anything, and it
+// does not follow from having a locked signal: the bridge will sit on a valid
+// 1080p input indefinitely with its lanes idle until told to transmit.
+//
+// Sipeed pairs this with StopOutput across a mode change (lt6911_reset is stop,
+// 1ms, start), so it is safe to call on an already-running transmitter.
+func (b *Bridge) StartOutput() error { return b.setOutput(outputOn) }
+
+// StopOutput takes the transmitter off the lanes.
+func (b *Bridge) StopOutput() error { return b.setOutput(outputOff) }
+
+// setOutput writes the output-control register inside its own register window.
+//
+// The window is opened and closed around the write for the same reason Signal
+// does it -- see Enable -- and because the register lives in the enable's own
+// bank, which is only reachable with the window open.
+func (b *Bridge) setOutput(v byte) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if err := b.setEnabledLocked(true); err != nil {
+		return err
+	}
+	defer func() { _ = b.setEnabledLocked(false) }()
+
+	// setEnabledLocked left bank 0x80 selected, which is where this register
+	// lives; re-select anyway so the write does not depend on that.
+	if err := b.selectBank(bankEnable); err != nil {
+		return err
+	}
+	return b.write(regOutput, v)
 }
 
 // Signal describes what the bridge is currently delivering.

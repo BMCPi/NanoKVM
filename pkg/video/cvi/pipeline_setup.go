@@ -76,6 +76,16 @@ func (c *Capturer) bringUp(s pipeSpec) error {
 	if err := c.setupMipi(s); err != nil {
 		return err
 	}
+
+	// Put the bridge on the lanes now that the receiver is configured and out
+	// of reset, and before VI starts looking for data. Nothing downstream
+	// starts the transmitter for us -- without this the whole pipeline builds
+	// correctly and VI never takes a single interrupt.
+	if err := c.bridge.StartOutput(); err != nil {
+		return err
+	}
+	c.txStarted = true
+
 	if err := c.setupVI(s); err != nil {
 		return err
 	}
@@ -445,5 +455,12 @@ func (c *Capturer) teardown() error {
 	}
 
 	fail(c.mipi.DisableClock(mipiDev))
+
+	// Take the bridge off the lanes last, once nothing downstream is still
+	// expecting data from it.
+	if c.txStarted {
+		fail(c.bridge.StopOutput())
+		c.txStarted = false
+	}
 	return firstErr
 }
