@@ -82,10 +82,27 @@ func (c *Capturer) bringUp(s pipeSpec) error {
 		return err
 	}
 
+	// And give the receiver's front end a clock, which no driver claims and
+	// which upstream's clk_disable_unused therefore switches off at boot; see
+	// setupCSIClock. Like the pad mux, this has to be in place before the link
+	// is configured rather than merely before it is used.
+	if err := setupCSIClock(); err != nil {
+		return err
+	}
+
 	// VI device before the receiver, as the vendor does; see startVIDev.
 	if err := c.startVIDev(s); err != nil {
 		return err
 	}
+
+	// Describe the input to the ISP. The device attributes above do not reach
+	// the CSI bridge's geometry -- that comes from this separate block, which
+	// the vendor's sensor driver supplies and which has to be in place before
+	// anything triggers _vi_ctrl_init; see setupSnrInfo.
+	if err := c.setupSnrInfo(s); err != nil {
+		return err
+	}
+
 	if err := c.setupMipi(s); err != nil {
 		return err
 	}
