@@ -41,6 +41,14 @@ const (
 	// change promptly, slow enough to be free next to encoding.
 	signalPoll = 500 * time.Millisecond
 
+	// streamPoll is the rate used once the pipeline is built. Reading the
+	// bridge is not free the way a status register usually is: the read has
+	// to open the part's register window, which stops the firmware driving
+	// its CSI transmitter for the duration. Polling a live stream at
+	// signalPoll measurably keeps the receiver from holding lock, so once
+	// there is something to disturb, the rate drops.
+	streamPoll = 3 * time.Second
+
 	// getStreamTimeout bounds a blocking GetStream so the frame loop can
 	// notice a shutdown request even while the host is sending nothing.
 	getStreamTimeout = 500
@@ -275,7 +283,7 @@ func (c *Capturer) closeDevices() {
 func (c *Capturer) supervise() {
 	defer c.wg.Done()
 
-	ticker := time.NewTicker(signalPoll)
+	ticker := time.NewTicker(pollInterval())
 	defer ticker.Stop()
 
 	var frameLoop chan struct{}
@@ -331,6 +339,21 @@ func (c *Capturer) supervise() {
 				c.mu.Unlock()
 				c.publish(video.State{})
 			}
+		}
+
+		// Back off once the pipeline is up. Every poll opens the bridge's
+		// register window, which halts the firmware driving its CSI
+		// transmitter; at the idle rate that is often enough to keep the
+		// receiver's lock from ever settling. Detecting an unplugged cable a
+		// couple of seconds later is a much smaller cost than disturbing a
+		// working stream twice a second.
+		c.mu.Lock()
+		built := c.runW != 0
+		c.mu.Unlock()
+		if built {
+			ticker.Reset(streamPollInterval())
+		} else {
+			ticker.Reset(pollInterval())
 		}
 
 		select {

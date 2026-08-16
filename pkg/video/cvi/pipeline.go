@@ -169,6 +169,14 @@ func LT6911ComboAttr(dev uint32) *ComboDevAttr {
 	mipi.Dphy.Enable = 1
 	mipi.Dphy.Settle = DPhyHsSettle
 
+	applyLaneOverride(mipi)
+	if v, ok := envUint("NANOKVM_MAC_CLK"); ok {
+		attr.Mac_clk = uint32(v)
+	}
+	if v, ok := envUint("NANOKVM_HS_SETTLE"); ok {
+		mipi.Dphy.Settle = uint8(v)
+	}
+
 	// mclk stays zero: cam 0 with CAMPLL_FREQ_NONE. The bridge runs from its
 	// own crystal, so the SoC drives no sensor master clock here.
 

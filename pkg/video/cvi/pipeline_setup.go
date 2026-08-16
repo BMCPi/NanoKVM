@@ -2,6 +2,7 @@ package cvi
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/video"
 )
@@ -32,12 +33,12 @@ const (
 // wants; they are spelled out rather than left as bare zeros so a reader can
 // tell a deliberate default from an unset field.
 const (
-	videoFormatLinear  uint32 = 0 // VIDEO_FORMAT_LINEAR
-	compressModeNone   uint32 = 0 // COMPRESS_MODE_NONE
-	dynamicRangeSDR8   uint32 = 0 // DYNAMIC_RANGE_SDR8
-	dataBitWidth8      uint32 = 0 // DATA_BITWIDTH_8
-	wdrModeNone        uint32 = 0 // WDR_MODE_NONE
-	aspectRatioNone    uint32 = 0 // ASPECT_RATIO_NONE
+	videoFormatLinear   uint32 = 0 // VIDEO_FORMAT_LINEAR
+	compressModeNone    uint32 = 0 // COMPRESS_MODE_NONE
+	dynamicRangeSDR8    uint32 = 0 // DYNAMIC_RANGE_SDR8
+	dataBitWidth8       uint32 = 0 // DATA_BITWIDTH_8
+	wdrModeNone         uint32 = 0 // WDR_MODE_NONE
+	aspectRatioNone     uint32 = 0 // ASPECT_RATIO_NONE
 	h264ProfileBaseline uint32 = 0
 )
 
@@ -73,6 +74,18 @@ func (c *Capturer) bringUp(s pipeSpec) error {
 	if err := c.ensureVB(); err != nil {
 		return err
 	}
+
+	// Point the MIPI RX pads at their MIPI function before configuring the
+	// receiver on top of them. U-Boot leaves several of them driving SPI1 and
+	// CAM_MCLK1 instead; see setupPinmux.
+	if err := setupPinmux(); err != nil {
+		return err
+	}
+
+	// VI device before the receiver, as the vendor does; see startVIDev.
+	if err := c.startVIDev(s); err != nil {
+		return err
+	}
 	if err := c.setupMipi(s); err != nil {
 		return err
 	}
@@ -86,7 +99,7 @@ func (c *Capturer) bringUp(s pipeSpec) error {
 	}
 	c.txStarted = true
 
-	if err := c.setupVI(s); err != nil {
+	if err := c.setupVIPipe(s); err != nil {
 		return err
 	}
 	if err := c.setupVPSS(s); err != nil {
@@ -209,13 +222,24 @@ func (c *Capturer) setupMipi(s pipeSpec) error {
 	if err := c.mipi.EnableClock(mipiDev); err != nil {
 		return err
 	}
+	// The vendor's sequence settles for 20us between starting the clock and
+	// releasing reset (SAMPLE_COMM_VI_StartMIPI). The receiver latches its
+	// configuration on release, so it wants a stable clock first.
+	time.Sleep(20 * time.Microsecond)
+
 	// Out of reset last: the receiver latches its configuration on release,
 	// so unresetting before SetDevAttr would run it with whatever the
 	// previous session left behind.
 	return c.mipi.UnresetSensor(mipiDev)
 }
 
-func (c *Capturer) setupVI(s pipeSpec) error {
+// startVIDev configures and enables the VI device.
+//
+// This runs before the MIPI receiver is brought up, which looks backwards but
+// matches the vendor: SAMPLE_COMM_VI_StartDev (CVI_VI_SetDevAttr +
+// CVI_VI_EnableDev) is called before SAMPLE_COMM_VI_StartMIPI. The device has
+// to be listening on the interface before the receiver starts driving it.
+func (c *Capturer) startVIDev(s pipeSpec) error {
 	dev := VIDevAttr{
 		EnIntfMode:      VIModeMipiYuv422,
 		EnWorkMode:      VIWorkMode1Multiplex,
@@ -238,7 +262,11 @@ func (c *Capturer) setupVI(s pipeSpec) error {
 		return err
 	}
 	c.devEnabled = true
+	return nil
+}
 
+// setupVIPipe creates the pipe and channel, once the receiver is running.
+func (c *Capturer) setupVIPipe(s pipeSpec) error {
 	pipe := VIPipeAttr{
 		EnPipeBypassMode: VIPipeBypassNone,
 		U32MaxW:          uint32(s.inW),
