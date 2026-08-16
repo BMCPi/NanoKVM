@@ -455,6 +455,23 @@ func (c *Capturer) specLocked(inW, inH int) pipeSpec {
 	// The encoder works in macroblocks; an odd size is rejected.
 	s.outW &^= 1
 	s.outH &^= 1
+
+	// Measure what the host is actually sending, so the VPSS channel can drop
+	// the difference. This is the only reading in the whole bring-up that
+	// costs the bridge a measurement window, which is why it happens here --
+	// once per pipeline build -- rather than on the signal poll.
+	//
+	// A failure is not fatal: srcFPS falls back to the destination rate, which
+	// makes the converter a no-op. That is the pre-existing behaviour, so a
+	// bridge that will not answer leaves things no worse than they were.
+	if fps, err := c.bridge.FrameRate(); err != nil {
+		log.Printf("cvi: bridge frame rate: %v", err)
+	} else if fps > 0 {
+		s.inFPS = fps
+		if fps > s.fps {
+			log.Printf("cvi: source is %dfps, encoding at %d", fps, s.fps)
+		}
+	}
 	return s
 }
 

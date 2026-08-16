@@ -51,10 +51,29 @@ type pipeSpec struct {
 	// bitrate and encoder load independently of what the host sends.
 	outW, outH int
 
+	// fps is the rate to encode at. inFPS is the rate the source is actually
+	// sending, which is usually higher -- 60 is the common HDMI default -- and
+	// is what the rate converter needs in order to drop the difference. Zero
+	// means the bridge could not measure it; see srcFPS.
 	fps     int
+	inFPS   int
 	bitrate int
 	gop     int
 	codec   video.Codec
+}
+
+// srcFPS is what to tell the rate converter the source is doing.
+//
+// Falling back to the destination rate when the measurement failed is not a
+// guess at the real rate -- it is the one value that makes the converter a
+// no-op, which is the honest thing to do when the input is unknown. Claiming a
+// rate we did not measure would make it drop frames on a source that never
+// needed it.
+func (s pipeSpec) srcFPS() int {
+	if s.inFPS > 0 {
+		return s.inFPS
+	}
+	return s.fps
 }
 
 // bringUp assembles the pipeline: MIPI receiver, VI, VPSS, VENC, then the two
@@ -307,7 +326,15 @@ func (c *Capturer) setupVIPipe(s pipeSpec) error {
 		EnPixFmt:         PixelFormatNV21,
 		EnCompressMode:   compressModeNone,
 		EnBitWidth:       dataBitWidth8,
-		StFrameRate:      FrameRateCtrl{S32SrcFrameRate: int32(s.fps), S32DstFrameRate: int32(s.fps)},
+		// Source rate on both sides, because VI does not convert. Nothing in
+		// the VI driver reads this pair except the proc node -- every other
+		// mention of FrameRate there is the measured rate it reports back --
+		// so describing a conversion here would be a comment, not a control.
+		// The drop happens at the VPSS channel; see setupVPSS.
+		StFrameRate: FrameRateCtrl{
+			S32SrcFrameRate: int32(s.srcFPS()),
+			S32DstFrameRate: int32(s.srcFPS()),
+		},
 		// The bridge already delivers YUV, so the ISP has nothing to do:
 		// bypassing it skips the Bayer stages instead of running them over
 		// data they were never meant to see.
@@ -324,7 +351,10 @@ func (c *Capturer) setupVIPipe(s pipeSpec) error {
 		EnDynamicRange: dynamicRangeSDR8,
 		EnVideoFormat:  videoFormatLinear,
 		EnCompressMode: compressModeNone,
-		StFrameRate:    FrameRateCtrl{S32SrcFrameRate: int32(s.fps), S32DstFrameRate: int32(s.fps)},
+		StFrameRate: FrameRateCtrl{
+			S32SrcFrameRate: int32(s.srcFPS()),
+			S32DstFrameRate: int32(s.srcFPS()),
+		},
 	}
 	if err := c.vi.SetChnAttr(viPipe, viChn, &chn); err != nil {
 		return err
@@ -341,8 +371,14 @@ func (c *Capturer) setupVPSS(s pipeSpec) error {
 		U32MaxW:       uint32(s.inW),
 		U32MaxH:       uint32(s.inH),
 		EnPixelFormat: PixelFormatNV21,
-		StFrameRate:   FrameRateCtrl{S32SrcFrameRate: int32(s.fps), S32DstFrameRate: int32(s.fps)},
-		U8VpssDev:     vpssDevN,
+		// Equal on purpose. The group has no converter -- cvi_vpss_set_grp_attr
+		// logs "FrameRate ctrl, not support yet" and ignores it -- so an
+		// unequal pair here would buy a warning per bring-up and nothing else.
+		StFrameRate: FrameRateCtrl{
+			S32SrcFrameRate: int32(s.srcFPS()),
+			S32DstFrameRate: int32(s.srcFPS()),
+		},
+		U8VpssDev: vpssDevN,
 	}
 	if err := c.vpss.CreateGroup(vpssGrp, &grp); err != nil {
 		return err
@@ -354,7 +390,20 @@ func (c *Capturer) setupVPSS(s pipeSpec) error {
 		U32Height:     uint32(s.outH),
 		EnVideoFormat: videoFormatLinear,
 		EnPixelFormat: PixelFormatNV21,
-		StFrameRate:   FrameRateCtrl{S32SrcFrameRate: int32(s.fps), S32DstFrameRate: int32(s.fps)},
+		// The one place in the whole pipeline that actually drops frames.
+		//
+		// _vpss_chl_frame_rate_ctrl reads this pair and disables the channel
+		// for frames it does not want, but only when FRC_INVALID is false --
+		// which needs both rates positive and dst strictly less than src. An
+		// equal pair is therefore not "convert 1:1", it is "do not convert",
+		// and a 60fps host walks straight through into an encoder built for
+		// 30. The driver's way of saying so is one KERN_ERR per dropped frame
+		// from vb_qbuf, which on a serial console is enough to take the board
+		// out entirely.
+		StFrameRate: FrameRateCtrl{
+			S32SrcFrameRate: int32(s.srcFPS()),
+			S32DstFrameRate: int32(s.fps),
+		},
 		StAspectRatio: AspectRatio{EnMode: aspectRatioNone},
 	}
 	if err := c.vpss.SetChnAttr(vpssGrp, vpssChn, &chn); err != nil {

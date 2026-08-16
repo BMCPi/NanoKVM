@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -110,6 +111,28 @@ const (
 
 	regCSIVActive = 0xF0 // 2 bytes, big-endian, lines
 	regCSIHActive = 0xEA // 2 bytes, big-endian, pixels
+
+	// Frame rate, which the bridge does not report directly: it has to be
+	// derived from the total timing and a pixel clock measurement, exactly as
+	// lt6911_get_fps() does (maix_ax620e_sdk_kernel drivers/misc/
+	// lt6911_manage.c).
+	//
+	// The totals live in the statistics bank and are free to read. The clock
+	// does not: writing regClkTrigger starts a counter that needs ~30ms to
+	// settle before the result means anything, and the register window is open
+	// for all of it -- which stops the bridge driving its CSI transmitter. So
+	// this is a bring-up measurement, deliberately not part of Signal.
+	bankTiming = 0xD4
+
+	regHTotal = 0x26 // 2 bytes, big-endian, pixels
+	regVTotal = 0x32 // 2 bytes, big-endian, lines
+
+	regClkTrigger = 0x40 // in bankCSI; 0x21 starts a measurement
+	clkTriggerGo  = 0x21
+	regClkValue   = 0x48 // 3 bytes; the top byte carries only its low nibble
+
+	// clkSettle is how long the counter needs before regClkValue is valid.
+	clkSettle = 30 * time.Millisecond
 )
 
 // Bridge is an open handle on the LT6911C.
@@ -379,6 +402,76 @@ func (b *Bridge) Signal() (Signal, error) {
 		return Signal{}, nil
 	}
 	return Signal{Locked: true, Width: width, Height: height}, nil
+}
+
+// FrameRate measures how many frames a second the source is actually sending.
+//
+// This matters more than it looks. The capture pipeline's rate converter is
+// told a source rate and a destination rate, and it only drops frames when
+// they differ -- so a pipeline built for 30fps that is *told* its source is
+// 30fps passes a 60fps source straight through at 60. The encoder cannot keep
+// up, and the way the driver reports that is one KERN_ERR per dropped frame:
+// at 60 a second, on a serial console, that is enough to starve the single
+// core and take the whole board down. Guessing here is therefore not a cosmetic
+// mistake, which is why this is measured rather than assumed.
+//
+// Zero means the bridge could not give an answer -- no lock, or a clock
+// measurement that did not settle. Callers must treat that as "unknown" and
+// not as a rate.
+//
+// Not cheap, and not safe to poll: it holds the register window open for the
+// settling time, which stops the bridge driving its CSI transmitter. Call it
+// when building the pipeline, not while one is running.
+func (b *Bridge) FrameRate() (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if err := b.setEnabledLocked(true); err != nil {
+		return 0, err
+	}
+	defer func() { _ = b.setEnabledLocked(false) }()
+
+	// Total timing, not active: the rate is set by the whole frame including
+	// blanking, so active pixels are the wrong numerator.
+	if err := b.selectBank(bankTiming); err != nil {
+		return 0, err
+	}
+	ht, err := b.read(regHTotal, 2)
+	if err != nil {
+		return 0, err
+	}
+	vt, err := b.read(regVTotal, 2)
+	if err != nil {
+		return 0, err
+	}
+	hTotal := int(ht[0])<<8 | int(ht[1])
+	vTotal := int(vt[0])<<8 | int(vt[1])
+	if hTotal == 0 || vTotal == 0 {
+		return 0, nil
+	}
+
+	// The clock counter is in the CSI bank, and has to be started and waited
+	// for. What it returns is half the pixel clock, in kHz.
+	if err := b.selectBank(bankCSI); err != nil {
+		return 0, err
+	}
+	if err := b.write(regClkTrigger, clkTriggerGo); err != nil {
+		return 0, err
+	}
+	time.Sleep(clkSettle)
+
+	c, err := b.read(regClkValue, 3)
+	if err != nil {
+		return 0, err
+	}
+	halfClkKHz := int(c[0]&0x0F)<<16 | int(c[1])<<8 | int(c[2])
+	if halfClkKHz == 0 {
+		return 0, nil
+	}
+
+	// pixels/second over pixels/frame. The 2000 is the halving and the kHz
+	// together.
+	return halfClkKHz * 2000 / (hTotal * vTotal), nil
 }
 
 // Lost reports whether the bridge is explicitly signalling that a source went
