@@ -49,7 +49,7 @@ const (
 	regEnable   = 0xEE // 0x01 opens register access, 0x00 closes it
 	regWatchdog = 0x10 // 0x00 stops the bridge's internal watchdog
 
-	// Output control, in the same bank as the enable.
+	// MIPI transmitter control.
 	//
 	// This is what puts the bridge's CSI-2 transmitter on the lanes. Nothing
 	// starts it implicitly -- a bridge that is locked to a source and has
@@ -57,13 +57,27 @@ const (
 	// written, which reads downstream as a perfectly configured VI that never
 	// takes an interrupt.
 	//
-	// From sipeed/NanoKVM's kvm_system lib/hdmi/hdmi.cpp, which is a different
-	// file from the kvm_vision.cpp the rest of this package follows -- and the
-	// reason this took a while to find, because kvm_vision.cpp contains no
-	// transmitter control at all.
-	regOutput = 0x5A
-	outputOn  = 0x80
-	outputOff = 0x88
+	// The part on this board identifies as an LT6911UXC: bank 0x81 registers
+	// 0x00..0x02 read 17 04 83, which is the UXC signature in Sipeed's own
+	// check_chip_register() (maix_ax620e_sdk_kernel drivers/misc/
+	// lt6911_manage.c). That matters because the register below used to be
+	// bank 0x80 register 0x5A, taken from NanoKVM's hdmi.cpp -- which drives
+	// the LT6911*C*, a different part with a different map. On a UXC that
+	// address is not the transmitter control: writing it is accepted and
+	// changes the receiver's lane state not at all.
+	//
+	// MIPI_TX_CTRL is 0x811D, written 0xFB to transmit and 0x00 to stop, per
+	// lt6911uxc_csi_enable() in InES-HPMM/Lontium_lt6911uxc (source/
+	// lt6911uxc_regs_zhaw.h, lt6911uxc_zhaw.c).
+	bankMipiTx = 0x81
+	regMipiTx  = 0x1D
+	mipiTxOn   = 0xFB
+	mipiTxOff  = 0x00
+
+	// Lane count the bridge has chosen for its CSI output, in the lock's bank.
+	// The receiver has to be told how many lanes to expect, and getting it
+	// wrong stops packets assembling without producing any error.
+	regMipiLanes = 0xA2
 
 	// Lock status.
 	//
@@ -235,18 +249,20 @@ func (b *Bridge) setEnabledLocked(on bool) error {
 // does not follow from having a locked signal: the bridge will sit on a valid
 // 1080p input indefinitely with its lanes idle until told to transmit.
 //
-// Sipeed pairs this with StopOutput across a mode change (lt6911_reset is stop,
-// 1ms, start), so it is safe to call on an already-running transmitter.
-func (b *Bridge) StartOutput() error { return b.setOutput(outputOn) }
+// The reference driver enables the transmitter on the HDMI-stable interrupt,
+// after it has read the lane count and timings back -- so calling this once the
+// receiver is configured, rather than the moment a signal appears, matches it.
+func (b *Bridge) StartOutput() error { return b.setOutput(mipiTxOn) }
 
-// StopOutput takes the transmitter off the lanes.
-func (b *Bridge) StopOutput() error { return b.setOutput(outputOff) }
+// StopOutput takes the transmitter off the lanes. The reference driver does
+// this on the HDMI-disconnect interrupt.
+func (b *Bridge) StopOutput() error { return b.setOutput(mipiTxOff) }
 
-// setOutput writes the output-control register inside its own register window.
+// setOutput writes MIPI_TX_CTRL inside its own register window.
 //
 // The window is opened and closed around the write for the same reason Signal
-// does it -- see Enable -- and because the register lives in the enable's own
-// bank, which is only reachable with the window open.
+// does it -- see Enable. Note the register is not in the enable's bank, so the
+// bank has to be selected explicitly after opening the window.
 func (b *Bridge) setOutput(v byte) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -256,12 +272,35 @@ func (b *Bridge) setOutput(v byte) error {
 	}
 	defer func() { _ = b.setEnabledLocked(false) }()
 
-	// setEnabledLocked left bank 0x80 selected, which is where this register
-	// lives; re-select anyway so the write does not depend on that.
-	if err := b.selectBank(bankEnable); err != nil {
+	if err := b.selectBank(bankMipiTx); err != nil {
 		return err
 	}
-	return b.write(regOutput, v)
+	return b.write(regMipiTx, v)
+}
+
+// Lanes reports how many CSI-2 data lanes the bridge is driving.
+//
+// The bridge picks this from the mode it is receiving, so it is a reading
+// rather than a setting, and the receiver has to be configured to match: a
+// receiver told to expect more lanes than are being driven waits forever for
+// packets that never complete, and reports no error while it does so.
+func (b *Bridge) Lanes() (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if err := b.setEnabledLocked(true); err != nil {
+		return 0, err
+	}
+	defer func() { _ = b.setEnabledLocked(false) }()
+
+	if err := b.selectBank(bankLock); err != nil {
+		return 0, err
+	}
+	v, err := b.read(regMipiLanes, 1)
+	if err != nil {
+		return 0, err
+	}
+	return int(v[0]), nil
 }
 
 // Signal describes what the bridge is currently delivering.
