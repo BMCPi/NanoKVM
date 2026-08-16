@@ -32,6 +32,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/usbgadget"
 	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 	"github.com/pi-bmc/nanokvm-app/pkg/video"
+	"github.com/pi-bmc/nanokvm-app/pkg/video/cvi"
 	"github.com/pi-bmc/nanokvm-app/pkg/video/rtc"
 	"github.com/pi-bmc/nanokvm-app/ui"
 
@@ -303,14 +304,20 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 
 // newVideoHub builds the WebRTC hub over this board's HDMI capture pipeline.
 //
-// The SG2002 backend (pkg/video/cvi) currently provides the ioctl bindings but
-// not yet a video.Capturer over them, so the null implementation is what gets
-// wired today: the hub builds, /api/vm/video stays registered, and a session
-// fails with video.ErrNotSupported saying why -- which the UI can tell apart
-// from a server fault, unlike a missing route. Swapping in the real capturer
-// here is the only change this function needs.
+// The SG2002 backend is used when its devices are there, and the null
+// implementation when they are not. That fallback is not defensive padding: the
+// soph-media modules are out-of-tree and loaded separately from the app, a board
+// may have no HDMI bridge fitted at all, and none of that is a reason for a
+// management controller to fail to boot. When it falls back, /api/vm/video stays
+// registered and a session fails with video.ErrNotSupported saying why -- which
+// the UI can tell apart from a server fault, unlike a missing route.
 func newVideoHub(cfg *config.Config) *rtc.Hub {
 	capturer := video.Capturer(&video.Unsupported{})
+	if c, err := cvi.Open(""); err != nil {
+		log.Printf("video: capture unavailable, serving without it: %v", err)
+	} else {
+		capturer = c
+	}
 
 	hub, err := rtc.NewHub(capturer, rtc.Options{
 		ICEServers: iceServers(cfg),

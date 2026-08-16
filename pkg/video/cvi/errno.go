@@ -76,6 +76,21 @@ const (
 	ErrInvalidVB     Errno = 20
 )
 
+// Module-private ids. VENC's second error block starts at 64
+// (ENUM_ERR_VENC_VENC_INIT, cvi_comm_venc.h) and runs in declaration order, so
+// these are counted from there rather than being magic numbers.
+//
+// Only the ones the frame loop has to branch on are named. They matter because
+// they are not failures: a console that is not changing produces no frames, and
+// GetStream saying so must not be mistaken for the pipeline having died.
+const (
+	ErrVencInit             Errno = 64
+	ErrVencFrcNoEnc         Errno = 65
+	ErrVencStatVfpsChange   Errno = 66
+	ErrVencEmptyStreamFrame Errno = 67
+	ErrVencEmptyPack        Errno = 68
+)
+
 var commonErrNames = map[uint16]string{
 	1:  "invalid device id",
 	2:  "invalid channel id",
