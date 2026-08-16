@@ -35,6 +35,7 @@ func settingsFragmentRoutes(g *gin.RouterGroup, d *deps.Deps) {
 		renderFragment(c, components.SettingsGeneralBody(generalModel()))
 	})
 	s.PATCH("/autoupdate", patchAutoUpdate)
+	s.PATCH("/console", patchConsole)
 
 	s.GET("/network", func(c *gin.Context) {
 		renderFragment(c, components.SettingsNetworkBody(networkModel()))
@@ -81,7 +82,27 @@ func generalModel() components.SettingsGeneral {
 		AutoUpdateInterval:    strconv.Itoa(au.IntervalMinutes),
 		AutoUpdateApplication: au.Application,
 		AutoUpdateBIOS:        au.BIOS,
+		ConsolePrimaryView:    config.GetInstance().Console.PrimaryView,
 	}
+}
+
+// patchConsole persists which view the dashboard opens on.
+//
+// Nothing is restarted and no session is touched: the setting only picks the
+// tab the next page load lands on, and both views stay reachable either way.
+// The toast says so, because a settings write that appears to do nothing to
+// the current screen is otherwise indistinguishable from one that failed.
+func patchConsole(c *gin.Context) {
+	view := config.PrimaryViewSerial
+	if c.PostForm("primaryView") == config.PrimaryViewHDMI {
+		view = config.PrimaryViewHDMI
+	}
+	config.GetInstance().Console.PrimaryView = view
+
+	config.Save()
+
+	hxToast(c, "success", "Settings saved", "The dashboard will open on this view from the next page load.")
+	renderFragment(c, components.SettingsGeneralBody(generalModel()))
 }
 
 func patchAutoUpdate(c *gin.Context) {

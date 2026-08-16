@@ -108,6 +108,15 @@ templ ConsoleScript() {
 			window.addEventListener('resize', resizeHandler);
 		};
 
+		// Refit against the current box. Exported because the console can be
+		// hidden behind the HDMI tab, and xterm measures its grid from the
+		// container: fitting while display:none yields a degenerate grid that
+		// persists once the pane is shown again. The tab strip calls this when
+		// the serial pane comes back to the front.
+		window.fitTerminal = function() {
+			if (fitAddon) fitAddon.fit();
+		};
+
 		window.disconnectSerial = function() {
 			if (resizeHandler) { window.removeEventListener('resize', resizeHandler); resizeHandler = null; }
 			if (ws && ws.readyState === WebSocket.OPEN) ws.close();

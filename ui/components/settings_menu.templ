@@ -213,6 +213,39 @@ templ SettingsGeneralBody(m SettingsGeneral) {
 			@settingsValueRow("Hardware", "Detected NanoKVM hardware revision.", m.Hardware)
 		}
 		<form
+			hx-patch="/ui/settings/console"
+			hx-trigger="change"
+			hx-target="#settings-general-body"
+			hx-swap="innerHTML"
+			class="contents"
+		>
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Console
+				}
+				@settingsRow("console-primary-trigger", "Primary view",
+					"Which view the dashboard opens on. Both stay available as tabs.") {
+					@selectcomp.Select(selectcomp.Props{
+						ID:    "console-primary",
+						Name:  "primaryView",
+						Value: m.ConsolePrimaryView,
+					}) {
+						@selectcomp.Trigger(selectcomp.TriggerProps{ID: "console-primary-trigger", Class: "w-40"}) {
+							@selectcomp.Value(selectcomp.ValueProps{Placeholder: "Serial Console"})
+						}
+						@selectcomp.Content() {
+							@selectcomp.Item(selectcomp.ItemProps{Value: "serial"}) {
+								Serial Console
+							}
+							@selectcomp.Item(selectcomp.ItemProps{Value: "hdmi"}) {
+								HDMI
+							}
+						}
+					}
+				}
+			}
+		</form>
+		<form
 			hx-patch="/ui/settings/autoupdate"
 			hx-trigger="change"
 			hx-target="#settings-general-body"

@@ -16,6 +16,11 @@ type SettingsGeneral struct {
 	AutoUpdateInterval    string
 	AutoUpdateApplication bool
 	AutoUpdateBIOS        bool
+
+	// ConsolePrimaryView is "serial" or "hdmi" — which view the dashboard
+	// opens on. Carried as the raw sentinel so it can be handed straight to
+	// the select's Value.
+	ConsolePrimaryView string
 }
 
 // SettingsNetwork backs the Network panel: the eth0 + USB-host-interface

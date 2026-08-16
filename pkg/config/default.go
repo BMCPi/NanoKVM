@@ -71,6 +71,9 @@ var defaultConfig = &Config{
 			MaxSizeKB: 1024,
 		},
 	},
+	Console: Console{
+		PrimaryView: PrimaryViewSerial,
+	},
 	// The BMC ships no sshd; the app is the SSH server. Host key and
 	// authorized_keys live on the persistent data partition — the root
 	// overlay is volatile, so a host key under /etc would change every boot.
@@ -274,6 +277,13 @@ func checkDefaultValue() {
 	}
 	if instance.Serial.Capture.MaxSizeKB <= 0 {
 		instance.Serial.Capture.MaxSizeKB = defaultConfig.Serial.Capture.MaxSizeKB
+	}
+
+	// Console view. Normalised to one of the two sentinels rather than merely
+	// defaulted, so a stale or mistyped value in server.yaml lands on serial
+	// instead of being written back out and persisting forever.
+	if instance.Console.PrimaryView != PrimaryViewHDMI {
+		instance.Console.PrimaryView = PrimaryViewSerial
 	}
 
 	// Apply SSH defaults. Enabled and passwordAuth are default-true, so they

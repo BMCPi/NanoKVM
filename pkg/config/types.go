@@ -15,6 +15,7 @@ type Config struct {
 	IPMI           IPMI      `yaml:"ipmi"`
 	Redfish        Redfish   `yaml:"redfish"`
 	Serial         Serial    `yaml:"serial"`
+	Console        Console   `yaml:"console"`
 	SSH            SSH       `yaml:"ssh"`
 	Firmware       Firmware  `yaml:"firmware"`
 	UsbGadget      UsbGadget `yaml:"usbGadget"`
@@ -267,6 +268,39 @@ type SerialCapture struct {
 	// so at most twice this is ever retained.
 	MaxSizeKB int `yaml:"maxSizeKB"`
 }
+
+// Console configures how the dashboard presents the managed host.
+//
+// The BMC can show the host two ways -- its serial console over the UART, and
+// its HDMI output captured through the video pipeline -- and which one is
+// "the console" is a property of the machine being managed, not of the person
+// looking at it. A headless server is a serial box whose HDMI port is dark; a
+// workstation is the reverse. So this is persisted device configuration rather
+// than a per-browser preference.
+type Console struct {
+	// PrimaryView selects the view the dashboard opens on: PrimaryViewSerial
+	// or PrimaryViewHDMI. Both views are always reachable as tabs; this only
+	// decides which one is in front on load.
+	//
+	// It defaults to serial because serial is the view that always works:
+	// the UART needs no capture pipeline, no HDMI cable and no signal from
+	// the host, so a fresh device shows something useful before anyone has
+	// confirmed video is wired up at all.
+	PrimaryView string `yaml:"primaryView"`
+}
+
+// Valid values for Console.PrimaryView.
+const (
+	PrimaryViewSerial = "serial"
+	PrimaryViewHDMI   = "hdmi"
+)
+
+// HDMIPrimary reports whether the dashboard should open on the HDMI view.
+//
+// Anything that is not the HDMI sentinel reads as serial, so an unset field or
+// a hand-edited typo in server.yaml degrades to the view that always works
+// rather than to a black pane.
+func (c Console) HDMIPrimary() bool { return c.PrimaryView == PrimaryViewHDMI }
 
 // SSH configures the in-process SSH server (pkg/ssh). The BMC
 // ships no sshd — the server implements the transport itself with

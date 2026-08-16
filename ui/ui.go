@@ -4,9 +4,11 @@
 package ui
 
 import (
+	"encoding/json"
 	"io/fs"
 	"net/http"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
 	"github.com/pi-bmc/nanokvm-app/ui/assets"
@@ -90,7 +92,7 @@ func pageRoutes(r *gin.Engine, d *deps.Deps) {
 		c.Redirect(http.StatusFound, "/dashboard")
 	})
 	protected.GET("/dashboard", func(c *gin.Context) {
-		render := newRender(c.Request.Context(), http.StatusOK, pages.Home())
+		render := newRender(c.Request.Context(), http.StatusOK, pages.Home(homeModel()))
 		c.Render(http.StatusOK, render)
 	})
 	// Legacy routes: the serial console and settings now live on the
@@ -112,6 +114,56 @@ func pageRoutes(r *gin.Engine, d *deps.Deps) {
 	// RequireAuth) so an expired session yields a clean 401 for fetch()
 	// instead of a redirect into login-page HTML.
 	r.POST("/ui/eeprom/preview", middleware.CheckToken(), eepromPreviewHandler())
+}
+
+// homeModel builds the dashboard's server-rendered state, so the page paints
+// in its final shape rather than swapping tabs after load.
+func homeModel() pages.HomeModel {
+	cfg := config.GetInstance()
+	return pages.HomeModel{
+		HDMIPrimary:    cfg.Console.HDMIPrimary(),
+		ICEServersJSON: iceServersJSON(cfg),
+	}
+}
+
+// iceServer is the browser's RTCIceServer shape.
+//
+// Spelled out here rather than reusing webrtc.ICEServer because that type is
+// modelled on pion's needs and its JSON encoding is not the dictionary
+// RTCPeerConnection expects -- notably it carries extra fields and encodes
+// credential as an interface. This is the wire format the browser reads, so it
+// is defined by the browser.
+type iceServer struct {
+	URLs       []string `json:"urls"`
+	Username   string   `json:"username,omitempty"`
+	Credential string   `json:"credential,omitempty"`
+}
+
+// iceServersJSON renders the configured STUN/TURN servers for the browser.
+//
+// It mirrors iceServers() in cmd/server, which supplies the same set to the
+// BMC's own peer connection; both sides gather against the same servers.
+// Returns "[]" and not "" when nothing is configured -- that is the valid
+// empty value for RTCPeerConnection, and the common case on a LAN where host
+// candidates are sufficient.
+func iceServersJSON(cfg *config.Config) string {
+	servers := []iceServer{}
+	if cfg.Stun != "" {
+		servers = append(servers, iceServer{URLs: []string{"stun:" + cfg.Stun}})
+	}
+	if cfg.Turn.TurnAddr != "" {
+		servers = append(servers, iceServer{
+			URLs:       []string{"turn:" + cfg.Turn.TurnAddr},
+			Username:   cfg.Turn.TurnUser,
+			Credential: cfg.Turn.TurnCred,
+		})
+	}
+	b, err := json.Marshal(servers)
+	if err != nil {
+		log.Errorf("ui: marshal ice servers: %v", err)
+		return "[]"
+	}
+	return string(b)
 }
 
 // apiDocsHandler parses the OpenAPI spec once (sync.Once via the model

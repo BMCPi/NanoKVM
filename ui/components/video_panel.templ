@@ -1,0 +1,322 @@
+package components
+
+import (
+	"github.com/pi-bmc/nanokvm-app/ui/components/badge"
+	"github.com/pi-bmc/nanokvm-app/ui/components/button"
+	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
+)
+
+// VideoPanel is the HDMI view: a toolbar mirroring the serial console's, over
+// a <video> element fed by WebRTC from /api/vm/video.
+//
+// The stream is pull-only. The BMC encodes for as long as someone is watching
+// and stops when the last viewer disconnects, so this panel deliberately does
+// not connect on page load — it connects when the HDMI tab is first shown and
+// disconnects when the tab is left. On a 1 GHz single-core part, encoding for
+// a tab nobody is looking at is not a rounding error.
+// iceServersJSON is the RTCIceServer[] the browser should use, already
+// marshalled. It rides on a data attribute rather than an inline script
+// because templ escapes attribute values correctly for HTML and the browser
+// undoes that on read, whereas the same JSON interpolated into a <script> body
+// would come back with &quot; in it and fail to parse.
+templ VideoPanel(iceServersJSON string) {
+	@videoPanelStyles()
+	<div id="video-pane" class="flex h-full min-h-0 flex-col" data-ice-servers={ iceServersJSON }>
+		@videoToolbar()
+		<div id="video-wrap" class="relative flex-1 min-h-0 overflow-hidden rounded-b-md border border-t-0 border-border bg-black">
+			// muted + playsinline are what let autoplay through: a stream with
+			// no audio track still counts as "with sound" to some browsers
+			// unless muted is set, and the play() would be rejected.
+			<video id="video-stream" class="h-full w-full object-contain" autoplay muted playsinline></video>
+			// Overlay for every non-playing state. Sits above the video so a
+			// stale last frame cannot be mistaken for a live picture.
+			<div id="video-overlay" class="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 text-center">
+				@icon.MonitorOff(icon.Props{Class: "size-10 text-muted-foreground"})
+				<div>
+					<p id="video-overlay-title" class="text-sm font-medium text-foreground">HDMI not connected</p>
+					<p id="video-overlay-detail" class="mt-1 max-w-md text-xs text-muted-foreground">
+						Select Connect to start streaming the host&#39;s HDMI output.
+					</p>
+				</div>
+			</div>
+		</div>
+	</div>
+	@videoPanelScript()
+}
+
+// videoToolbar mirrors ConsoleToolbar's shape so the two tabs do not visibly
+// reflow when switching between them: same height, same badge vocabulary, same
+// button sizes and order.
+templ videoToolbar() {
+	<div class="flex flex-wrap items-center justify-between gap-y-1.5 rounded-t-md border border-border bg-card px-3 py-1.5 sm:flex-nowrap">
+		<div class="flex items-center gap-3">
+			<span class="text-xs font-medium">HDMI</span>
+			<span id="video-mode" class="text-xs text-muted-foreground">—</span>
+			// Same hidden-ATTRIBUTE swap the serial toolbar uses; see the note
+			// in console_toolbar.templ for why the class would not work here.
+			@badge.Badge(badge.Props{ID: "video-status-disconnected", Variant: badge.VariantDestructive}) {
+				Disconnected
+			}
+			@badge.Badge(badge.Props{
+				ID:         "video-status-connecting",
+				Variant:    badge.VariantSecondary,
+				Class:      "bg-yellow-500/15 text-yellow-500",
+				Attributes: templ.Attributes{"hidden": true},
+			}) {
+				Connecting…
+			}
+			@badge.Badge(badge.Props{
+				ID:         "video-status-connected",
+				Variant:    badge.VariantSecondary,
+				Class:      "bg-green-500/15 text-green-500",
+				Attributes: templ.Attributes{"hidden": true},
+			}) {
+				Streaming
+			}
+			@badge.Badge(badge.Props{
+				ID:         "video-status-nosignal",
+				Variant:    badge.VariantSecondary,
+				Class:      "bg-orange-500/15 text-orange-500",
+				Attributes: templ.Attributes{"hidden": true},
+			}) {
+				No signal
+			}
+		</div>
+		<div class="ml-auto flex items-center gap-1">
+			@button.Button(button.Props{
+				ID:         "btn-video-connect",
+				Variant:    button.VariantOutline,
+				Size:       button.SizeSm,
+				Class:      "border-green-700 text-green-500",
+				Attributes: templ.Attributes{"onclick": "connectVideo()"},
+			}) {
+				@icon.Plug()
+				<span>Connect</span>
+			}
+			@button.Button(button.Props{
+				ID:         "btn-video-disconnect",
+				Variant:    button.VariantDestructive,
+				Size:       button.SizeSm,
+				Attributes: templ.Attributes{"onclick": "disconnectVideo()", "hidden": true},
+			}) {
+				@icon.X()
+				<span>Disconnect</span>
+			}
+			@button.Button(button.Props{
+				ID:         "btn-video-fullscreen",
+				Variant:    button.VariantOutline,
+				Size:       button.SizeIcon,
+				Class:      "size-8",
+				Attributes: templ.Attributes{"onclick": "toggleVideoFullscreen()", "title": "Fullscreen"},
+			}) {
+				@icon.Expand()
+			}
+		</div>
+	</div>
+}
+
+templ videoPanelStyles() {
+	<style>
+		/* The overlay is driven by a data attribute rather than a class so it
+		   cannot collide with the tabs component, which owns the `hidden`
+		   class on the panes above it. */
+		#video-overlay[data-state="hidden"] { display: none; }
+	</style>
+}
+
+// videoPanelScript speaks the five-message protocol in pkg/video/rtc/signal.go:
+// the browser offers, the BMC answers, candidates trickle both ways, and the
+// BMC pushes unsolicited state messages carrying signal/resolution.
+//
+// Wrapped in an IIFE for the same reason bmcTerminalScript is: this page loads
+// several classic scripts into one global scope.
+templ videoPanelScript() {
+	<script>
+		(function () {
+			let pc = null;
+			let vws = null;
+			let connected = false;
+
+			function el(id) { return document.getElementById(id); }
+
+			// Mirrors setConnStatus in console_script: exactly one badge
+			// visible, swapped via the hidden PROPERTY.
+			function setVideoStatus(state) {
+				['disconnected', 'connecting', 'connected', 'nosignal'].forEach((s) => {
+					const b = el('video-status-' + s);
+					if (b) b.hidden = (s !== state);
+				});
+				const c = el('btn-video-connect');
+				const d = el('btn-video-disconnect');
+				if (c) c.hidden = (state !== 'disconnected');
+				if (d) d.hidden = (state === 'disconnected');
+			}
+
+			function setOverlay(title, detail) {
+				const o = el('video-overlay');
+				if (!o) return;
+				if (title === null) {
+					o.dataset.state = 'hidden';
+					return;
+				}
+				o.dataset.state = 'shown';
+				el('video-overlay-title').textContent = title;
+				el('video-overlay-detail').textContent = detail || '';
+			}
+
+			// State pushed by the hub: Ready false means the bridge sees no
+			// input. That is a normal condition for a BMC (host powered off,
+			// cable out), so it is reported as its own state and not an error.
+			function onState(s) {
+				if (!s) return;
+				if (s.Ready && s.Width && s.Height) {
+					const fps = s.FramePerSecond ? ' @ ' + Math.round(s.FramePerSecond) + 'fps' : '';
+					el('video-mode').textContent = s.Width + '×' + s.Height + fps;
+				} else {
+					el('video-mode').textContent = '—';
+				}
+				if (!connected) return;
+				if (s.Ready) {
+					setVideoStatus('connected');
+					setOverlay(null);
+				} else {
+					setVideoStatus('nosignal');
+					setOverlay('No signal', s.Err || 'The host is not sending HDMI output. Check that it is powered on and the cable is connected.');
+				}
+			}
+
+			function fail(title, detail) {
+				teardown();
+				setVideoStatus('disconnected');
+				setOverlay(title, detail);
+			}
+
+			function teardown() {
+				connected = false;
+				if (vws) { try { vws.close(); } catch (e) {} vws = null; }
+				if (pc) { try { pc.close(); } catch (e) {} pc = null; }
+				const v = el('video-stream');
+				if (v) v.srcObject = null;
+			}
+
+			window.connectVideo = async function () {
+				if (pc) return;
+				setVideoStatus('connecting');
+				setOverlay('Connecting…', 'Negotiating a WebRTC session with the BMC.');
+
+				// No configured STUN/TURN is normal and not an error: a BMC and
+				// its browser are usually on the same L2 segment, where host
+				// candidates alone complete the connection.
+				let iceServers = [];
+				try { iceServers = JSON.parse(el('video-pane').dataset.iceServers || '[]'); } catch (e) {}
+
+				pc = new RTCPeerConnection({ iceServers });
+
+				// Receive-only: the BMC never wants media from the browser.
+				pc.addTransceiver('video', { direction: 'recvonly' });
+
+				pc.ontrack = (e) => {
+					const v = el('video-stream');
+					if (v && e.streams && e.streams[0]) v.srcObject = e.streams[0];
+				};
+				pc.onicecandidate = (e) => {
+					if (!vws || vws.readyState !== WebSocket.OPEN) return;
+					// End-of-candidates is the candidate field being absent, not
+					// an empty one: handleCandidate treats nil as the terminator
+					// and would otherwise hand pion a blank candidate string.
+					// This is also the shape the BMC sends in the other
+					// direction.
+					const msg = e.candidate
+						? { type: 'candidate', candidate: e.candidate.toJSON() }
+						: { type: 'candidate' };
+					vws.send(JSON.stringify(msg));
+				};
+				pc.onconnectionstatechange = () => {
+					if (!pc) return;
+					if (pc.connectionState === 'failed') {
+						fail('Connection failed', 'The WebRTC session could not be established. Check that the browser can reach the BMC directly or that a TURN server is configured.');
+					}
+				};
+
+				vws = new WebSocket(getWsUrl() + '/api/vm/video');
+
+				vws.onopen = async () => {
+					try {
+						const offer = await pc.createOffer();
+						await pc.setLocalDescription(offer);
+						vws.send(JSON.stringify({ type: 'offer', sdp: offer.sdp }));
+					} catch (err) {
+						fail('Negotiation failed', String(err));
+					}
+				};
+
+				vws.onmessage = async (ev) => {
+					let m;
+					try { m = JSON.parse(ev.data); } catch (e) { return; }
+					if (!pc) return;
+					switch (m.type) {
+						case 'answer':
+							try {
+								await pc.setRemoteDescription({ type: 'answer', sdp: m.sdp });
+								connected = true;
+							} catch (err) {
+								fail('Negotiation failed', String(err));
+							}
+							break;
+						case 'candidate':
+							if (m.candidate && m.candidate.candidate) {
+								try { await pc.addIceCandidate(m.candidate); } catch (e) {}
+							}
+							break;
+						case 'state':
+							onState(m.state);
+							break;
+						case 'error':
+							fail('Video unavailable', m.error || 'The BMC reported an error starting the capture pipeline.');
+							break;
+					}
+				};
+
+				// The socket carries signaling only, but closing it is what ends
+				// the session server-side, so a close before we are connected is
+				// a real failure and after it is a normal teardown.
+				vws.onclose = () => {
+					if (!connected) {
+						fail('Video unavailable', 'The BMC closed the signaling connection. HDMI capture may not be available on this device.');
+					} else {
+						teardown();
+						setVideoStatus('disconnected');
+						setOverlay('Disconnected', 'The video session ended.');
+					}
+				};
+				vws.onerror = () => {
+					if (!connected) fail('Video unavailable', 'Could not open the video signaling socket.');
+				};
+			};
+
+			window.disconnectVideo = function () {
+				teardown();
+				setVideoStatus('disconnected');
+				setOverlay('HDMI not connected', 'Select Connect to start streaming the host’s HDMI output.');
+			};
+
+			window.toggleVideoFullscreen = function () {
+				const w = el('video-wrap');
+				if (!w) return;
+				if (document.fullscreenElement) document.exitFullscreen();
+				else w.requestFullscreen?.();
+			};
+
+			// Called by the tab strip. Connecting lazily keeps the encoder idle
+			// while the serial tab is in front.
+			window.onVideoTabShown = function () {
+				if (!pc) connectVideo();
+			};
+			window.onVideoTabHidden = function () {
+				if (pc) disconnectVideo();
+			};
+
+			window.addEventListener('beforeunload', teardown);
+		})();
+	</script>
+}

@@ -2,7 +2,20 @@ package pages
 
 import (
 	"github.com/pi-bmc/nanokvm-app/ui/components"
+	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
+	"github.com/pi-bmc/nanokvm-app/ui/components/tabs"
 	"github.com/pi-bmc/nanokvm-app/ui/layouts"
+)
+
+// consoleTabsID names the dashboard's tab group. Fixed rather than generated
+// so the switch script and tabs.js can address it.
+const consoleTabsID = "console-tabs"
+
+// Tab values. These are the same sentinels config.Console.PrimaryView stores,
+// which is what lets the persisted setting select the initial tab directly.
+const (
+	tabHDMI   = "hdmi"
+	tabSerial = "serial"
 )
 
 // Home is the main BMC page (served at /dashboard). Standard layout (navbar
@@ -10,7 +23,14 @@ import (
 // Server Overview sidebar. The sidebar's width animates between 0 and 24rem,
 // so opening it shrinks the console pane rather than overlaying it or the
 // navbar.
-templ Home() {
+//
+// The console pane is tabbed: the host can be watched over its serial console
+// or its HDMI output, and both stay reachable regardless of which one the
+// device is configured to open on. Only the default changes -- hiding the
+// other tab outright would mean a headless box could never be checked for
+// video, and a workstation could never be reached when its HDMI is dark, which
+// are exactly the moments someone goes looking.
+templ Home(m HomeModel) {
 	@layouts.Base("NanoKVM BMC", true, false) {
 		<link rel="stylesheet" href="/css/xterm.min.css"/>
 		<style>
@@ -18,26 +38,116 @@ templ Home() {
 			#console-pane.expanded { position: fixed; inset: 0; z-index: 40; background: var(--background); padding: 0; }
 			#terminal-wrap { flex: 1; min-height: 0; position: relative; overflow: hidden; }
 			#terminal { height: 100%; }
+			/* The tab group and its panes carry the pane's height down to the
+			   terminal and the video, both of which measure themselves against
+			   their container. flex-1 rather than height:100% because the group
+			   is itself a flex item and only its parent has a definite height;
+			   min-height:0 is what lets it shrink below its content instead of
+			   overflowing the viewport. */
+			#console-tabs { flex: 1; min-height: 0; }
+			#console-tabs [data-tui-tabs-content] { min-height: 0; }
 		</style>
 		<div class="flex h-full min-h-0 w-full">
 			<div class="flex-1 min-w-0">
-				<div id="console-pane">
-					@components.ConsoleToolbar()
-					@components.ConsoleSearchBar()
-					<div id="terminal-wrap" class="border border-t-0 border-border bg-background rounded-b-md">
-						<div id="terminal"></div>
-					</div>
-					@components.VirtualKeyboard()
+				<div class="flex h-full min-h-0 flex-col gap-1 px-2 pb-2 pt-1">
+					@tabs.Tabs(tabs.Props{
+						ID:           consoleTabsID,
+						DefaultValue: consoleDefaultTab(m),
+						Class:        "gap-1",
+					}) {
+						@tabs.List(tabs.ListProps{Variant: tabs.VariantLine, Class: "h-8 self-start"}) {
+							@tabs.Trigger(tabs.TriggerProps{Value: tabHDMI}) {
+								@icon.Monitor()
+								<span>HDMI</span>
+							}
+							@tabs.Trigger(tabs.TriggerProps{Value: tabSerial}) {
+								@icon.Terminal()
+								<span>Serial Console</span>
+							}
+						}
+						// No display utility on the panes: tabs.js switches them
+						// with the `hidden` CLASS, which a `flex` here would beat.
+						// The layout lives on the wrapper inside each pane.
+						@tabs.Content(tabs.ContentProps{Value: tabHDMI}) {
+							@components.VideoPanel(m.ICEServersJSON)
+						}
+						@tabs.Content(tabs.ContentProps{Value: tabSerial}) {
+							<div id="console-pane">
+								@components.ConsoleToolbar()
+								@components.ConsoleSearchBar()
+								<div id="terminal-wrap" class="border border-t-0 border-border bg-background rounded-b-md">
+									<div id="terminal"></div>
+								</div>
+								@components.VirtualKeyboard()
+							</div>
+						}
+					}
 				</div>
 			</div>
 			@components.OverviewSidebar()
 		</div>
 		@xtermScripts()
 		@components.ConsoleScript()
+		@consoleTabsScript()
 		// Slide-up shell drawer for the BMC itself. Rendered after the
 		// xterm bundles so its script can construct a Terminal at once.
 		@components.BMCTerminalPanel()
 	}
+}
+
+// consoleDefaultTab maps the persisted setting onto the tab that opens.
+func consoleDefaultTab(m HomeModel) string {
+	if m.HDMIPrimary {
+		return tabHDMI
+	}
+	return tabSerial
+}
+
+// consoleTabsScript tells each pane when it comes to the front.
+//
+// tabs.js only toggles classes; it has no notion that a pane owns a live
+// connection. Both panes do: xterm needs a refit once it has a non-zero box
+// (fitting a display:none element yields garbage dimensions), and the video
+// pane starts and stops encoding on the BMC. Encoding for a hidden tab would
+// burn the SoC's only core on frames nobody is looking at, so leaving the tab
+// is a disconnect, not just a style change.
+templ consoleTabsScript() {
+	<script>
+		(function () {
+			let current = null;
+
+			function activeTab() {
+				const t = document.querySelector('[data-tui-tabs-trigger][data-tui-tabs-id="console-tabs"][data-active]');
+				return t ? t.getAttribute('data-tui-tabs-value') : null;
+			}
+
+			function sync() {
+				const next = activeTab();
+				if (!next || next === current) return;
+				const prev = current;
+				current = next;
+
+				if (prev === 'hdmi') window.onVideoTabHidden?.();
+
+				if (next === 'hdmi') {
+					window.onVideoTabShown?.();
+				} else if (next === 'serial') {
+					// The terminal was laid out against a zero-height box while
+					// hidden; refit now that it has real dimensions.
+					window.fitTerminal?.();
+				}
+			}
+
+			// tabs.js handles the click and flips the attributes; this runs
+			// after it on the same event, reading the state it just set.
+			document.addEventListener('click', (e) => {
+				if (!e.target.closest('[data-tui-tabs-trigger][data-tui-tabs-id="console-tabs"]')) return;
+				setTimeout(sync, 0);
+			});
+
+			document.addEventListener('DOMContentLoaded', () => setTimeout(sync, 0));
+		})();
+	</script>
 }
 
 // xtermScripts loads the xterm.js bundles. Kept separate so the dashboard
