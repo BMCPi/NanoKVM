@@ -49,25 +49,37 @@ const (
 	regEnable   = 0xEE // 0x01 opens register access, 0x00 closes it
 	regWatchdog = 0x10 // 0x00 stops the bridge's internal watchdog
 
-	// Input timing and lock status.
+	// Lock status.
 	//
-	// These are the UXC-style registers, not the ones Sipeed's software uses
-	// for what it calls hdmi_version 0. Determined by dumping every bank with
-	// a 1920x1080 source attached: bank 0xD2 reads back all zeroes, while bank
-	// 0x86 holds a stable 0x03C0/0x0438 pair and a 0x55 at 0xA3. So the part
-	// fitted to this board answers on 0x86 whatever its marking says, and
-	// reading 0xD2 would report "no signal" forever.
-	bankTiming = 0x86
+	// This part answers as Sipeed's hdmi_version 1 (LT6911UXC): bank 0x86
+	// register 0xA3 reads 0x55 while a source is stable and 0x88 once it goes
+	// away. Confirmed by dumping every bank with a 1920x1080 source attached
+	// -- bank 0xD2, which the hdmi_version 0 path uses, reads back all zeroes
+	// here, so the C-variant registers would report "no signal" forever.
+	bankLock = 0x86
 
 	regLock   = 0xA3 // 0x55 signal stable, 0x88 signal lost
 	lockValue = 0x55
 	lostValue = 0x88
 
-	regVActive = 0x8B // 2 bytes, big-endian, lines
-	regHActive = 0x8D // 2 bytes, big-endian, pixel pairs
+	// CSI transmit geometry.
+	//
+	// This is a different bank from the lock, and the distinction is the whole
+	// point: what the bridge sees on HDMI and what it puts on the CSI lanes
+	// are separate readings, and it is the latter the receiver has to be
+	// configured for. Sipeed keeps them strictly apart -- for the UXC,
+	// lt6911_get_hdmi_res() reads nothing but the lock byte above, while
+	// lt6911_get_csi_res() reads these and it is *that* pair that becomes
+	// vi_width/vi_height.
+	//
+	// Note there is no doubling here. The C-variant's HDMI Hactive is counted
+	// in pixel pairs and Sipeed doubles it; these CSI registers are already in
+	// pixels and Sipeed does not. Doubling them would configure VI for twice
+	// the width the bridge is actually sending.
+	bankCSI = 0x85
 
-	// 0x80/0x82 mirror HActive/VActive. Left unused: one source is enough,
-	// and having a second would only raise the question of which to trust.
+	regCSIVActive = 0xF0 // 2 bytes, big-endian, lines
+	regCSIHActive = 0xEA // 2 bytes, big-endian, pixels
 )
 
 // Bridge is an open handle on the LT6911C.
@@ -154,15 +166,30 @@ func (b *Bridge) selectBank(bank byte) error {
 
 // Enable opens register access. The bridge ignores most writes until this is
 // done, so it has to precede any configuration.
+//
+// It must not be left open. Asserting this bit is how the host borrows the
+// bridge's internal address space, and while it is asserted the bridge's own
+// firmware is not driving the part -- so the CSI transmitter stops, while the
+// timing registers keep returning their last latched measurement. The result
+// reads as a healthy locked signal with idle lanes, which is a hard failure to
+// attribute because every register you can ask still answers correctly.
+//
+// Sipeed's kvm_vision.cpp never holds it: every read is bracketed
+// lt6911_enable() ... lt6911_disable(). Prefer Signal, which does the same.
 func (b *Bridge) Enable() error { return b.setEnabled(true) }
 
-// Disable closes register access again.
+// Disable closes register access again, handing the part back to its own
+// firmware. See Enable for why this is not optional.
 func (b *Bridge) Disable() error { return b.setEnabled(false) }
 
 func (b *Bridge) setEnabled(on bool) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	return b.setEnabledLocked(on)
+}
 
+// setEnabledLocked is setEnabled for callers already holding b.mu.
+func (b *Bridge) setEnabledLocked(on bool) error {
 	if err := b.selectBank(bankEnable); err != nil {
 		return err
 	}
@@ -177,20 +204,25 @@ func (b *Bridge) setEnabled(on bool) error {
 		return nil
 	}
 
-	// Stop the bridge's watchdog while its registers are open.
+	// Stop the bridge's watchdog for as long as its registers are open.
 	//
-	// Sipeed's driver does this for the C variant and it is not cosmetic: a
-	// running watchdog resets the bridge's firmware periodically, which
-	// re-acquires HDMI lock each time and can leave the CSI transmitter
-	// never reaching a steady state -- exactly the "HDMI locked, lanes idle"
-	// shape seen on this board.
+	// Sipeed does this for the same window and it is not cosmetic: a running
+	// watchdog resets the bridge's firmware periodically, and a reset landing
+	// mid-read returns a torn measurement. It is restored implicitly when the
+	// window closes and the part resumes running its own firmware.
 	return b.write(regWatchdog, 0x00)
 }
 
-// Signal describes what the bridge currently sees on its HDMI input.
+// Signal describes what the bridge is currently delivering.
 //
 // Locked false means no usable input -- unplugged, powered off, or a mode the
 // bridge cannot measure. Width and Height are only meaningful when it is true.
+//
+// Width and Height are the geometry the bridge is transmitting on the CSI-2
+// lanes, which is not necessarily the timing it is receiving over HDMI. That
+// is the useful one: it is what the MIPI receiver and VI have to be configured
+// for, and configuring them from the HDMI timing instead is how you get a
+// pipeline that builds cleanly and never receives a frame.
 type Signal struct {
 	Locked bool
 	Width  int
@@ -214,13 +246,21 @@ func (b *Bridge) Signal() (Signal, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if err := b.selectBank(bankTiming); err != nil {
+	// Open the register window for exactly this read and close it again on the
+	// way out. Holding it open stops the bridge driving its CSI transmitter --
+	// see Enable -- and a status poll that silently killed the video stream
+	// would be a particularly unhelpful thing to own.
+	if err := b.setEnabledLocked(true); err != nil {
 		return Signal{}, err
 	}
+	defer func() { _ = b.setEnabledLocked(false) }()
 
-	// Lock first. The timing registers hold their last measurement after the
-	// source goes away, so reading them alone would keep reporting a
-	// resolution for an unplugged cable.
+	// Lock first, out of its own bank. The geometry registers hold their last
+	// measurement after the source goes away, so reading them alone would keep
+	// reporting a resolution for an unplugged cable.
+	if err := b.selectBank(bankLock); err != nil {
+		return Signal{}, err
+	}
 	lock, err := b.read(regLock, 1)
 	if err != nil {
 		return Signal{}, err
@@ -229,18 +269,21 @@ func (b *Bridge) Signal() (Signal, error) {
 		return Signal{}, nil
 	}
 
-	v, err := b.read(regVActive, 2)
+	// Then the CSI transmit geometry, which lives in a different bank.
+	if err := b.selectBank(bankCSI); err != nil {
+		return Signal{}, err
+	}
+	v, err := b.read(regCSIVActive, 2)
 	if err != nil {
 		return Signal{}, err
 	}
-	h, err := b.read(regHActive, 2)
+	h, err := b.read(regCSIHActive, 2)
 	if err != nil {
 		return Signal{}, err
 	}
 
 	height := int(v[0])<<8 | int(v[1])
-	// Horizontal active is counted in pixel pairs.
-	width := (int(h[0])<<8 | int(h[1])) * 2
+	width := int(h[0])<<8 | int(h[1])
 
 	if width == 0 || height == 0 {
 		return Signal{}, nil
@@ -255,7 +298,7 @@ func (b *Bridge) Lost() (bool, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if err := b.selectBank(bankTiming); err != nil {
+	if err := b.selectBank(bankLock); err != nil {
 		return false, err
 	}
 	v, err := b.read(regLock, 1)

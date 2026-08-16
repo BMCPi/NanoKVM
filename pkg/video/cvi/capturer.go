@@ -133,12 +133,10 @@ func Open(i2cDevice string) (*Capturer, error) {
 	if c.bridge, err = lt6911.Open(i2cDevice); err != nil {
 		return nil, err
 	}
-	// Opening the bridge's registers is also what stops its watchdog, which
-	// otherwise resets its firmware periodically and keeps the CSI
-	// transmitter from settling.
-	if err = c.bridge.Enable(); err != nil {
-		return nil, err
-	}
+	// Deliberately no Enable() here. The register window has to stay closed
+	// except while a read is in flight, because holding it open takes the part
+	// away from its own firmware and the CSI transmitter goes idle with it.
+	// Signal brackets its own window; nothing else here needs one.
 	if c.base, err = OpenBase(); err != nil {
 		return nil, err
 	}
