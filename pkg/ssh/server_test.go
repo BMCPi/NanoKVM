@@ -1,10 +1,12 @@
 package ssh
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/pem"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -12,9 +14,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/shell"
 )
 
 // startTestServer brings the real server up on an ephemeral port with its
@@ -60,6 +64,29 @@ func newClientKey(t *testing.T) ssh.Signer {
 		t.Fatalf("client signer: %v", err)
 	}
 	return signer
+}
+
+// authorizedClient starts a server, authorizes a fresh key, and returns a
+// connected client — the setup every session test needs before it can do
+// anything interesting.
+func authorizedClient(t *testing.T) *ssh.Client {
+	t.Helper()
+
+	addr := startTestServer(t, false)
+	signer := newClientKey(t)
+	if err := WriteAuthorizedKeys(string(ssh.MarshalAuthorizedKey(signer.PublicKey()))); err != nil {
+		t.Fatalf("WriteAuthorizedKeys: %v", err)
+	}
+
+	client, err := dial(t, addr, &ssh.ClientConfig{
+		User: "root",
+		Auth: []ssh.AuthMethod{ssh.PublicKeys(signer)},
+	})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	return client
 }
 
 func dial(t *testing.T, addr string, cfg *ssh.ClientConfig) (*ssh.Client, error) {
@@ -196,6 +223,148 @@ func TestInteractiveShellWithPTY(t *testing.T) {
 	}
 	if !strings.Contains(got, "term=xterm-256color") {
 		t.Errorf("TERM not propagated: %q", got)
+	}
+}
+
+// TestSFTPSubsystem is the file-transfer path `scp` takes on OpenSSH 9.0 and
+// later: request the sftp subsystem, then round-trip a file through it.
+func TestSFTPSubsystem(t *testing.T) {
+	client := authorizedClient(t)
+
+	sftpClient, err := sftp.NewClient(client)
+	if err != nil {
+		t.Fatalf("sftp subsystem: %v", err)
+	}
+	defer func() { _ = sftpClient.Close() }()
+
+	path := filepath.Join(t.TempDir(), "payload.bin")
+	// Large enough to span several 32 KiB SFTP packets, so a short write or a
+	// mishandled continuation shows up here rather than on the board.
+	want := bytes.Repeat([]byte("nanokvm-sftp-"), 8192)
+
+	w, err := sftpClient.Create(path)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := w.Write(want); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close after write: %v", err)
+	}
+
+	// Read it back through SFTP...
+	r, err := sftpClient.Open(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+	got, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("round-tripped %d bytes, want %d (equal: %t)", len(got), len(want), bytes.Equal(got, want))
+	}
+
+	// ...and confirm the bytes really landed on disk, not just in the server.
+	onDisk, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read from disk: %v", err)
+	}
+	if !bytes.Equal(onDisk, want) {
+		t.Errorf("file on disk is %d bytes, want %d", len(onDisk), len(want))
+	}
+
+	fi, err := sftpClient.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if fi.Size() != int64(len(want)) {
+		t.Errorf("stat size = %d, want %d", fi.Size(), len(want))
+	}
+
+	if err := sftpClient.Remove(path); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("file survived removal: %v", err)
+	}
+}
+
+// TestSFTPWorkingDirectory pins where a relative path lands. `scp file bmc:`
+// must write to the shell's home directory the way sshd behaves, not to the
+// server process's cwd — whatever directory init happened to launch it from.
+func TestSFTPWorkingDirectory(t *testing.T) {
+	client := authorizedClient(t)
+
+	sftpClient, err := sftp.NewClient(client)
+	if err != nil {
+		t.Fatalf("sftp subsystem: %v", err)
+	}
+	defer func() { _ = sftpClient.Close() }()
+
+	cwd, err := sftpClient.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if cwd != shell.Dir() {
+		t.Errorf("sftp working directory = %q, want %q", cwd, shell.Dir())
+	}
+}
+
+// TestUnknownSubsystemRejected keeps the subsystem door open only for SFTP.
+func TestUnknownSubsystemRejected(t *testing.T) {
+	client := authorizedClient(t)
+
+	session, err := client.NewSession()
+	if err != nil {
+		t.Fatalf("new session: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	if err := session.RequestSubsystem("netconf"); err == nil {
+		t.Fatal("expected an unknown subsystem to be refused")
+	}
+}
+
+// TestMalformedSubsystemRequest feeds the subsystem handler a payload too
+// short to hold its length-prefixed name. pkg/sftp's own example server reads
+// the name as req.Payload[4:], which panics on this input and would take the
+// whole BMC process down with it; parsing the payload properly must simply
+// refuse the request and leave the connection usable.
+func TestMalformedSubsystemRequest(t *testing.T) {
+	client := authorizedClient(t)
+
+	ch, reqs, err := client.OpenChannel("session", nil)
+	if err != nil {
+		t.Fatalf("open channel: %v", err)
+	}
+	go ssh.DiscardRequests(reqs)
+
+	ok, err := ch.SendRequest("subsystem", true, []byte{0x00, 0x01})
+	if err != nil {
+		t.Fatalf("send request: %v", err)
+	}
+	if ok {
+		t.Error("a truncated subsystem request was accepted")
+	}
+	_ = ch.Close()
+
+	// The server must still be serving: a panic in the request loop would
+	// have taken the process down, and a lesser mishandling the connection.
+	session, err := client.NewSession()
+	if err != nil {
+		t.Fatalf("new session after malformed request: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	out, err := session.Output("echo still-alive")
+	if err != nil {
+		t.Fatalf("run command after malformed request: %v", err)
+	}
+	if !strings.Contains(string(out), "still-alive") {
+		t.Errorf("output = %q, want still-alive", out)
 	}
 }
 

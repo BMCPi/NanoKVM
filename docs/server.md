@@ -64,16 +64,17 @@ Note: Use Linux operating system (x86-64), or any platform with Go cross-compila
 2. Deploy the Application
     1. Enable SSH in the Web Settings if it is off: `Settings > SSH`. The BMC runs no sshd —
        the app itself is the SSH server, authenticating with the BMC account or a key from
-       `Settings > Authorized Keys`. It serves shells and remote commands only: there is no
-       SFTP subsystem and no `scp` binary on the device, so copy files over the HTTP API
-       (`/api/firmware/file/:name`, `/api/firmware/media/upload`) or the web UI instead.
+       `Settings > Authorized Keys`. It serves shells, remote commands, and file transfer:
+       the SFTP subsystem is served in-process, so `scp NanoKVM-Server root@<bmc>:/var/lib/nanokvm/app/server/`
+       works even though the image ships no `sftp-server` or `scp` binary. Legacy `scp -O`
+       does not — it needs an `scp` binary on the device — so drop the flag if a script sets it.
     2. Place the newly compiled `NanoKVM-Server` at `/var/lib/nanokvm/app/server/NanoKVM-Server` (the factory copy under the read-only `/kvmapp` is left untouched; the launcher prefers the writable install).
     3. Restart the service by running `killall NanoKVM-Server` — busybox init supervises the server and respawns it immediately.
 
 ## Manually Update
 
-> File transfers use the HTTP API or the web UI, not `scp`/`sftp` — the in-process SSH
-> server provides shells and remote commands only.
+> File transfers can go over `scp`/`sftp` (served in-process by the SSH server), the HTTP
+> API, or the web UI. Relative paths land in `/root`, the same place a shell session starts.
 
 1. Download the latest application from [GitHub](https://github.com/sipeed/NanoKVM/releases);
 2. Unzip the downloaded file and rename the unzipped folder to `kvmapp`;

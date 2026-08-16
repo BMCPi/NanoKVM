@@ -1,7 +1,9 @@
 // Package ssh is the BMC's SSH server. The image ships no sshd: the transport
 // is golang.org/x/crypto/ssh and sessions run on the shared PTY plumbing in
 // pkg/shell — the same code behind the web terminal drawer, so a
-// shell is a shell whether it arrived over SSH or over the browser.
+// shell is a shell whether it arrived over SSH or over the browser. File
+// transfer is served in-process too (see sftp.go), so `scp` and `sftp` work
+// without an sftp-server binary the image does not have.
 //
 // Authentication reuses the BMC's own credentials: client public keys from
 // authorized_keys (validated with the same rules as jetkvm-community/kvm's
@@ -380,6 +382,10 @@ type signalMsg struct {
 	Signal string
 }
 
+type subsystemMsg struct {
+	Name string
+}
+
 type exitStatusMsg struct {
 	Status uint32
 }
@@ -475,9 +481,21 @@ func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request) {
 			replyRequest(req, false)
 
 		case "subsystem":
-			// No SFTP server: the image has no sftp-server binary and the app
-			// exposes file transfer over HTTP instead.
-			replyRequest(req, false)
+			if started {
+				replyRequest(req, false)
+				continue
+			}
+			var sub subsystemMsg
+			if err := ssh.Unmarshal(req.Payload, &sub); err != nil || sub.Name != "sftp" {
+				// SFTP is the only subsystem served; anything else (and a
+				// malformed request) is refused.
+				replyRequest(req, false)
+				continue
+			}
+			started = true
+			replyRequest(req, true)
+			// serveSFTP owns the channel from here, like pump does for a shell.
+			go serveSFTP(ch)
 
 		default:
 			replyRequest(req, false)
@@ -517,6 +535,13 @@ func pump(ch ssh.Channel, session *shell.Session) {
 	out.Wait()
 
 	code, _ := session.Wait()
+	exitSession(ch, code)
+}
+
+// exitSession reports a session's exit status to the client and closes the
+// channel — the last thing every session does, whether it ran a shell or the
+// SFTP subsystem.
+func exitSession(ch ssh.Channel, code int) {
 	_, _ = ch.SendRequest("exit-status", false, ssh.Marshal(exitStatusMsg{Status: uint32(code)})) //nolint:gosec // exit codes are 0-255
 	_ = ch.CloseWrite()
 	_ = ch.Close()

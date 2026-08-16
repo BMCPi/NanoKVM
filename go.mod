@@ -18,6 +18,7 @@ require (
 	github.com/pion/mdns/v2 v2.1.0
 	github.com/pion/rtcp v1.2.17
 	github.com/pion/webrtc/v4 v4.2.18
+	github.com/pkg/sftp v1.13.10
 	github.com/prometheus/client_golang v1.23.2
 	github.com/siderolabs/go-smbios v0.3.4
 	github.com/sirupsen/logrus v1.9.4
@@ -80,6 +81,7 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.18.5 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
+	github.com/kr/fs v0.1.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
