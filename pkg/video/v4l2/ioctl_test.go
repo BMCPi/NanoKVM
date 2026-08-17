@@ -25,6 +25,7 @@ func TestABILayouts(t *testing.T) {
 		{"event", unsafe.Sizeof(event{}), 136},
 		{"input", unsafe.Sizeof(input{}), 80},
 		{"dvTimings", unsafe.Sizeof(dvTimings{}), 132},
+		{"v4l2Edid", unsafe.Sizeof(v4l2Edid{}), 40},
 	}
 	for _, c := range cases {
 		if c.got != c.want {
@@ -68,6 +69,8 @@ func TestRequestNumbers(t *testing.T) {
 		{"SUBSCRIBE_EVENT", reqSubscribeEvent(), 0x4020565a},
 		{"DQEVENT", reqDqevent(), 0x80885659},
 		{"QUERY_DV_TIMINGS", reqQueryDvTimings(), 0x80845663},
+		{"G_EDID", reqGEdid(), 0xc0285628},
+		{"S_EDID", reqSEdid(), 0xc0285629},
 	}
 	for _, c := range cases {
 		if c.got != c.want {

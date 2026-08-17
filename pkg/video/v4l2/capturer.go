@@ -87,11 +87,10 @@ var _ video.Capturer = (*Capturer)(nil)
 //
 // It does not require a connected host: a BMC boots with no cable attached
 // as often as not, so a missing input signal is a state to report, never a
-// reason to fail here. Order matters in one place — the EDID check runs
-// before the modules load, because once soph_v4l2 is inserted the kernel
-// owns the bridge's i2c address and a concurrent userspace write would
-// interleave with its poller's bank-switched transactions.
-func Open(i2cDevice string) (*Capturer, error) {
+// reason to fail here. EDID provisioning happens after the device is found,
+// through the kernel's VIDIOC_G/S_EDID — the bridge's i2c bus is entirely
+// kernel-owned now, so userspace never touches /dev/i2c-4 at all.
+func Open() (*Capturer, error) {
 	c := &Capturer{
 		fd:     -1,
 		frames: make(chan video.Frame, frameQueue),
@@ -100,21 +99,6 @@ func Open(i2cDevice string) (*Capturer, error) {
 	}
 	c.setQuality(1)
 	c.publish(video.State{})
-
-	// Give the bridge an EDID if it has none: the host picks its output
-	// mode from what the bridge advertises, and the part ships with its
-	// EDID storage erased. Degraded-mode on failure, not fatal — a bridge
-	// with no EDID still locks whatever the host decides to send.
-	if bridge, err := lt6911.Open(i2cDevice); err != nil {
-		log.Printf("v4l2: bridge EDID check skipped: %v", err)
-	} else {
-		if wrote, err := bridge.EnsureEDID(); err != nil {
-			log.Printf("v4l2: bridge EDID: %v", err)
-		} else if wrote {
-			log.Printf("v4l2: bridge EDID was blank or invalid, programmed the default")
-		}
-		bridge.Close()
-	}
 
 	var err error
 	if c.ownedModules, err = loadPipelineModules(); err != nil {
@@ -125,6 +109,23 @@ func Open(i2cDevice string) (*Capturer, error) {
 	if c.fd, err = findDevice(); err != nil {
 		c.closeDevices()
 		return nil, err
+	}
+
+	// Give the bridge an EDID if it has none, through the kernel path
+	// (VIDIOC_G/S_EDID on the capture node): the host picks its output
+	// mode from what the bridge advertises, and the part ships with its
+	// storage erased. Read-first, because programming is a flash
+	// erase/write cycle and endurance is finite. Degraded-mode on
+	// failure, never fatal — a bridge with no EDID still locks whatever
+	// the host decides to send.
+	if cur, err := c.EDID(); err != nil {
+		log.Printf("v4l2: bridge EDID check skipped: %v", err)
+	} else if !lt6911.ValidEDID(cur) {
+		if err := c.SetEDID(lt6911.DefaultEDID()); err != nil {
+			log.Printf("v4l2: bridge EDID: %v", err)
+		} else {
+			log.Printf("v4l2: bridge EDID was blank or invalid, programmed the default")
+		}
 	}
 
 	// Subscribe once for the life of the fd; V4L2 event subscriptions
@@ -697,16 +698,35 @@ func (c *Capturer) Codec() video.Codec {
 	return c.cfg.Codec
 }
 
-// EDID returns the raw EDID presented to the host.
-//
-// Not implemented at runtime: the kernel owns the bridge's i2c address while
-// the pipeline modules are loaded, and the EDID lives in the bridge's own
-// flash. Provisioning happens once in Open, before the modules load.
+// EDID returns the raw EDID the bridge presents to the host, read from its
+// flash through the kernel's VIDIOC_G_EDID (which serializes against the
+// driver's own bridge traffic — the reason this lives behind the kernel).
 func (c *Capturer) EDID() ([]byte, error) {
-	return nil, fmt.Errorf("v4l2: EDID read: %w", video.ErrNotSupported)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed || c.fd < 0 {
+		return nil, fmt.Errorf("v4l2: EDID read: %w", video.ErrNotSupported)
+	}
+	buf := make([]byte, 256)
+	e := v4l2Edid{Blocks: 2, Edid: &buf[0]}
+	if err := vioctl(c.fd, reqGEdid(), unsafe.Pointer(&e), "get edid"); err != nil {
+		return nil, err
+	}
+	return buf[:e.Blocks*128], nil
 }
 
-// SetEDID replaces the EDID presented to the host. See EDID.
-func (c *Capturer) SetEDID([]byte) error {
-	return fmt.Errorf("v4l2: EDID write: %w", video.ErrNotSupported)
+// SetEDID programs the bridge's EDID flash through VIDIOC_S_EDID. The host
+// generally has to re-detect the display for it to take effect. Slow (the
+// flash erase alone is half a second); not for hot paths.
+func (c *Capturer) SetEDID(edid []byte) error {
+	if !lt6911.ValidEDID(edid) {
+		return fmt.Errorf("v4l2: refusing to write a malformed EDID")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed || c.fd < 0 {
+		return fmt.Errorf("v4l2: EDID write: %w", video.ErrNotSupported)
+	}
+	e := v4l2Edid{Blocks: 2, Edid: &edid[0]}
+	return vioctl(c.fd, reqSEdid(), unsafe.Pointer(&e), "set edid")
 }

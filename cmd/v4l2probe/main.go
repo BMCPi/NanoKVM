@@ -9,17 +9,88 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
+	"os"
 	"time"
+	"unsafe"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/video"
 	"github.com/pi-bmc/nanokvm-app/pkg/video/v4l2"
 )
 
+// The subdev format ioctl, probe-local: production code never touches
+// subdevs, but the bench wants to see the negotiated media boundaries.
+// Sizes verified against the kernel headers: v4l2_subdev_format=88,
+// v4l2_mbus_framefmt=48, VIDIOC_SUBDEV_G_FMT=0xc0585604.
+type mbusFramefmt struct {
+	Width, Height, Code, Field, ColorSpace  uint32
+	YcbcrEnc, Quantization, XferFunc, Flags uint16
+	_                                       [5]uint32
+}
+
+type subdevFormat struct {
+	Which  uint32 // 1 = ACTIVE
+	Pad    uint32
+	Format mbusFramefmt
+	Stream uint32
+	_      [7]uint32
+}
+
+const vidiocSubdevGFmt = 0xc0585604
+
+func dumpSubdevs() {
+	for i := 0; i < 8; i++ {
+		path := fmt.Sprintf("/dev/v4l-subdev%d", i)
+		fd, err := unix.Open(path, unix.O_RDWR, 0)
+		if err != nil {
+			continue
+		}
+		name := "?"
+		if b, err := os.ReadFile(fmt.Sprintf("/sys/class/video4linux/v4l-subdev%d/name", i)); err == nil {
+			name = string(b[:len(b)-1])
+		}
+		for pad := uint32(0); pad < 2; pad++ {
+			f := subdevFormat{Which: 1, Pad: pad}
+			_, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd),
+				vidiocSubdevGFmt, uintptr(unsafe.Pointer(&f)))
+			if errno != 0 {
+				continue
+			}
+			log.Printf("boundary %-14s pad%d: %dx%d code=0x%04x field=%d",
+				name, pad, f.Format.Width, f.Format.Height,
+				f.Format.Code, f.Format.Field)
+		}
+		unix.Close(fd)
+	}
+}
+
+// nalTypes summarises the NAL units in an Annex-B H.264 buffer — the proof
+// that what arrived is real encoded video, not zeros or garbage.
+func nalTypes(b []byte) string {
+	out := ""
+	for i := 0; i+4 < len(b); i++ {
+		if b[i] == 0 && b[i+1] == 0 && b[i+2] == 1 {
+			out += fmt.Sprintf("%d ", b[i+3]&0x1f)
+			i += 3
+		}
+	}
+	return out
+}
+
 func main() {
 	dur := flag.Duration("t", 8*time.Second, "how long to stream")
 	codec := flag.String("codec", "h264", "h264|h265|mjpeg")
+	subdevs := flag.Bool("subdevs", false, "print media boundary formats and exit")
+	dump := flag.String("dump", "", "append the raw bitstream to this file")
 	flag.Parse()
+
+	if *subdevs {
+		dumpSubdevs()
+		return
+	}
 
 	var c video.Codec
 	switch *codec {
@@ -33,13 +104,28 @@ func main() {
 		log.Fatalf("unknown codec %q", *codec)
 	}
 
-	cap, err := v4l2.Open("")
+	capt, err := v4l2.Open()
 	if err != nil {
 		log.Fatalf("open: %v", err)
 	}
-	defer cap.Close()
 
-	if err := cap.Start(video.Config{Codec: c}); err != nil {
+	var sink *os.File
+	if *dump != "" {
+		f, err := os.Create(*dump)
+		if err != nil {
+			log.Fatalf("dump: %v", err)
+		}
+		defer f.Close()
+		sink = f
+	}
+	// Deliberately no Close: on a fresh boot Open inserted the whole
+	// module chain, and Close would unload it on exit — including
+	// soph_vc_driver, whose module_exit can block on encoder state the
+	// bench is in the middle of poking at. A bench tool leaves modules
+	// where it found them; the next run skips what is already loaded.
+
+	if err := capt.Start(video.Config{Codec: c}); err != nil {
+		//nolint:gocritic // bench tool: a leaked dump fd on fatal exit is fine
 		log.Fatalf("start: %v", err)
 	}
 
@@ -48,10 +134,14 @@ func main() {
 	var firstPTS, lastPTS time.Duration
 	for {
 		select {
-		case f := <-cap.Frames():
+		case f := <-capt.Frames():
 			if frames == 0 {
 				firstPTS = f.PTS
-				log.Printf("first frame: %d bytes, keyframe=%v", len(f.Data), f.Keyframe)
+				log.Printf("first frame: %d bytes, keyframe=%v, nals: %s",
+					len(f.Data), f.Keyframe, nalTypes(f.Data))
+			}
+			if sink != nil {
+				_, _ = sink.Write(f.Data)
 			}
 			frames++
 			bytes += len(f.Data)
@@ -59,13 +149,13 @@ func main() {
 			if f.Keyframe {
 				keyframes++
 			}
-		case s := <-cap.States():
+		case s := <-capt.States():
 			log.Printf("state: ready=%v streaming=%v %dx%d@%.0f err=%q",
 				s.Ready, s.Streaming, s.Width, s.Height, s.FramePerSecond, s.Err)
 		case <-deadline:
-			st := cap.State()
+			st := capt.State()
 			log.Printf("done: %d frames (%d key) %d bytes in %s, pts span %s, dropped=%d",
-				frames, keyframes, bytes, *dur, lastPTS-firstPTS, cap.DroppedFrames())
+				frames, keyframes, bytes, *dur, lastPTS-firstPTS, capt.DroppedFrames())
 			log.Printf("final state: ready=%v %dx%d err=%q", st.Ready, st.Width, st.Height, st.Err)
 			if frames == 0 && !st.Ready {
 				log.Printf("no signal at the bridge — is an HDMI source connected?")

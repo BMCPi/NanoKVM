@@ -32,3 +32,13 @@ var defaultEDID = [edidSize]byte{
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	0x00, 0x00, 0x00, 0xda,
 }
+
+// DefaultEDID returns a copy of the built-in EDID (E21_NanoKVM.bin: a
+// 1080p60 sink with one CEA extension block). Exposed so the v4l2 capturer
+// can program it through the kernel's VIDIOC_S_EDID path; the i2c flashing
+// that used to live in this package is now the lt6911 subdev's job.
+func DefaultEDID() []byte {
+	out := make([]byte, len(defaultEDID))
+	copy(out, defaultEDID[:])
+	return out
+}

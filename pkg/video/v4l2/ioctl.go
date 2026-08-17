@@ -67,6 +67,8 @@ func reqSubscribeEvent() uintptr {
 }
 func reqDqevent() uintptr        { return ioc(iocRead, 89, unsafe.Sizeof(event{})) }
 func reqQueryDvTimings() uintptr { return ioc(iocRead, 99, dvTimingsABISize) }
+func reqGEdid() uintptr          { return ioc(iocRead|iocWrite, 40, unsafe.Sizeof(v4l2Edid{})) }
+func reqSEdid() uintptr          { return ioc(iocRead|iocWrite, 41, unsafe.Sizeof(v4l2Edid{})) }
 
 // Enum and flag constants, from the kernel's uapi headers.
 const (
@@ -240,6 +242,16 @@ func (t *dvTimings) width() uint32 {
 func (t *dvTimings) height() uint32 {
 	return uint32(t.raw[8]) | uint32(t.raw[9])<<8 | uint32(t.raw[10])<<16 |
 		uint32(t.raw[11])<<24
+}
+
+// v4l2Edid is struct v4l2_edid; the core copies the pointed-to blocks
+// between user and kernel space itself (array-argument handling).
+type v4l2Edid struct {
+	Pad        uint32
+	StartBlock uint32
+	Blocks     uint32
+	_          [5]uint32
+	Edid       *byte
 }
 
 type input struct {

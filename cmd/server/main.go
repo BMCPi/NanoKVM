@@ -319,7 +319,7 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 // the UI can tell apart from a server fault, unlike a missing route.
 func newVideoHub(cfg *config.Config) *rtc.Hub {
 	capturer := video.Capturer(&video.Unsupported{})
-	if c, err := v4l2.Open(""); err != nil {
+	if c, err := v4l2.Open(); err != nil {
 		log.Printf("video: capture unavailable, serving without it: %v", err)
 	} else {
 		capturer = c
