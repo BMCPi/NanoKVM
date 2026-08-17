@@ -345,6 +345,10 @@ func (c *Capturer) supervise() {
 	var frameLoop chan struct{}
 	var frameWG sync.WaitGroup
 
+	// Raised when the frame loop gives up. Buffered and never closed, because
+	// it outlives any one loop: a new one is started on every rebuild.
+	frameFailed := make(chan struct{}, 1)
+
 	stopFrames := func() {
 		if frameLoop == nil {
 			return
@@ -352,8 +356,26 @@ func (c *Capturer) supervise() {
 		close(frameLoop)
 		frameWG.Wait()
 		frameLoop = nil
+		// Anything raised by the loop on its way out refers to a pipeline
+		// that no longer exists.
+		select {
+		case <-frameFailed:
+		default:
+		}
 	}
 	defer stopFrames()
+
+	startFrames := func() {
+		if c.runW == 0 {
+			return
+		}
+		frameLoop = make(chan struct{})
+		frameWG.Add(1)
+		go func(done chan struct{}) {
+			defer frameWG.Done()
+			c.runFrames(done, frameFailed)
+		}(frameLoop)
+	}
 
 	for {
 		sig, err := c.bridge.Signal()
@@ -373,14 +395,7 @@ func (c *Capturer) supervise() {
 				stopFrames()
 				c.rebuild(sig.Width, sig.Height)
 				c.mu.Lock()
-				if c.runW != 0 {
-					frameLoop = make(chan struct{})
-					frameWG.Add(1)
-					go func(done chan struct{}) {
-						defer frameWG.Done()
-						c.runFrames(done)
-					}(frameLoop)
-				}
+				startFrames()
 				c.mu.Unlock()
 
 			case !sig.Locked && built:
@@ -415,6 +430,26 @@ func (c *Capturer) supervise() {
 		select {
 		case <-c.stop:
 			return
+
+		case <-frameFailed:
+			// The frame loop is the only thing draining the encoder, so
+			// losing it is not a degraded stream -- it is a pipeline with a
+			// producer and no consumer. VENC's input queue fills, the VB
+			// pool it is holding blocks from drains to nothing, and VI's
+			// error handler starts resetting the ISP and retrying, one
+			// KERN_ERR per frame. That is how a transient encoder error ends
+			// up taking the whole board out.
+			//
+			// So tear the pipeline down. The next poll sees a locked signal
+			// with nothing built and puts it back up, which is the same path
+			// a mode change takes and is known to work.
+			log.Printf("cvi: frame loop stopped, tearing the pipeline down")
+			stopFrames()
+			c.mu.Lock()
+			_ = c.teardown()
+			c.runW, c.runH = 0, 0
+			c.mu.Unlock()
+
 		case <-ticker.C:
 		}
 	}
@@ -511,7 +546,26 @@ func applyDefaults(cfg video.Config) video.Config {
 }
 
 // runFrames pulls encoded frames until done is closed.
-func (c *Capturer) runFrames(done <-chan struct{}) {
+// runFrames pulls encoded frames until done is closed.
+//
+// It is the only thing draining the encoder, so it must not stop quietly. Any
+// exit that is not a shutdown raises failed, because a pipeline left running
+// with nothing reading the far end of it does not just stall -- it backs up
+// through VENC into the VB pool and takes the media stack down with it.
+func (c *Capturer) runFrames(done <-chan struct{}, failed chan<- struct{}) {
+	// Distinguishes "told to stop" from "gave up"; only the latter is a
+	// reason to tear the pipeline down.
+	stopped := false
+	defer func() {
+		if stopped {
+			return
+		}
+		select {
+		case failed <- struct{}{}:
+		default: // already raised; one is enough
+		}
+	}()
+
 	var stream VENCStream
 	packs := make([]VENCPack, maxPacks)
 
@@ -525,6 +579,7 @@ func (c *Capturer) runFrames(done <-chan struct{}) {
 	for {
 		select {
 		case <-done:
+			stopped = true
 			return
 		default:
 		}
@@ -620,6 +675,10 @@ func isNoFrame(err error) bool {
 }
 
 func (c *Capturer) publishErr(err error) {
+	// Logged as well as published, because the published form reaches the UI
+	// as "not streaming", which looks the same as an idle host.
+	log.Printf("cvi: %v", err)
+
 	st := c.State()
 	st.Err = err.Error()
 	st.Streaming = video.StreamingInactive
