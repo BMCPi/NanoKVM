@@ -14,7 +14,8 @@
 // copied per frame. On the SG2002 the vendor compiles its VPU SDK into the
 // kernel module instead, so the whole VI -> VPSS -> VENC path is bound
 // in-kernel and an implementation here can hand out frames without cgo and
-// without a copy. See pkg/video/cvi.
+// without a copy. See pkg/video/v4l2, which drives the soph_v4l2
+// kernel module through the standard V4L2 API.
 package video
 
 import (

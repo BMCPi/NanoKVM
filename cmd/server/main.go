@@ -32,8 +32,8 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/usbgadget"
 	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 	"github.com/pi-bmc/nanokvm-app/pkg/video"
-	"github.com/pi-bmc/nanokvm-app/pkg/video/cvi"
 	"github.com/pi-bmc/nanokvm-app/pkg/video/rtc"
+	"github.com/pi-bmc/nanokvm-app/pkg/video/v4l2"
 	"github.com/pi-bmc/nanokvm-app/ui"
 
 	"github.com/gin-contrib/cors"
@@ -319,7 +319,7 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 // the UI can tell apart from a server fault, unlike a missing route.
 func newVideoHub(cfg *config.Config) *rtc.Hub {
 	capturer := video.Capturer(&video.Unsupported{})
-	if c, err := cvi.Open(""); err != nil {
+	if c, err := v4l2.Open(""); err != nil {
 		log.Printf("video: capture unavailable, serving without it: %v", err)
 	} else {
 		capturer = c
