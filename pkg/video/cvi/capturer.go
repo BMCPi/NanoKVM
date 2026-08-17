@@ -680,18 +680,28 @@ func (c *Capturer) runFrames(done <-chan struct{}, failed chan<- struct{}) {
 			return
 		}
 		if sendErr != nil {
-			// The encoder refusing a frame is survivable -- it is the
-			// back-pressure this design is built around -- so drop it and
-			// carry on rather than tearing the pipeline down.
-			if isNoFrame(sendErr) {
-				tally.refused++
-				tally.refusedWhy = sendErr.Error()
-				continue
+			if !isNoFrame(sendErr) {
+				c.publishErr(sendErr)
+				return
 			}
-			c.publishErr(sendErr)
-			return
+			// The encoder declining a frame is survivable -- it is the
+			// back-pressure this design is built around -- so the frame is
+			// dropped and the loop carries on.
+			//
+			// Carrying on means going to the collection below rather than
+			// back to the top. The encoder is asynchronous: sending and
+			// collecting are independent, and it says BUSY precisely when
+			// its input queue is full, which is exactly when its output most
+			// needs draining. Skipping the collection because the send was
+			// refused is a deadlock -- the queue stays full, so every send
+			// after it is refused too, and the one call that would make room
+			// is the one never reached. It encodes a handful of frames and
+			// then stops forever.
+			tally.refused++
+			tally.refusedWhy = sendErr.Error()
+		} else {
+			tally.sent++
 		}
-		tally.sent++
 
 		if err := c.enc.GetStream(&stream, packs, getStreamTimeout); err != nil {
 			// No frame is normal on a static console; only report
