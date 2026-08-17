@@ -89,8 +89,22 @@ func Base(title string, showNav bool, onDocsPage bool) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, " ")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			if !onDocsPage {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "    ")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = components.VirtualKeyboard().Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<main class=\"min-h-0 flex-1 overflow-hidden\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<main class=\"min-h-0 flex-1 overflow-hidden\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -98,12 +112,12 @@ func Base(title string, showNav bool, onDocsPage bool) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</main></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</main></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if showNav {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "   ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "   ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -111,7 +125,7 @@ func Base(title string, showNav bool, onDocsPage bool) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -119,7 +133,7 @@ func Base(title string, showNav bool, onDocsPage bool) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -136,7 +150,7 @@ func Base(title string, showNav bool, onDocsPage bool) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "</body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -167,7 +181,7 @@ func authHelperScript() templ.Component {
 			templ_7745c5c3_Var4 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<script>\n\t\tfunction getCookie(name) {\n\t\t\tconst match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));\n\t\t\treturn match ? decodeURIComponent(match[2]) : null;\n\t\t}\n\t\tfunction setCookie(name, value, days) {\n\t\t\tconst d = new Date();\n\t\t\td.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));\n\t\t\tdocument.cookie = name + '=' + encodeURIComponent(value) + ';expires=' + d.toUTCString() + ';path=/';\n\t\t}\n\t\tfunction deleteCookie(name) {\n\t\t\tdocument.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';\n\t\t}\n\t\tfunction getAuthHeaders() {\n\t\t\tconst token = getCookie('nano-kvm-token') || '';\n\t\t\treturn { 'Content-Type': 'application/json', 'token': token };\n\t\t}\n\t\tfunction encryptPassword(password) {\n\t\t\tconst SECRET_KEY = 'nanokvm-sipeed-2024';\n\t\t\tconst encrypted = CryptoJS.AES.encrypt(password, SECRET_KEY).toString();\n\t\t\treturn encodeURIComponent(encrypted);\n\t\t}\n\t\tasync function apiGet(url) {\n\t\t\treturn (await fetch(url, { headers: getAuthHeaders() })).json();\n\t\t}\n\t\tasync function apiPost(url, body) {\n\t\t\treturn (await fetch(url, {\n\t\t\t\tmethod: 'POST',\n\t\t\t\theaders: getAuthHeaders(),\n\t\t\t\tbody: body ? JSON.stringify(body) : undefined,\n\t\t\t})).json();\n\t\t}\n\t</script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<script>\n\t\tfunction getCookie(name) {\n\t\t\tconst match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));\n\t\t\treturn match ? decodeURIComponent(match[2]) : null;\n\t\t}\n\t\tfunction setCookie(name, value, days) {\n\t\t\tconst d = new Date();\n\t\t\td.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));\n\t\t\tdocument.cookie = name + '=' + encodeURIComponent(value) + ';expires=' + d.toUTCString() + ';path=/';\n\t\t}\n\t\tfunction deleteCookie(name) {\n\t\t\tdocument.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';\n\t\t}\n\t\tfunction getAuthHeaders() {\n\t\t\tconst token = getCookie('nano-kvm-token') || '';\n\t\t\treturn { 'Content-Type': 'application/json', 'token': token };\n\t\t}\n\t\tfunction encryptPassword(password) {\n\t\t\tconst SECRET_KEY = 'nanokvm-sipeed-2024';\n\t\t\tconst encrypted = CryptoJS.AES.encrypt(password, SECRET_KEY).toString();\n\t\t\treturn encodeURIComponent(encrypted);\n\t\t}\n\t\tasync function apiGet(url) {\n\t\t\treturn (await fetch(url, { headers: getAuthHeaders() })).json();\n\t\t}\n\t\tasync function apiPost(url, body) {\n\t\t\treturn (await fetch(url, {\n\t\t\t\tmethod: 'POST',\n\t\t\t\theaders: getAuthHeaders(),\n\t\t\t\tbody: body ? JSON.stringify(body) : undefined,\n\t\t\t})).json();\n\t\t}\n\t</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

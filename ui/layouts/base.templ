@@ -36,6 +36,13 @@ templ Base(title string, showNav bool, onDocsPage bool) {
 			<div class="flex h-screen flex-col">
 				if showNav {
 					@components.Navbar(onDocsPage)
+					if !onDocsPage {
+						// The virtual keyboard drops down from the top bar that
+						// toggles it, above the console panes, so it serves the
+						// HDMI and serial consoles alike rather than being
+						// docked under one of them.
+						@components.VirtualKeyboard()
+					}
 				}
 				<main class="min-h-0 flex-1 overflow-hidden">
 					{ children... }

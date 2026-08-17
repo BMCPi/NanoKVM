@@ -259,7 +259,49 @@ templ virtualKeyboardScript() {
 
 			const panel = () => document.getElementById('virtual-keyboard');
 
-			function send(data) {
+			// VK_HID maps this keyboard's own cap codes onto the HID key names
+			// pkg/hid understands. The caps are labelled for a human ("PgUp",
+			// "Esc") and the letter/digit rows are generated from single
+			// characters, so neither matches a browser KeyboardEvent.code —
+			// which is what the HID table is keyed by. Unsided modifiers mean
+			// the left-hand key, as they do on a real keyboard.
+			const VK_HID = {
+				Escape:'Escape', Backspace:'Backspace', Tab:'Tab', Enter:'Enter', Space:'Space',
+				CapsLock:'CapsLock', Shift:'ShiftLeft', Ctrl:'ControlLeft', Alt:'AltLeft',
+				Meta:'MetaLeft', AltGr:'AltRight', Menu:'ContextMenu',
+				PrtSc:'PrintScreen', ScrLk:'ScrollLock', Pause:'Pause',
+				Insert:'Insert', Home:'Home', PgUp:'PageUp', Delete:'Delete', End:'End', PgDn:'PageDown',
+				Up:'ArrowUp', Left:'ArrowLeft', Down:'ArrowDown', Right:'ArrowRight',
+				'`':'Backquote', '-':'Minus', '=':'Equal', '[':'BracketLeft', ']':'BracketRight',
+				';':'Semicolon', "'":'Quote', ',':'Comma', '.':'Period', '/':'Slash', '\\\\':'Backslash'
+			};
+			for (let i = 0; i < 26; i++) VK_HID[String.fromCharCode(97 + i)] = 'Key' + String.fromCharCode(65 + i);
+			for (let d = 0; d <= 9; d++) VK_HID[String(d)] = 'Digit' + d;
+			for (let f = 1; f <= 12; f++) VK_HID['F' + f] = 'F' + f;
+
+			// hidName resolves a cap code to a HID key name, or null when this
+			// keyboard has a cap the gadget has no key for.
+			function hidName(code) { return VK_HID[code] || null; }
+
+			// targetIsHost reports whether keystrokes should go to the managed
+			// host over USB HID rather than to the serial console. The keyboard
+			// now lives in the top bar and serves both, so the destination
+			// follows whichever console pane is in front: HDMI means the host.
+			function targetIsHost() {
+				const pane = document.getElementById('video-pane');
+				return !!(pane && !pane.closest('[hidden], .hidden'));
+			}
+
+			// send routes one keypress. The serial console takes xterm byte
+			// sequences; the host takes HID reports, addressed by key name.
+			function send(data, code, mods) {
+				if (targetIsHost()) {
+					const name = hidName(code);
+					if (!name || typeof window.hidPressCombo !== 'function') return;
+					const held = (mods ? MODS.filter((mm) => mods[mm]) : []).map((mm) => VK_HID[mm]).filter(Boolean);
+					window.hidPressCombo(held.concat(name));
+					return;
+				}
 				if (data && typeof window.sendSerialInput === 'function') window.sendSerialInput(data);
 			}
 
@@ -336,7 +378,7 @@ templ virtualKeyboardScript() {
 
 				const mods = { ...state.mods };
 				const held = MODS.filter((mm) => mods[mm]);
-				send(seqFor(code, mods));
+				send(seqFor(code, mods), code, mods);
 				showKeys(held.concat(code).join(' + '));
 				MODS.forEach((mm) => { state.mods[mm] = false; });
 				renderMods();
@@ -347,7 +389,7 @@ templ virtualKeyboardScript() {
 				const key = parts.pop();
 				const mods = {};
 				parts.forEach((mm) => { mods[mm] = true; });
-				send(seqFor(key, mods));
+				send(seqFor(key, mods), key, mods);
 				showKeys(parts.concat(key).join(' + '));
 			};
 

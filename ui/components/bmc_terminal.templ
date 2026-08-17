@@ -185,6 +185,10 @@ templ bmcTerminalScript() {
 				bfit = new Fit();
 				bterm.loadAddon(bfit);
 
+				// Ctrl+C (with selection) copy / Ctrl+V paste, same rules as
+				// the serial console; helper lives in ConsoleScript.
+				bterm.attachCustomKeyEventHandler((e) => handleTermClipboardKeys(bterm, e));
+
 				const el = document.getElementById('bmc-terminal');
 				el.innerHTML = '';
 				bterm.open(el);

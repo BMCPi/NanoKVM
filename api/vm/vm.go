@@ -19,6 +19,14 @@ func Register(api *gin.RouterGroup, d *deps.Deps) {
 
 	api.GET("/vm/video", service.Video) // WebRTC signaling for the HDMI console
 
+	api.GET("/vm/hid", service.HID) // keyboard/mouse input for the HDMI console (WebSocket)
+
+	api.GET("/vm/macros", service.GetMacros)          // list keyboard macros
+	api.POST("/vm/macros", service.CreateMacro)       // create a keyboard macro
+	api.PUT("/vm/macros/:id", service.UpdateMacro)    // update a keyboard macro
+	api.DELETE("/vm/macros/:id", service.DeleteMacro) // delete a keyboard macro
+	api.POST("/vm/macros/:id/run", service.RunMacro)  // send a macro to the host
+
 	api.GET("/vm/terminal", service.Terminal)                // web terminal (host serial console)
 	api.GET("/vm/terminal/capture", service.TerminalCapture) // persisted serial capture (host boot logs)
 	api.GET("/vm/shell", service.Shell)                      // web terminal (BMC shell)

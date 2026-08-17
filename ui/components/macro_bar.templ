@@ -1,0 +1,125 @@
+package components
+
+import (
+	"context"
+	"sort"
+	"strings"
+
+	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/deps"
+	"github.com/pi-bmc/nanokvm-app/ui/components/button"
+	"github.com/pi-bmc/nanokvm-app/ui/components/dropdownmenu"
+	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
+	"github.com/pi-bmc/nanokvm-app/ui/utils"
+)
+
+// MacroBar is the top-bar entry point for keyboard macros, mirroring JetKVM's:
+// a menu of the stored macros, each of which sends its keystrokes to the host,
+// plus the editor.
+//
+// Firing a macro is an htmx POST to the run endpoint with nothing swapped back —
+// the effect is on the host, not on the page. The list itself is an htmx
+// fragment so creating or deleting a macro re-renders the menu without a page
+// reload and without a client-side model to keep in step.
+templ MacroBar() {
+	@dropdownmenu.DropdownMenu() {
+		@button.Button(button.Props{
+			Variant: button.VariantGhost,
+			Size:    button.SizeSm,
+			Attributes: utils.MergeAttributes(
+				dropdownmenu.Trigger(ctx),
+				templ.Attributes{"aria-label": "Keyboard macros", "title": "Keyboard macros"},
+			),
+		}) {
+			@icon.Zap()
+			<span class="hidden sm:inline">Macros</span>
+		}
+		@dropdownmenu.Content(dropdownmenu.ContentProps{Class: "w-64", Align: dropdownmenu.AlignStart}) {
+			@dropdownmenu.Label() {
+				Keyboard Macros
+			}
+			@dropdownmenu.Separator()
+			<div id="macro-list">
+				@MacroList()
+			</div>
+			@dropdownmenu.Separator()
+			@dropdownmenu.Item(dropdownmenu.ItemProps{
+				Attributes: templ.Attributes{"onclick": "openMacroEditor()"},
+			}) {
+				@icon.SquarePen()
+				<span>Edit macros…</span>
+			}
+		}
+	}
+	@macroBarScript()
+}
+
+// MacroList is the htmx fragment: one item per stored macro. Served on its own
+// so a mutation can replace just this list (hx-target="#macro-list").
+templ MacroList() {
+	if macros := storedMacros(ctx); len(macros) == 0 {
+		<p class="px-2 py-1.5 text-xs text-muted-foreground">
+			No macros yet. Add one to send a key sequence to the host in a single click.
+		</p>
+	} else {
+		for _, macro := range macros {
+			@dropdownmenu.Item(dropdownmenu.ItemProps{
+				Attributes: templ.Attributes{
+					// hx-swap none: the response says whether the host got the
+					// keystrokes; there is nothing on the page to replace.
+					"hx-post":  "/api/vm/macros/" + macro.ID + "/run",
+					"hx-swap":  "none",
+					"title":    macroSummary(macro),
+					"data-macro-name": macro.Name,
+				},
+			}) {
+				@icon.CornerDownLeft()
+				<span class="truncate">{ macro.Name }</span>
+			}
+		}
+	}
+}
+
+// storedMacros reads the macros in display order from the request's Deps.
+func storedMacros(ctx context.Context) []config.KeyboardMacro {
+	conf := deps.FromContext(ctx).Config
+	out := make([]config.KeyboardMacro, len(conf.Macros))
+	copy(out, conf.Macros)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].SortOrder < out[j].SortOrder })
+	return out
+}
+
+// macroSummary renders a macro's steps as a hover title, so the operator can
+// tell two similarly-named macros apart without opening the editor.
+func macroSummary(macro config.KeyboardMacro) string {
+	parts := make([]string, 0, len(macro.Steps))
+	for _, step := range macro.Steps {
+		combo := append(append([]string{}, step.Modifiers...), step.Keys...)
+		parts = append(parts, strings.Join(combo, "+"))
+	}
+	return strings.Join(parts, " , ")
+}
+
+templ macroBarScript() {
+	<script>
+		// Firing a macro is fire-and-forget from the page's point of view, so
+		// the only feedback worth surfacing is failure — a macro that could not
+		// be sent looks identical to one the host ignored otherwise.
+		document.addEventListener('htmx:responseError', (ev) => {
+			const path = ev.detail?.pathInfo?.requestPath || '';
+			if (!path.includes('/api/vm/macros/')) return;
+			const name = ev.detail?.elt?.dataset?.macroName || 'macro';
+			let detail = '';
+			try { detail = JSON.parse(ev.detail.xhr.responseText).error || ''; } catch (e) {}
+			window.tui?.toast?.add({
+				title: 'Could not send ' + name,
+				description: detail,
+				variant: 'error',
+			});
+		});
+
+		window.openMacroEditor = function () {
+			window.dispatchEvent(new CustomEvent('macro-editor:open'));
+		};
+	</script>
+}

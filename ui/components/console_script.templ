@@ -47,6 +47,51 @@ templ ConsoleScript() {
 			if (ws && ws.readyState === WebSocket.OPEN) ws.send(data);
 		};
 
+		// ── Clipboard (shared with the BMC terminal drawer) ────────────────
+		// Ctrl+C copies only while text is selected — with no selection it
+		// still reaches the PTY as SIGINT. Ctrl+V pastes.
+		//
+		// The UI is normally served over plain http (the board's LAN address),
+		// where navigator.clipboard does not exist. So: paste works by
+		// returning false WITHOUT preventDefault — xterm then doesn't send
+		// ^V (0x16) to the PTY, and the browser delivers a native paste event
+		// to xterm's hidden textarea, which xterm inserts itself. Copy falls
+		// back to a temp textarea + execCommand when the async API is missing.
+		function copyTextToClipboard(text, refocus) {
+			if (navigator.clipboard && window.isSecureContext) {
+				navigator.clipboard.writeText(text).catch(() => execCopy(text, refocus));
+			} else {
+				execCopy(text, refocus);
+			}
+		}
+		function execCopy(text, refocus) {
+			const ta = document.createElement('textarea');
+			ta.value = text;
+			ta.style.position = 'fixed';
+			ta.style.opacity = '0';
+			document.body.appendChild(ta);
+			ta.focus();
+			ta.select();
+			try { document.execCommand('copy'); } catch (e) {}
+			document.body.removeChild(ta);
+			if (refocus) refocus.focus();
+		}
+		// Returns xterm's attachCustomKeyEventHandler contract: false = xterm
+		// must not process the key, true = handle as usual.
+		window.handleTermClipboardKeys = function(t, e) {
+			if (e.type !== 'keydown' || !e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return true;
+			const key = e.key.toLowerCase();
+			if (key === 'c' && t.hasSelection()) {
+				copyTextToClipboard(t.getSelection(), t);
+				// Clear so an immediate second Ctrl+C sends the interrupt.
+				t.clearSelection();
+				e.preventDefault();
+				return false;
+			}
+			if (key === 'v') return false;
+			return true;
+		};
+
 		window.connectSerial = function() {
 			if (ws) disconnectSerial();
 
@@ -75,7 +120,7 @@ templ ConsoleScript() {
 					openSearch();
 					return false;
 				}
-				return true;
+				return handleTermClipboardKeys(term, e);
 			});
 
 			const el = document.getElementById('terminal');

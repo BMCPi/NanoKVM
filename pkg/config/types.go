@@ -31,6 +31,10 @@ type Config struct {
 	Network    Network    `yaml:"network"`
 	TimeSync   TimeSync   `yaml:"timeSync"`
 	Hardware   Hardware   `yaml:"-"`
+
+	// Macros are the operator's keyboard macros (see macros.go). Stored with
+	// the config so every client and every session sees the same set.
+	Macros []KeyboardMacro `yaml:"macros" json:"macros"`
 }
 
 // TimeSync configures the built-in SNTP client (pkg/timesync) that

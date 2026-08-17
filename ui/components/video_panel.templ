@@ -103,6 +103,18 @@ templ videoToolbar() {
 				<span>Disconnect</span>
 			}
 			@button.Button(button.Props{
+				ID:      "btn-video-mouse-mode",
+				Variant: button.VariantOutline,
+				Size:    button.SizeSm,
+				Attributes: templ.Attributes{
+					"onclick": "toggleVideoMouseMode()",
+					"title":   "Absolute pointing puts the host cursor under yours; relative captures the pointer for hosts that ignore an absolute one",
+				},
+			}) {
+				@icon.MousePointer2()
+				<span id="video-mouse-mode-label">Absolute</span>
+			}
+			@button.Button(button.Props{
 				ID:         "btn-video-fullscreen",
 				Variant:    button.VariantOutline,
 				Size:       button.SizeIcon,
@@ -227,6 +239,9 @@ templ videoPanelScript() {
 			function teardown() {
 				connected = false;
 				lastState = null;
+				// Whatever was held goes with the session: a key still down on
+				// the host after the pane closes looks like broken hardware.
+				window.hidReleaseAll?.();
 				if (vws) { try { vws.close(); } catch (e) {} vws = null; }
 				if (pc) { try { pc.close(); } catch (e) {} pc = null; }
 				const v = el('video-stream');
@@ -358,6 +373,33 @@ templ videoPanelScript() {
 				setOverlay('HDMI not connected', 'Select Connect to start streaming the host’s HDMI output.');
 			};
 
+			// Input capture is wired to the pane, not to the media session, so
+			// the keyboard and pointer work at a host that is mid-POST with no
+			// picture yet — which is exactly when an operator needs them.
+			function attachInput() {
+				window.hidAttach?.(el('video-wrap'), el('video-stream'));
+			}
+
+			window.toggleVideoMouseMode = function () {
+				const next = window.hidMouseMode?.() === 'relative' ? 'absolute' : 'relative';
+				window.hidSetMouseMode?.(next);
+			};
+
+			// Kept in the input client so the label follows the mode however it
+			// was changed (button, or pointer lock being lost).
+			window.onHidMouseMode = function (mode) {
+				const label = el('video-mouse-mode-label');
+				if (label) label.textContent = mode === 'relative' ? 'Relative' : 'Absolute';
+				const overlay = el('video-overlay');
+				if (mode === 'relative' && overlay && overlay.dataset.state === 'hidden') {
+					// Pointer lock needs a click to engage, and a captured
+					// pointer with no hint is disorienting.
+					el('video-wrap')?.setAttribute('title', 'Click to capture the pointer; press Esc to release');
+				} else {
+					el('video-wrap')?.removeAttribute('title');
+				}
+			};
+
 			window.toggleVideoFullscreen = function () {
 				const w = el('video-wrap');
 				if (!w) return;
@@ -368,13 +410,24 @@ templ videoPanelScript() {
 			// Called by the tab strip. Connecting lazily keeps the encoder idle
 			// while the serial tab is in front.
 			window.onVideoTabShown = function () {
+				attachInput();
 				if (!pc) connectVideo();
 			};
 			window.onVideoTabHidden = function () {
 				if (pc) disconnectVideo();
 			};
 
-			window.addEventListener('beforeunload', teardown);
+			// Attach on load rather than only on tab-show: hidAttach is
+			// idempotent, and input has to work whether or not the operator has
+			// ever opened the HDMI tab — the virtual keyboard and macros reach
+			// the host through the same client.
+			if (document.readyState === 'loading') {
+				document.addEventListener('DOMContentLoaded', attachInput);
+			} else {
+				attachInput();
+			}
+
+			window.addEventListener('beforeunload', () => { window.hidReleaseAll?.(); teardown(); });
 		})();
 	</script>
 }

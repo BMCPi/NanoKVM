@@ -33,6 +33,25 @@ templ Navbar(onDocsPage bool) {
 				<span class="hidden sm:inline">Server Overview</span>
 			}
 			if !onDocsPage {
+				// The virtual keyboard is a top-bar tool rather than a serial-console
+				// one: it types at whichever console pane is in front, over USB HID
+				// for HDMI and as xterm sequences for serial.
+				@button.Button(button.Props{
+					ID:      "btn-virtual-keyboard",
+					Variant: button.VariantGhost,
+					Size:    button.SizeSm,
+					Attributes: templ.Attributes{
+						"onclick":       "toggleVirtualKeyboard()",
+						"aria-label":    "Virtual Keyboard",
+						"aria-expanded": "false",
+						"title":         "Virtual keyboard",
+					},
+				}) {
+					@icon.Keyboard()
+					<span class="hidden sm:inline">Keyboard</span>
+				}
+				@MacroBar()
+				<div class="w-px h-3.5 bg-border mx-1 shrink-0"></div>
 				// Toggles the slide-up BMC shell drawer (BMCTerminalPanel).
 				// Docs pages don't render the drawer, so the button is omitted there.
 				@button.Button(button.Props{

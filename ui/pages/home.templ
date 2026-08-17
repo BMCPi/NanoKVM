@@ -78,7 +78,6 @@ templ Home(m HomeModel) {
 								<div id="terminal-wrap" class="border border-t-0 border-border bg-background rounded-b-md">
 									<div id="terminal"></div>
 								</div>
-								@components.VirtualKeyboard()
 							</div>
 						}
 					}
@@ -87,6 +86,9 @@ templ Home(m HomeModel) {
 			@components.OverviewSidebar()
 		</div>
 		@xtermScripts()
+		// The HID input client: keycode table, input socket, and the capture
+		// handlers the HDMI pane and the virtual keyboard both send through.
+		@components.HIDInput()
 		@components.ConsoleScript()
 		@consoleTabsScript()
 		// Slide-up shell drawer for the BMC itself. Rendered after the

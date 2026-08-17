@@ -79,19 +79,6 @@ templ ConsoleToolbar() {
 				<span>Disconnect</span>
 			}
 			@button.Button(button.Props{
-				ID:      "btn-virtual-keyboard",
-				Variant: button.VariantOutline,
-				Size:    button.SizeIcon,
-				Class:   "size-8",
-				Attributes: templ.Attributes{
-					"onclick":       "toggleVirtualKeyboard()",
-					"title":         "Virtual Keyboard",
-					"aria-expanded": "false",
-				},
-			}) {
-				@icon.Keyboard()
-			}
-			@button.Button(button.Props{
 				ID:         "btn-search",
 				Variant:    button.VariantOutline,
 				Size:       button.SizeIcon,

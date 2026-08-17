@@ -110,7 +110,7 @@ var defaultConfig = &Config{
 		Ethernet:      "ecm", // "off"|"ecm"|"ncm"; matches usbgadget.EthernetECM
 		Disk:          true,
 		HID:           true,
-		BIOSMode:      false,
+		BIOSMode:      true, // boot-subclass HID: EDK2's UsbKbDxe only binds subclass-1 keyboards
 		WakeupOnWrite: true,
 		BindUDC:       true,
 		UDCName:       "", // auto-detect (this board: 4340000.usb)

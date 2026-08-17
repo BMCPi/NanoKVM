@@ -19,6 +19,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/efivars"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
+	"github.com/pi-bmc/nanokvm-app/pkg/hid"
 	"github.com/pi-bmc/nanokvm-app/pkg/ipmi"
 	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 	"github.com/pi-bmc/nanokvm-app/pkg/mdns"
@@ -245,7 +246,13 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 	// Telemetry first so the otelgin middleware wraps every route, then the
 	// UI (which installs the templ HTML renderer with gin's default as
 	// fallback), then every API sub-router.
-	d := &deps.Deps{Config: conf, Power: powerCtrl, Firmware: fwCtrl, Video: videoHub}
+	// The HID gadget driver opens its character devices lazily, so building it
+	// here costs nothing on a board whose gadget is not configured; the input
+	// handlers report that condition instead.
+	hidCtrl := hid.NewController()
+	defer hidCtrl.Close()
+
+	d := &deps.Deps{Config: conf, Power: powerCtrl, Firmware: fwCtrl, Video: videoHub, HID: hidCtrl}
 	telemetry.Routes(r)
 	ui.Register(r, d)
 	api.Register(r, d)

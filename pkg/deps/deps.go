@@ -21,6 +21,7 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
+	"github.com/pi-bmc/nanokvm-app/pkg/hid"
 	"github.com/pi-bmc/nanokvm-app/pkg/power"
 	"github.com/pi-bmc/nanokvm-app/pkg/video/rtc"
 )
@@ -37,6 +38,11 @@ type Deps struct {
 	// has to keep working in that case, so handlers check for nil rather
 	// than the server refusing to start.
 	Video *rtc.Hub
+
+	// HID drives the USB keyboard/mouse gadget for the HDMI console. Nil when
+	// the gadget's HID functions are not configured, in which case input
+	// handlers report that rather than the routes vanishing.
+	HID *hid.Controller
 }
 
 type ctxKey struct{}

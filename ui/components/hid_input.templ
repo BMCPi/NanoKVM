@@ -1,0 +1,258 @@
+package components
+
+import "github.com/pi-bmc/nanokvm-app/pkg/hid"
+
+// HIDInput carries the browser half of the USB HID console: the keycode table,
+// the input WebSocket, and the capture handlers that turn key and pointer events
+// into HID reports.
+//
+// The keycode table is marshalled from pkg/hid.KeyCodes rather than duplicated
+// here. That map is the one ported from JetKVM, and a second hand-maintained
+// copy in JavaScript is how a keyboard ends up typing the wrong character on the
+// host after someone edits one of them.
+templ HIDInput() {
+	@hidKeyMap()
+	@hidInputScript()
+}
+
+// keyMap is the browser KeyboardEvent.code → HID usage code table, handed to
+// the client as JSON.
+func keyMap() map[string]byte { return hid.KeyCodes }
+
+// absMax is the absolute pointer's coordinate ceiling, so the client scales to
+// the same range the report descriptor declares.
+func absMax() int { return hid.AbsMax }
+
+templ hidKeyMap() {
+	@templ.JSONScript("hid-keymap", keyMap())
+	@templ.JSONScript("hid-absmax", absMax())
+}
+
+templ hidInputScript() {
+	<script>
+		(function () {
+			// One socket serves every consumer: the HDMI pane's capture, the
+			// virtual keyboard, and the macro bar. It is opened on demand and
+			// kept for the page's lifetime, because input has to work whether
+			// or not video is streaming.
+			let ws = null;
+			let opening = null;
+			const KEYS = JSON.parse(document.getElementById('hid-keymap').textContent);
+			const ABS_MAX = JSON.parse(document.getElementById('hid-absmax').textContent);
+
+			// Mouse button mask, maintained across events: every absolute
+			// report restates which buttons are down, so a drag needs the
+			// mask, not just the button that changed.
+			let buttons = 0;
+			let mouseMode = 'absolute';
+			let attached = null;
+
+			function connect() {
+				if (ws && ws.readyState === WebSocket.OPEN) return Promise.resolve(ws);
+				if (opening) return opening;
+
+				opening = new Promise((resolve) => {
+					const sock = new WebSocket(getWsUrl() + '/api/vm/hid');
+					sock.onopen = () => { ws = sock; opening = null; resolve(sock); };
+					sock.onmessage = (ev) => {
+						let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+						if (m.t === 'leds') window.onHidLeds?.(m.leds);
+						if (m.t === 'keys') window.onHidKeys?.(m.keys);
+					};
+					sock.onclose = () => { ws = null; opening = null; resolve(null); };
+					sock.onerror = () => { opening = null; resolve(null); };
+				});
+				return opening;
+			}
+
+			// send is fire-and-forget by design: an input event that cannot be
+			// delivered now is stale by the time a retry would land, and
+			// queueing keystrokes to replay later is worse than dropping them.
+			async function send(msg) {
+				const sock = ws && ws.readyState === WebSocket.OPEN ? ws : await connect();
+				if (!sock || sock.readyState !== WebSocket.OPEN) return;
+				try { sock.send(JSON.stringify(msg)); } catch (e) {}
+			}
+
+			window.hidSend = send;
+			window.hidConnect = connect;
+			window.hidReleaseAll = () => { buttons = 0; return send({ t: 'reset' }); };
+
+			// ── Keyboard ───────────────────────────────────────────────────
+
+			window.hidKeyCode = (code) => KEYS[code] || 0;
+
+			// hidKeyEvent forwards one browser key event. Returns true when the
+			// key was claimed, so callers know to preventDefault: a captured
+			// Ctrl+W must reach the host, not close the tab.
+			window.hidKeyEvent = function (ev, press) {
+				const code = KEYS[ev.code];
+				if (!code) return false;
+				send({ t: press ? 'kd' : 'ku', c: code });
+				return true;
+			};
+
+			// hidPressCombo sends one explicit report (modifiers + keys) and
+			// then releases, which is what a shortcut chip like Ctrl+Alt+Del
+			// means. Names are the same ones macros use.
+			window.hidPressCombo = async function (names) {
+				let mod = 0;
+				const keys = [];
+				const MOD_BITS = {
+					ControlLeft: 0x01, ShiftLeft: 0x02, AltLeft: 0x04, MetaLeft: 0x08,
+					ControlRight: 0x10, ShiftRight: 0x20, AltRight: 0x40, MetaRight: 0x80,
+					Control: 0x01, Shift: 0x02, Alt: 0x04, Meta: 0x08, AltGr: 0x40,
+				};
+				for (const raw of names) {
+					const name = raw.trim();
+					if (!name) continue;
+					if (MOD_BITS[name] !== undefined) { mod |= MOD_BITS[name]; continue; }
+					const code = KEYS[name];
+					if (code) keys.push(code);
+				}
+				await send({ t: 'kr', m: mod, k: keys });
+				await send({ t: 'kr', m: 0, k: [] });
+			};
+
+			// ── Pointer ────────────────────────────────────────────────────
+
+			// pictureRect returns the on-screen rectangle of the actual picture
+			// inside the video element. The element is object-fit: contain, so
+			// the picture is letterboxed whenever its aspect ratio differs from
+			// the element's; mapping against the element instead of the picture
+			// puts the host cursor at a constant offset from the real one.
+			function pictureRect(video) {
+				const box = video.getBoundingClientRect();
+				const vw = video.videoWidth, vh = video.videoHeight;
+				if (!vw || !vh) return box;
+
+				const scale = Math.min(box.width / vw, box.height / vh);
+				const w = vw * scale, h = vh * scale;
+				return {
+					left: box.left + (box.width - w) / 2,
+					top: box.top + (box.height - h) / 2,
+					width: w,
+					height: h,
+				};
+			}
+
+			// lastAbs remembers where the pointer was, because a wheel or a
+			// button report in absolute mode still has to carry a position.
+			const lastAbs = { x: 0, y: 0 };
+
+			function sendAbs(video, ev) {
+				const r = pictureRect(video);
+				if (!r.width || !r.height) return;
+
+				// Clamped rather than dropped when outside the picture: a drag
+				// that leaves the letterbox should pin the host cursor to the
+				// edge, not freeze it wherever it was.
+				const nx = Math.min(Math.max((ev.clientX - r.left) / r.width, 0), 1);
+				const ny = Math.min(Math.max((ev.clientY - r.top) / r.height, 0), 1);
+				lastAbs.x = Math.round(nx * ABS_MAX);
+				lastAbs.y = Math.round(ny * ABS_MAX);
+				send({ t: 'abs', x: lastAbs.x, y: lastAbs.y, b: buttons, w: 0 });
+			}
+
+			function clampDelta(v) { return Math.max(-127, Math.min(127, Math.round(v))); }
+
+			// wheelTicks converts a wheel event to signed ticks. deltaMode 0 is
+			// pixels, which is far too fine for a HID wheel, so it is reduced to
+			// notches; the sign is inverted because a HID wheel reports positive
+			// for scrolling up while the DOM reports positive for down.
+			function wheelTicks(ev) {
+				const unit = ev.deltaMode === 0 ? 100 : 1;
+				const ticks = -ev.deltaY / unit;
+				if (ticks === 0) return 0;
+				return clampDelta(ticks > 0 ? Math.max(1, ticks) : Math.min(-1, ticks));
+			}
+
+			window.hidSetMouseMode = function (mode) {
+				mouseMode = mode === 'relative' ? 'relative' : 'absolute';
+				buttons = 0;
+				if (mouseMode === 'absolute' && document.pointerLockElement) document.exitPointerLock();
+				window.onHidMouseMode?.(mouseMode);
+			};
+			window.hidMouseMode = () => mouseMode;
+
+			// hidAttach wires capture onto the HDMI pane. surface is the element
+			// that takes focus and pointer events; video supplies the picture
+			// geometry for absolute mapping.
+			window.hidAttach = function (surface, video) {
+				if (!surface || attached === surface) return;
+				attached = surface;
+
+				// Focusable so key events land here rather than on the document,
+				// and so the operator can see where input is going.
+				if (!surface.hasAttribute('tabindex')) surface.tabIndex = 0;
+
+				surface.addEventListener('keydown', (ev) => {
+					if (window.hidKeyEvent(ev, true)) { ev.preventDefault(); ev.stopPropagation(); }
+				});
+				surface.addEventListener('keyup', (ev) => {
+					if (window.hidKeyEvent(ev, false)) { ev.preventDefault(); ev.stopPropagation(); }
+				});
+
+				// Losing focus is the classic source of stuck modifiers: the
+				// host never sees the key-up because the browser stopped
+				// telling us. Release everything instead.
+				surface.addEventListener('blur', () => window.hidReleaseAll());
+				window.addEventListener('blur', () => window.hidReleaseAll());
+				document.addEventListener('visibilitychange', () => {
+					if (document.hidden) window.hidReleaseAll();
+				});
+
+				surface.addEventListener('mousemove', (ev) => {
+					if (mouseMode === 'relative') {
+						if (document.pointerLockElement !== surface) return;
+						const dx = clampDelta(ev.movementX), dy = clampDelta(ev.movementY);
+						if (dx || dy) send({ t: 'rel', dx: dx, dy: dy, b: buttons, w: 0 });
+						return;
+					}
+					sendAbs(video, ev);
+				});
+
+				surface.addEventListener('mousedown', (ev) => {
+					ev.preventDefault();
+					surface.focus();
+					if (mouseMode === 'relative' && document.pointerLockElement !== surface) {
+						surface.requestPointerLock?.();
+						return;
+					}
+					buttons |= (1 << ev.button);
+					if (mouseMode === 'relative') send({ t: 'rel', dx: 0, dy: 0, b: buttons, w: 0 });
+					else sendAbs(video, ev);
+				});
+
+				surface.addEventListener('mouseup', (ev) => {
+					ev.preventDefault();
+					buttons &= ~(1 << ev.button);
+					if (mouseMode === 'relative') send({ t: 'rel', dx: 0, dy: 0, b: buttons, w: 0 });
+					else sendAbs(video, ev);
+				});
+
+				// The host needs the right button, so the browser menu cannot
+				// have it.
+				surface.addEventListener('contextmenu', (ev) => ev.preventDefault());
+
+				surface.addEventListener('wheel', (ev) => {
+					const w = wheelTicks(ev);
+					if (!w) return;
+					ev.preventDefault();
+					if (mouseMode === 'relative') send({ t: 'rel', dx: 0, dy: 0, b: buttons, w: w });
+					else send({ t: 'abs', x: lastAbs.x, y: lastAbs.y, b: buttons, w: w });
+				}, { passive: false });
+
+				// A pointer that leaves the surface releases its buttons: the
+				// mouseup will be delivered to whatever it moved over instead.
+				surface.addEventListener('mouseleave', () => {
+					if (buttons) {
+						buttons = 0;
+						if (mouseMode === 'absolute') send({ t: 'abs', x: lastAbs.x, y: lastAbs.y, b: 0, w: 0 });
+						else send({ t: 'rel', dx: 0, dy: 0, b: 0, w: 0 });
+					}
+				});
+			};
+		})();
+	</script>
+}
