@@ -62,6 +62,12 @@ const (
 	// still be running.
 	getFrameTimeout = 100
 
+	// frameReportInterval is how often the frame loop says where frames went.
+	// Long enough to be quiet on a healthy console, short enough to catch a
+	// pipeline that is producing nothing before anyone has to go and read
+	// /proc to find out why.
+	frameReportInterval = 10 * time.Second
+
 	// maxPacks bounds one frame's pack array. H.264 splits an access unit
 	// into a handful of packs (SPS, PPS, slices); 16 is well clear of that
 	// and the driver truncates to what it is given.
@@ -553,6 +559,39 @@ func applyDefaults(cfg video.Config) video.Config {
 }
 
 // runFrames pulls encoded frames until done is closed.
+// frameTally records what became of each frame over one reporting interval.
+//
+// The three ignorable outcomes are counted separately and each keeps the last
+// reason it was given, because they mean very different things and the driver
+// reports all of them as "no frame": nothing waiting at the scaler, an encoder
+// declining to take one, and an encoder that has taken frames but not finished
+// an access unit yet.
+type frameTally struct {
+	collected, idle                 uint64
+	sent, refused                   uint64
+	encoded, pending                uint64
+	idleWhy, refusedWhy, pendingWhy string
+}
+
+func (t *frameTally) flush() {
+	if t.collected == 0 && t.idle == 0 && t.sent == 0 && t.refused == 0 &&
+		t.encoded == 0 && t.pending == 0 {
+		return
+	}
+	log.Printf("cvi: frames collected=%d sent=%d encoded=%d | idle=%d(%s) refused=%d(%s) pending=%d(%s)",
+		t.collected, t.sent, t.encoded,
+		t.idle, reasonOr(t.idleWhy), t.refused, reasonOr(t.refusedWhy),
+		t.pending, reasonOr(t.pendingWhy))
+	*t = frameTally{}
+}
+
+func reasonOr(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
+}
+
 // runFrames drives the second half of the pipeline until done is closed.
 //
 // VPSS is not bound to the encoder (see bringUp), so this loop is what moves
@@ -584,6 +623,20 @@ func (c *Capturer) runFrames(done <-chan struct{}, failed chan<- struct{}) {
 	var frame VideoFrameInfo
 	packs := make([]VENCPack, maxPacks)
 
+	// Where frames are going, reported periodically.
+	//
+	// Each of the three calls below has an outcome that means "nothing to do
+	// right now" and is correctly ignored, and between them they can account
+	// for every frame in the pipeline going nowhere while every counter the
+	// driver exposes still looks healthy. Silently continuing is right; doing
+	// it without ever saying so is what made this impossible to diagnose from
+	// the outside -- /proc shows VPSS handing out frames and the encoder
+	// producing almost none, and nothing distinguishes "we never collected
+	// them" from "the encoder refused them".
+	var tally frameTally
+	report := time.NewTicker(frameReportInterval)
+	defer report.Stop()
+
 	// One scratch buffer reused for every frame. This is what Frame.Data
 	// aliases, and why the documented contract is that it stays valid only
 	// until the next receive: the alternative is an allocation per frame,
@@ -596,6 +649,8 @@ func (c *Capturer) runFrames(done <-chan struct{}, failed chan<- struct{}) {
 		case <-done:
 			stopped = true
 			return
+		case <-report.C:
+			tally.flush()
 		default:
 		}
 
@@ -604,11 +659,14 @@ func (c *Capturer) runFrames(done <-chan struct{}, failed chan<- struct{}) {
 		// but a host that has gone quiet does not, and neither is a fault.
 		if err := c.vpss.GetChnFrame(vpssGrp, vpssChn, &frame, getFrameTimeout); err != nil {
 			if isNoFrame(err) {
+				tally.idle++
+				tally.idleWhy = err.Error()
 				continue
 			}
 			c.publishErr(err)
 			return
 		}
+		tally.collected++
 
 		// Hand it to the encoder, then give the buffer back immediately.
 		// Holding it across the encode would keep a VB block out of
@@ -626,21 +684,27 @@ func (c *Capturer) runFrames(done <-chan struct{}, failed chan<- struct{}) {
 			// back-pressure this design is built around -- so drop it and
 			// carry on rather than tearing the pipeline down.
 			if isNoFrame(sendErr) {
+				tally.refused++
+				tally.refusedWhy = sendErr.Error()
 				continue
 			}
 			c.publishErr(sendErr)
 			return
 		}
+		tally.sent++
 
 		if err := c.enc.GetStream(&stream, packs, getStreamTimeout); err != nil {
 			// No frame is normal on a static console; only report
 			// something that looks like a real fault.
 			if isNoFrame(err) {
+				tally.pending++
+				tally.pendingWhy = err.Error()
 				continue
 			}
 			c.publishErr(err)
 			return
 		}
+		tally.encoded++
 
 		n := int(stream.U32PackCount)
 		if n > len(packs) {
