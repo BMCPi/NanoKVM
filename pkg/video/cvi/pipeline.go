@@ -210,6 +210,16 @@ const (
 	viSDKGetChnAttr
 	viSDKEnableChn
 	viSDKDisableChn
+	viSDKSetMotionLv
+	viSDKEnableDis
+	viSDKDisableDis
+	viSDKSetDisInfo
+	viSDKSetPipeFrmSrc
+	viSDKSendPipeRaw
+	viSDKSetDevTimingAttr
+	viSDKGetDevTimingAttr
+	viSDKGetChnFrame
+	viSDKReleaseChnFrame
 )
 
 // OpenVI opens the video-input device.
@@ -343,6 +353,27 @@ func (v *VI) StopPipe(pipe int32) error {
 
 func (v *VI) SetChnAttr(pipe, chn int32, attr *VIChnAttr) error {
 	return v.sdk(viSDKSetChnAttr, 0, pipe, chn, unsafe.Pointer(attr), 0, "set chn attr")
+}
+
+// GetChnFrame takes a captured frame directly off a VI channel.
+//
+// This is the tap upstream of everything else: the frame it returns is what
+// the receiver wrote, before the scaler has touched it and before the encoder
+// has had an opinion. That makes it the one way to answer "is the CSI link
+// delivering a real picture" separately from "does the rest of the pipeline
+// work", which otherwise have identical symptoms -- a black video element.
+//
+// Needs the channel's Depth to be non-zero, for the same reason VPSS does:
+// depth is how many finished frames the driver will hold for a reader, and a
+// channel with none has nowhere to keep one. Every frame must be handed back
+// with ReleaseChnFrame.
+func (v *VI) GetChnFrame(pipe, chn int32, frame *VideoFrameInfo, timeoutMs int32) error {
+	return v.sdk(viSDKGetChnFrame, 0, pipe, chn, unsafe.Pointer(frame), timeoutMs, "get chn frame")
+}
+
+// ReleaseChnFrame returns a frame from GetChnFrame to the pool.
+func (v *VI) ReleaseChnFrame(pipe, chn int32, frame *VideoFrameInfo) error {
+	return v.sdk(viSDKReleaseChnFrame, 0, pipe, chn, unsafe.Pointer(frame), 0, "release chn frame")
 }
 
 func (v *VI) EnableChn(pipe, chn int32) error {

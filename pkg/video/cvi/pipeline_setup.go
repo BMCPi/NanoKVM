@@ -409,6 +409,12 @@ func (c *Capturer) setupVIPipe(s pipeSpec) error {
 			S32SrcFrameRate: int32(s.srcFPS()),
 			S32DstFrameRate: int32(s.srcFPS()),
 		},
+		// Zero by default: nothing reads frames here, they go straight to
+		// VPSS, and a depth VI holds frames for is a depth nobody drains.
+		// NANOKVM_VI_DEPTH opens the tap for diagnostics -- see
+		// VI.GetChnFrame, which is the only way to see what the receiver
+		// actually wrote before anything downstream has touched it.
+		U32Depth: uint32(viChnDepth()),
 	}
 	if err := c.vi.SetChnAttr(viPipe, viChn, &chn); err != nil {
 		return err

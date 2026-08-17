@@ -17,6 +17,26 @@ func pollInterval() time.Duration { return envDuration("NANOKVM_SIGNAL_POLL", si
 // where a poll costs a break in the stream rather than just a stall.
 func streamPollInterval() time.Duration { return envDuration("NANOKVM_STREAM_POLL", streamPoll) }
 
+// viChnDepth is how many finished frames VI holds for a reader on its channel.
+//
+// Zero in normal operation, and that is not a tuning choice: frames leave VI
+// through its bind to VPSS, so a depth here is a queue nobody drains -- it
+// would hold VB blocks out of circulation and eventually starve the receiver
+// that fills them.
+//
+// NANOKVM_VI_DEPTH opens the tap. VI.GetChnFrame is the only way to see what
+// the receiver actually wrote, before the scaler has touched it and before the
+// encoder has had an opinion, and those are otherwise indistinguishable from
+// each other: every one of them presents as a black picture. Set it to 1 or 2
+// when the question is "is there a real image on the CSI link at all".
+func viChnDepth() uint64 {
+	v, ok := envUint("NANOKVM_VI_DEPTH")
+	if !ok || v > 8 { // the driver documents the range as [0, 8]
+		return 0
+	}
+	return v
+}
+
 func envDuration(name string, def time.Duration) time.Duration {
 	raw, ok := os.LookupEnv(name)
 	if !ok {
