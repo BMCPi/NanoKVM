@@ -6,6 +6,6 @@ package usbgadget
 // file at /data/usbgadget/state.json and its one-time fold-in are gone: /data
 // no longer exists on the squashfs+overlay layout.)
 type State struct {
-	Ethernet string `json:"ethernet"` // "off" | "ecm" | "ncm"
+	Ethernet string `json:"ethernet"` // "off" | "ncm"
 	Disk     bool   `json:"disk"`     // whether mass_storage.disk0 is linked into c.1
 }

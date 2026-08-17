@@ -38,8 +38,14 @@ const gadgetName = "g0"
 // Ethernet function modes.
 const (
 	EthernetOff = "off"
-	EthernetECM = "ecm"
 	EthernetNCM = "ncm"
+
+	// The RHI link's MAC pair. The host side is fixed by contract with the
+	// managed host's EDK2 firmware (UsbNetworkPkg), which identifies the
+	// Redfish host interface by this station address; the device side is
+	// its deterministic counterpart so neighbor caches survive reboots.
+	RHIHostMAC = "da:c0:ff:ee:10:02"
+	RHIDevMAC  = "da:c0:ff:ee:10:01"
 )
 
 // Gadget owns the g0 configfs tree. A single mutex serializes every configfs

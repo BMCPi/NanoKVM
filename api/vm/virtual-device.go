@@ -43,11 +43,12 @@ func (s *Service) UpdateVirtualDevice(c *gin.Context) {
 	var on bool
 	switch req.Device {
 	case "network":
-		// Toggle the ethernet function on/off. Enabling defaults to CDC-ECM.
+		// Toggle the ethernet function on/off. Enabling means CDC-NCM,
+		// the mode the managed host's EDK2 firmware binds.
 		on = st.Ethernet == usbgadget.EthernetOff
 		mode := usbgadget.EthernetOff
 		if on {
-			mode = usbgadget.EthernetECM
+			mode = usbgadget.EthernetNCM
 		}
 		if err := gadget.SetEthernet(mode); err != nil {
 			log.Errorf("set ethernet %s failed: %s", mode, err)

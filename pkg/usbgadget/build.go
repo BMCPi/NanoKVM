@@ -122,8 +122,11 @@ func (g *Gadget) ensureHIDFuncs() error {
 	return nil
 }
 
-// ensureEthernetFunc creates the ecm/ncm function directory for mode. The
-// kernel assigns random MACs; no attributes are needed. Caller holds g.mu.
+// ensureEthernetFunc creates the ncm function directory for mode and pins
+// both MAC addresses. The host side MUST be RHIHostMAC: EDK2's UsbNetworkPkg
+// driver on the managed host correlates the RHI NIC by station address, and a
+// random kernel-assigned MAC breaks that discovery on every boot. Both are
+// locally-administered unicast addresses. Caller holds g.mu.
 func (g *Gadget) ensureEthernetFunc(mode string) error {
 	name := ethernetFuncName(mode)
 	if name == "" {
@@ -133,13 +136,27 @@ func (g *Gadget) ensureEthernetFunc(mode string) error {
 	if err := g.fs.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create %s: %w", name, err)
 	}
+	// Write-if-different: the attributes reject writes (EBUSY) while the
+	// gadget is bound, and on a steady-state reconcile they already hold
+	// these values from function creation.
+	for attr, want := range map[string]string{
+		"host_addr": RHIHostMAC,
+		"dev_addr":  RHIDevMAC,
+	} {
+		path := filepath.Join(dir, attr)
+		if cur, err := g.fs.ReadFile(path); err == nil &&
+			strings.EqualFold(strings.TrimSpace(string(cur)), want) {
+			continue
+		}
+		if err := g.fs.WriteFile(path, []byte(want), 0o644); err != nil {
+			return fmt.Errorf("set %s %s: %w", name, attr, err)
+		}
+	}
 	return nil
 }
 
 func ethernetFuncName(mode string) string {
 	switch mode {
-	case EthernetECM:
-		return "ecm.usb0"
 	case EthernetNCM:
 		return "ncm.usb0"
 	default:

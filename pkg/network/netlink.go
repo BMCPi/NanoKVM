@@ -20,7 +20,7 @@ import (
 
 // waitForLink polls for a named link to appear, returning it once present. The
 // primary NIC exists at boot, but the USB gadget's usb0 netdev only registers
-// after the ecm/ncm function is created and the UDC bound, which is
+// after the ncm function is created and the UDC bound, which is
 // asynchronous — hence the retry (JetKVM's usb.go does the same 20×500ms loop).
 func waitForLink(name string, attempts int, interval time.Duration, done <-chan struct{}) (netlink.Link, error) {
 	for i := 0; i < attempts; i++ {

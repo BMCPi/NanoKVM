@@ -6,12 +6,12 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 )
 
-// SetEthernet selects the USB ethernet function mode ("off"|"ecm"|"ncm"),
+// SetEthernet selects the USB ethernet function mode ("off"|"ncm"),
 // persists it to the server config, and reconciles the gadget. A mode change
 // triggers a UDC unbind/rebind so the host re-enumerates.
 func (g *Gadget) SetEthernet(mode string) error {
 	switch mode {
-	case EthernetOff, EthernetECM, EthernetNCM:
+	case EthernetOff, EthernetNCM:
 	default:
 		return fmt.Errorf("invalid ethernet mode %q", mode)
 	}

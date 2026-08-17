@@ -59,7 +59,7 @@ type Network struct {
 	Enabled bool `yaml:"enabled" json:"enabled"`
 	// Eth0 is the primary wired uplink.
 	Eth0 InterfaceConfig `yaml:"eth0" json:"eth0"`
-	// RHI is the USB host-facing management link (the ecm/ncm gadget's usb0), a
+	// RHI is the USB host-facing management link (the ncm gadget's usb0), a
 	// point-to-point IPv4 link-local segment in the Redfish Host Interface
 	// (DSP0270) style: no gateway, and only a single-lease DHCP server that
 	// hands the host a peer address with no router/DNS options — so the link
@@ -89,7 +89,7 @@ type InterfaceConfig struct {
 
 // RHIConfig is the static link-local addressing for the USB host interface.
 type RHIConfig struct {
-	// Interface is the gadget netdev name (the ecm/ncm function registers usb0).
+	// Interface is the gadget netdev name (the ncm function registers usb0).
 	Interface string `yaml:"interface" json:"interface"`
 	// Address is the BMC-side CIDR on the link (default 169.254.10.1/16, per
 	// RFC 3927 link-local so the host stays reachable even on an IPv4LL host).
@@ -385,9 +385,9 @@ type UsbGadget struct {
 	BmAttributes string `yaml:"bmAttributes"`
 
 	// Ethernet selects the USB network function exposed to the host: "off",
-	// "ecm" (CDC-ECM) or "ncm" (CDC-NCM). Toggled at runtime via the virtual-
+	// "ncm" (CDC-NCM). Toggled at runtime via the virtual-
 	// device API, which persists the change back here. Formerly the
-	// /boot/usb.ecm0 and /boot/usb.ncm flags plus the runtime state file.
+	// the runtime state file.
 	Ethernet string `yaml:"ethernet"`
 	// Disk controls whether the mass-storage disk (mass_storage.disk0) is linked
 	// into configs/c.1 and so visible to the host. The function and its LUNs
