@@ -112,7 +112,42 @@ func (s pipeSpec) srcFPS() int {
 // which is why none of them is checked: "does not exist" is the answer this
 // wants. Order is teardown's, because the driver enforces the same lifetime
 // rules on the way out however it is asked.
-func (c *Capturer) reclaimStale() {
+// Bounded, because the leftovers are not always merely present -- they can be
+// locked. The driver takes a per-channel mutex around its ioctls and holds it
+// in kernel context, so a process killed with SIGKILL part-way through one
+// never releases it, and every later call on that channel waits on a lock
+// whose owner no longer exists. Nothing in userspace can break that; the
+// module has to be reloaded or the board rebooted.
+//
+// The failure without a bound is the worst kind: bringUp neither succeeds nor
+// returns, rebuild holds the Capturer's lock while it waits, no state is ever
+// published, and the UI shows an empty error forever. Bounding it at least
+// says what happened.
+const reclaimTimeout = 5 * time.Second
+
+func (c *Capturer) reclaimStale() error {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		c.reclaimStaleBlocking()
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-time.After(reclaimTimeout):
+		// Deliberately not waiting: the goroutine is parked on a lock that
+		// may never be released, and it holds nothing this process needs.
+		// Failing here rather than pressing on is the point -- every call
+		// bringUp would make next is on the same wedged channel, so it would
+		// hang in a less obvious place.
+		return fmt.Errorf("cvi: reclaiming stale pipeline state timed out after %s; "+
+			"a previous process was killed mid-ioctl and the driver still holds its "+
+			"channel lock -- the media modules have to be reloaded", reclaimTimeout)
+	}
+}
+
+func (c *Capturer) reclaimStaleBlocking() {
 	_ = c.sys.Unbind(Chn(ModVI, viDev, viChn), Chn(ModVPSS, vpssGrp, vpssChn))
 	_ = c.enc.StopRecvFrame()
 	_ = c.enc.DestroyChn()
@@ -128,7 +163,9 @@ func (c *Capturer) reclaimStale() {
 func (c *Capturer) bringUp(s pipeSpec) error {
 	// Clear anything a previous run left in the driver before creating the
 	// same objects again; see reclaimStale.
-	c.reclaimStale()
+	if err := c.reclaimStale(); err != nil {
+		return err
+	}
 
 	// VB first, and not optionally. VI and VPSS take their frame buffers
 	// from the common pools, and they do not check: vpss_set_chn_attr walks
