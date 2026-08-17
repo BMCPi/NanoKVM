@@ -140,63 +140,6 @@ var defaultConfig = &Config{
 			Lease:     "169.254.10.2",
 		},
 	},
-	EfiVars: EfiVars{
-		Enabled: true,
-		// Read the store from the BMC's own i2c-slave-eeprom backing file. The
-		// host (Raspberry Pi U-Boot, CONFIG_EFI_VARIABLE_I2C_STORE) writes the
-		// variable blob into this EEPROM over I2C; the BMC reads/writes the same
-		// bytes out-of-band through the slave device's backing file. This is
-		// always safe — unlike raw /dev/i2c master access to 0x50, which would
-		// address the BMC's *own* slave and cannot read the store.
-		Path:      "/sys/bus/i2c/devices/0-1050/slave-eeprom",
-		I2CBus:    -1, // disable the raw-master fallback
-		I2CAddr:   0x50,
-		PageSize:  64,
-		StoreSize: 32768,
-		// Durable mirror on the data partition (survives BMC reboots, unlike
-		// the volatile i2c-slave-eeprom RAM buffer). Restored into the EEPROM
-		// at startup and kept in sync with host/BMC writes.
-		SnapshotPath: "/var/lib/nanokvm/efivars/store.bin",
-	},
-	UbootEnv: UbootEnv{
-		Enabled: true,
-		// The same EEPROM as the UEFI variable store (see EfiVars): the host's
-		// CONFIG_ENV_IS_IN_EEPROM writes its env partition at 0x4000 of that
-		// 24c256, and the BMC reads/writes the same bytes out-of-band through
-		// the slave device's backing file.
-		Path:     "/sys/bus/i2c/devices/0-1050/slave-eeprom",
-		I2CBus:   -1, // disable the raw-master fallback
-		I2CAddr:  0x50,
-		PageSize: 64,
-		Offset:   0x4000, // host CONFIG_ENV_OFFSET
-		Size:     0x2000, // host CONFIG_ENV_SIZE
-		// Durable mirror on the data partition; see EfiVars.SnapshotPath.
-		SnapshotPath: "/var/lib/nanokvm/ubootenv/env.bin",
-	},
-	SMBIOS: SMBIOS{
-		Enabled: true,
-		// A third region of the same EEPROM (see EfiVars/UbootEnv): the
-		// host's CONFIG_SMBIOS_I2C_STORE writes the tables it generates at
-		// boot to 0x6000, and the BMC reads them out-of-band for inventory.
-		Path:     "/sys/bus/i2c/devices/0-1050/slave-eeprom",
-		I2CBus:   -1, // disable the raw-master fallback
-		I2CAddr:  0x50,
-		PageSize: 64,
-		Offset:   0x6000, // host CONFIG_SMBIOS_I2C_STORE_OFFSET
-		Size:     0x800,  // host CONFIG_SMBIOS_I2C_STORE_SIZE
-	},
-	BlkInfo: BlkInfo{
-		Enabled: true,
-		// A fourth region of the same EEPROM: the host's
-		// CONFIG_BLKINFO_I2C_STORE writes its probed drive list here at
-		// boot, and the BMC serves it as /Systems/1/Storage/Host.
-		Path:     "/sys/bus/i2c/devices/0-1050/slave-eeprom",
-		I2CBus:   -1, // disable the raw-master fallback
-		I2CAddr:  0x50,
-		PageSize: 64,
-		Offset:   0x6800, // host CONFIG_BLKINFO_I2C_STORE_OFFSET
-		Size:     0x1000, // host CONFIG_BLKINFO_I2C_STORE_SIZE
-	},
 	Power: Power{
 		LegacyMode: false,
 	},
@@ -353,8 +296,6 @@ func checkDefaultValue() {
 		&instance.Firmware.PersistentEnv,
 		&instance.Firmware.OnceEnv,
 		&instance.Firmware.MediaDir,
-		&instance.EfiVars.SnapshotPath,
-		&instance.UbootEnv.SnapshotPath,
 		&instance.SSH.HostKeyPath,
 		&instance.SSH.AuthorizedKeysPath,
 	} {
@@ -428,8 +369,6 @@ func checkDefaultValue() {
 		instance.UsbGadget.Ethernet = defaultConfig.UsbGadget.Ethernet
 	}
 
-	normalizeEEPROMRegions()
-
 	if instance.Telemetry.ServiceName == "" {
 		instance.Telemetry.ServiceName = defaultConfig.Telemetry.ServiceName
 	}
@@ -493,144 +432,4 @@ func checkDefaultValue() {
 	if needsPersist {
 		persistConfig()
 	}
-}
-
-// normalizeEEPROMRegions applies the defaults for the three stores that share
-// the one 24c256, then holds their regions apart.
-//
-// efivars, ubootenv and smbios all address the same backing file, so a region
-// that overruns its neighbour silently corrupts it. The clamps at the end also
-// upgrade configs already persisted to /etc/kvm/server.yaml by an older build:
-// a stale value is non-zero, so it survives the `<= 0` backfills and has to be
-// corrected explicitly.
-func normalizeEEPROMRegions() {
-	// Apply EFI variable store defaults when not present in the config file.
-	// When neither a path nor an explicit non-zero master bus is configured,
-	// default to the BMC's own i2c-slave-eeprom backing file (see defaultConfig).
-	// This also upgrades legacy configs that persisted the old "i2cBus: 0"
-	// (raw master to 0x50), which cannot read the BMC's own slave EEPROM.
-	if instance.EfiVars.Path == "" && instance.EfiVars.I2CBus == 0 {
-		instance.EfiVars.Path = defaultConfig.EfiVars.Path
-		instance.EfiVars.I2CBus = defaultConfig.EfiVars.I2CBus
-	}
-	if instance.EfiVars.I2CAddr == 0 {
-		instance.EfiVars.I2CAddr = defaultConfig.EfiVars.I2CAddr
-	}
-	if instance.EfiVars.PageSize <= 0 {
-		instance.EfiVars.PageSize = defaultConfig.EfiVars.PageSize
-	}
-	if instance.EfiVars.StoreSize <= 0 {
-		instance.EfiVars.StoreSize = defaultConfig.EfiVars.StoreSize
-	}
-	// Backfill the durable snapshot path for configs written before it existed,
-	// so persistence is enabled on upgrade without editing server.yaml.
-	if instance.EfiVars.SnapshotPath == "" {
-		instance.EfiVars.SnapshotPath = defaultConfig.EfiVars.SnapshotPath
-	}
-
-	// Apply U-Boot env store defaults, mirroring the EfiVars handling above:
-	// the environment lives at an offset of the same EEPROM.
-	if instance.UbootEnv.Path == "" && instance.UbootEnv.I2CBus == 0 {
-		instance.UbootEnv.Path = defaultConfig.UbootEnv.Path
-		instance.UbootEnv.I2CBus = defaultConfig.UbootEnv.I2CBus
-	}
-	if instance.UbootEnv.I2CAddr == 0 {
-		instance.UbootEnv.I2CAddr = defaultConfig.UbootEnv.I2CAddr
-	}
-	if instance.UbootEnv.PageSize <= 0 {
-		instance.UbootEnv.PageSize = defaultConfig.UbootEnv.PageSize
-	}
-	if instance.UbootEnv.Offset <= 0 {
-		instance.UbootEnv.Offset = defaultConfig.UbootEnv.Offset
-	}
-	if instance.UbootEnv.Size <= 0 {
-		instance.UbootEnv.Size = defaultConfig.UbootEnv.Size
-	}
-	if instance.UbootEnv.SnapshotPath == "" {
-		instance.UbootEnv.SnapshotPath = defaultConfig.UbootEnv.SnapshotPath
-	}
-
-	// Apply SMBIOS store defaults, mirroring the handling above: the tables
-	// live in a third region of the same EEPROM.
-	if instance.SMBIOS.Path == "" && instance.SMBIOS.I2CBus == 0 {
-		instance.SMBIOS.Path = defaultConfig.SMBIOS.Path
-		instance.SMBIOS.I2CBus = defaultConfig.SMBIOS.I2CBus
-	}
-	if instance.SMBIOS.I2CAddr == 0 {
-		instance.SMBIOS.I2CAddr = defaultConfig.SMBIOS.I2CAddr
-	}
-	if instance.SMBIOS.PageSize <= 0 {
-		instance.SMBIOS.PageSize = defaultConfig.SMBIOS.PageSize
-	}
-	if instance.SMBIOS.Offset <= 0 {
-		instance.SMBIOS.Offset = defaultConfig.SMBIOS.Offset
-	}
-	if instance.SMBIOS.Size <= 0 {
-		instance.SMBIOS.Size = defaultConfig.SMBIOS.Size
-	}
-
-	// Apply blkinfo store defaults, mirroring SMBIOS above: the host's drive
-	// inventory lives in a fourth region of the same EEPROM. When the whole
-	// section is absent (a config persisted by an older build), adopt
-	// Enabled too, so the upgrade lights the feature up like a fresh install.
-	if instance.BlkInfo.Path == "" && instance.BlkInfo.I2CBus == 0 {
-		instance.BlkInfo.Enabled = defaultConfig.BlkInfo.Enabled
-		instance.BlkInfo.Path = defaultConfig.BlkInfo.Path
-		instance.BlkInfo.I2CBus = defaultConfig.BlkInfo.I2CBus
-	}
-	if instance.BlkInfo.I2CAddr == 0 {
-		instance.BlkInfo.I2CAddr = defaultConfig.BlkInfo.I2CAddr
-	}
-	if instance.BlkInfo.PageSize <= 0 {
-		instance.BlkInfo.PageSize = defaultConfig.BlkInfo.PageSize
-	}
-	if instance.BlkInfo.Offset <= 0 {
-		instance.BlkInfo.Offset = defaultConfig.BlkInfo.Offset
-	}
-	if instance.BlkInfo.Size <= 0 {
-		instance.BlkInfo.Size = defaultConfig.BlkInfo.Size
-	}
-
-	// The three stores share one 24c256, so each region has to stop where the
-	// next begins. Both clamps below also upgrade configs persisted to
-	// /etc/kvm/server.yaml by an older build, which is why they cannot be
-	// expressed as plain defaults — a stale value is non-zero and so survives
-	// the `<= 0` backfills above.
-
-	// The UEFI blob sits below the env partition and is otherwise bounded only
-	// by the whole-chip storeSize, so it could grow into the environment.
-	// Clamp it at the env offset — the BMC-side mirror of the cap U-Boot
-	// applies at CONFIG_ENV_OFFSET. Upgrades configs holding the old
-	// whole-chip storeSize (32768).
-	if instance.UbootEnv.Enabled && instance.EfiVars.Path == instance.UbootEnv.Path &&
-		instance.EfiVars.StoreSize > instance.UbootEnv.Offset {
-		log.Printf("config: efiVars.storeSize %d overruns ubootEnv.offset %#x; clamping to %#x",
-			instance.EfiVars.StoreSize, instance.UbootEnv.Offset, instance.UbootEnv.Offset)
-		instance.EfiVars.StoreSize = instance.UbootEnv.Offset
-	}
-
-	// The env partition sits below the SMBIOS tables, and its size is not just
-	// a bound but the CRC length: U-Boot checksums CONFIG_ENV_SIZE-4 bytes, so
-	// a size that disagrees with the host makes every read fail with
-	// "bad CRC, using default environment" — even though the bytes are intact.
-	// Clamp it at the SMBIOS offset, which upgrades configs holding the old
-	// 0x4000 env size (that value both mis-sizes the CRC and overruns the
-	// tables at 0x6000).
-	if instance.SMBIOS.Enabled && instance.UbootEnv.Enabled &&
-		instance.UbootEnv.Path == instance.SMBIOS.Path &&
-		instance.UbootEnv.Offset+instance.UbootEnv.Size > instance.SMBIOS.Offset {
-		log.Printf("config: ubootEnv region %#x..%#x overruns smbios.offset %#x; "+
-			"clamping size %#x -> %#x (a size disagreeing with the host's "+
-			"CONFIG_ENV_SIZE makes U-Boot report a bad env CRC)",
-			instance.UbootEnv.Offset, instance.UbootEnv.Offset+instance.UbootEnv.Size,
-			instance.SMBIOS.Offset, instance.UbootEnv.Size,
-			instance.SMBIOS.Offset-instance.UbootEnv.Offset)
-		instance.UbootEnv.Size = instance.SMBIOS.Offset - instance.UbootEnv.Offset
-	}
-
-	log.Printf("config: eeprom layout %s — uefi [0x0,%#x) env [%#x,%#x) smbios [%#x,%#x)",
-		instance.UbootEnv.Path,
-		instance.EfiVars.StoreSize,
-		instance.UbootEnv.Offset, instance.UbootEnv.Offset+instance.UbootEnv.Size,
-		instance.SMBIOS.Offset, instance.SMBIOS.Offset+instance.SMBIOS.Size)
 }

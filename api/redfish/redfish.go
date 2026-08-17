@@ -32,51 +32,62 @@ func Register(r *gin.Engine, d *deps.Deps) {
 	r.GET("/redfish/v1/openapi.yaml", service.GetOpenAPIYAML)
 	r.GET("/redfish/v1/openapi.json", service.GetOpenAPIJSON)
 
-	// Protected endpoints
+	// Protected endpoints. CheckAuth passes host-interface requests through
+	// unauthenticated (DSP0270); handlers guard host-owned writes with
+	// hostWritable instead.
 	api := r.Group("/redfish/v1").Use(CheckAuth())
 	{
-		// Systems
+		// Systems. PATCH carries both write directions: operators stage the
+		// boot override, the host firmware reports identity/boot progress.
 		api.GET("/Systems", service.GetSystemCollection)
 		api.GET("/Systems/1", service.GetSystem)
 		api.POST("/Systems/1/Actions/ComputerSystem.Reset", service.ResetSystem)
 		api.PATCH("/Systems/1", service.PatchSystem)
 
-		// Bios — RPi 5 bootloader EEPROM as Redfish Bios.Attributes.
-		// Live values come from the bootconf.txt embedded in pieeprom.bin
-		// (U-Boot writes a fresh EEPROM dump each boot);
-		// PATCH /Bios/Settings stages a pieeprom.upd for the host's
-		// rpi-eeprom-update to flash on next boot.
+		// Bios — host-reported attributes; operators stage changes on the
+		// SettingsObject and the host firmware applies them at boot. The
+		// registry is a host-published document.
 		api.GET("/Systems/1/Bios", service.GetBios)
+		api.PATCH("/Systems/1/Bios", service.PatchBios)
 		api.GET("/Systems/1/Bios/Settings", service.GetBiosSettings)
 		api.PATCH("/Systems/1/Bios/Settings", service.PatchBiosSettings)
 		api.GET("/Systems/1/Bios/AttributeRegistry", service.GetBiosAttributeRegistry)
+		api.PUT("/Systems/1/Bios/AttributeRegistry", service.PutBiosAttributeRegistry)
 
-		// Per-device inventory collections — the standard homes for what
-		// used to sit under the ComputerSystem's Oem.NanoKVM block.
+		// BootOptions — one member per Boot#### variable, POSTed by the
+		// host's boot manager whenever it re-enumerates.
+		api.GET("/Systems/1/BootOptions", service.GetBootOptionCollection)
+		api.POST("/Systems/1/BootOptions", service.PostBootOption)
+		api.GET("/Systems/1/BootOptions/:option", service.GetBootOption)
+		api.PATCH("/Systems/1/BootOptions/:option", service.PatchBootOption)
+		api.DELETE("/Systems/1/BootOptions/:option", service.DeleteBootOption)
+
+		// SecureBoot — host-owned state, reported over the host interface.
+		api.GET("/Systems/1/SecureBoot", service.GetSecureBoot)
+		api.PATCH("/Systems/1/SecureBoot", service.PatchSecureBoot)
+
+		// Per-device inventory collections, all host-reported.
 		api.GET("/Systems/1/Memory", service.GetMemoryCollection)
+		api.POST("/Systems/1/Memory", service.PostMemoryModule)
 		api.GET("/Systems/1/Memory/:module", service.GetMemoryModule)
+		api.PATCH("/Systems/1/Memory/:module", service.PatchMemoryModule)
 		api.GET("/Systems/1/Processors", service.GetProcessorCollection)
 		api.GET("/Systems/1/Processors/:processor", service.GetProcessor)
 		api.GET("/Systems/1/EthernetInterfaces", service.GetEthernetInterfaceCollection)
 		api.GET("/Systems/1/EthernetInterfaces/:nic", service.GetEthernetInterface)
 
-		// Storage — the USB gadget's LUNs as a Storage subsystem with one
-		// Drive per backed LUN (boot image + inserted virtual media).
+		// Storage — subsystem "1" is the host's own storage (drives the host
+		// firmware reports); "BMC" is the USB gadget's LUNs.
 		api.GET("/Systems/1/Storage", service.GetStorageCollection)
 		api.GET("/Systems/1/Storage/:storage", service.GetStorage)
 		api.GET("/Systems/1/Storage/:storage/Drives/:drive", service.GetDrive)
+		api.POST("/Systems/1/Storage/:storage/Drives", service.PostHostDrive)
+		api.PATCH("/Systems/1/Storage/:storage/Drives/:drive", service.PatchHostDrive)
 
-		// Chassis — the host baseboard (SMBIOS type 2); the service root
-		// has always advertised this collection.
+		// Chassis — the host baseboard; the service root has always
+		// advertised this collection.
 		api.GET("/Chassis", service.GetChassisCollection)
 		api.GET("/Chassis/1", service.GetChassis)
-
-		// TrustedComponents — the rpi-eeprom bootloader as the platform root
-		// of trust, with its firmware version/flash-time as a nested
-		// SoftwareInventory.
-		api.GET("/Systems/1/TrustedComponents", service.GetTrustedComponentCollection)
-		api.GET("/Systems/1/TrustedComponents/Bootloader", service.GetTrustedComponentBootloader)
-		api.GET("/Systems/1/TrustedComponents/Bootloader/SoftwareImages/Active", service.GetBootloaderSoftwareInventory)
 
 		// Managers
 		api.GET("/Managers", service.GetManagerCollection)
@@ -98,11 +109,10 @@ func Register(r *gin.Engine, d *deps.Deps) {
 		api.GET("/SessionService/Sessions", service.GetSessionCollection)
 		api.DELETE("/SessionService/Sessions/:id", service.DeleteSession)
 
-		// UpdateService (firmware updates)
+		// UpdateService (host image updates)
 		api.GET("/UpdateService", service.GetUpdateService)
 		api.GET("/UpdateService/FirmwareInventory", service.GetFirmwareInventoryCollection)
-		api.GET("/UpdateService/FirmwareInventory/BIOS", service.GetFirmwareInventoryUBoot)
+		api.GET("/UpdateService/FirmwareInventory/BIOS", service.GetFirmwareInventoryBIOS)
 		api.POST("/UpdateService/Actions/UpdateService.SimpleUpdate", service.SimpleUpdate)
-		api.POST("/UpdateService/Actions/UpdateService.StartUpdate", service.StartUpdate)
 	}
 }

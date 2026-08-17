@@ -99,25 +99,24 @@ const (
 	processorsPath = systemPath + "/Processors"
 	processorPath  = processorsPath + "/" + processorID
 
-	storageRootPath = systemPath + "/Storage"
-	storagePath     = storageRootPath + "/1"
-	drivesPath      = storagePath + "/Drives"
-	hostStoragePath = storageRootPath + "/Host"
-	hostDrivesPath  = hostStoragePath + "/Drives"
+	// Storage "1" is the host's own storage (host-reported drives); "BMC"
+	// is what the BMC's USB gadget presents to it. See storage.go.
+	storageRootPath   = systemPath + "/Storage"
+	storagePath       = storageRootPath + "/" + storageID
+	drivesPath        = storagePath + "/Drives"
+	gadgetStoragePath = storageRootPath + "/" + gadgetStorageID
+	gadgetDrivesPath  = gadgetStoragePath + "/Drives"
+
+	// Host-reported boot options and secure-boot state (hostreports.go).
+	bootOptionsPath = systemPath + "/BootOptions"
+	secureBootPath  = systemPath + "/SecureBoot"
 
 	ethernetInterfacesPath = systemPath + "/EthernetInterfaces"
-	ethernetInterfacePath  = ethernetInterfacesPath + "/" + ethernetInterfaceID
 
 	chassisItemPath = chassisPath + "/1"
 
-	trustedComponentsPath   = systemPath + "/TrustedComponents"
-	bootloaderComponentPath = trustedComponentsPath + "/Bootloader"
-	// The bootloader's firmware is nested under its trusted component.
-	bootloaderSoftwarePath = bootloaderComponentPath + "/SoftwareImages/Active"
-
-	biosSettingsPath      = biosPath + "/Settings"
-	biosRegistryPath      = biosPath + "/AttributeRegistry"
-	biosChangePasswordURI = biosPath + "/Actions/Bios.ChangePassword"
+	biosSettingsPath = biosPath + "/Settings"
+	biosRegistryPath = biosPath + "/AttributeRegistry"
 
 	managersPath = schemas.DefaultServiceRoot + "Managers"
 	managerPath  = managersPath + "/1"
@@ -141,7 +140,6 @@ const (
 	firmwareInventoryPath = updateServicePath + "/FirmwareInventory"
 	firmwareBIOSPath      = firmwareInventoryPath + "/BIOS"
 	simpleUpdatePath      = updateServicePath + "/Actions/UpdateService.SimpleUpdate"
-	startUpdatePath       = updateServicePath + "/Actions/UpdateService.StartUpdate"
 )
 
 // odataTypeKey is the @odata.type property name. Typed resources get it from

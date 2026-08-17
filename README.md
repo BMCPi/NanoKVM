@@ -71,7 +71,7 @@ We offer several NanoKVM versions to suit your needs:
 
 ``` shell
 ├── api/            # HTTP API — one subpackage per sub-router (auth, vm, redfish, …)
-├── cmd/            # CLI entry points (server, fw_env)
+├── cmd/            # CLI entry points (server, rpiboot)
 ├── pkg/            # Domain + infrastructure packages (config, ipmi, firmware, …)
 ├── ui/             # Web front-end — templ layouts/pages/components + embedded assets
 ├── ...

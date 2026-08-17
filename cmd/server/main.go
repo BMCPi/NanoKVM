@@ -13,11 +13,11 @@ import (
 	"time"
 
 	"github.com/pi-bmc/nanokvm-app/api"
+	"github.com/pi-bmc/nanokvm-app/api/redfish"
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
 	"github.com/pi-bmc/nanokvm-app/pkg/autoupdate"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
-	"github.com/pi-bmc/nanokvm-app/pkg/efivars"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 	"github.com/pi-bmc/nanokvm-app/pkg/hid"
 	"github.com/pi-bmc/nanokvm-app/pkg/ipmi"
@@ -139,6 +139,11 @@ func initialize(ctx context.Context) {
 	fwCtrl = firmware.NewController(cfg)
 	videoHub = newVideoHub(cfg)
 
+	// Restore the persisted host state (staged boot override, host-reported
+	// inventory) before anything can serve it — the IPMI server below and
+	// the Redfish routes both read it.
+	redfish.LoadHostState()
+
 	// Start IPMI server on standard port 623
 	srv, err := ipmi.Start(623, powerCtrl, fwCtrl)
 	if err != nil {
@@ -168,10 +173,6 @@ func initialize(ctx context.Context) {
 		log.Printf("Firmware controller init: %v", err)
 	}
 
-	// Mirror the UEFI variable store to durable storage: restore it into the
-	// volatile i2c-slave-eeprom at boot and keep it in sync with host writes.
-	efivars.GetManager().StartPersistence()
-
 	// Begin the always-on capture of the host's serial console to a bounded
 	// file on the data partition, so its boot/crash logs are retained even
 	// when no terminal or SOL session is watching. Holds the port open for
@@ -179,7 +180,6 @@ func initialize(ctx context.Context) {
 	serial.StartCapture()
 
 	// Start the auto-update ticker (no-op when AutoUpdate.Enabled is false).
-	autoupdate.Init(fwCtrl)
 	autoupdate.Start()
 
 	// Start the SSH server. The image ships no sshd — this is the BMC's only

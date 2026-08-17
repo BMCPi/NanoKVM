@@ -18,9 +18,17 @@ import (
 //  3. HTTP Basic Auth — standards-based Redfish clients (gofish, bmclib,
 //     the Dell Terraform provider) fall back to Basic when they haven't
 //     opened a session yet, and some skip sessions entirely.
+//
+// Requests from the USB host interface pass without credentials: DSP0270
+// permits unauthenticated host-interface access, and the nftables isolation
+// in pkg/network makes the source address trustworthy.
 func CheckAuth() gin.HandlerFunc {
 	tokenCheck := middleware.CheckToken()
 	return func(c *gin.Context) {
+		if IsHostInterfaceRequest(c) {
+			c.Next()
+			return
+		}
 		if config.GetInstance().Authentication == "disable" {
 			c.Next()
 			return

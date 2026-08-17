@@ -74,30 +74,41 @@ templ PowerMenu() {
 					</div>
 				</div>
 				<div class="h-px bg-border"></div>
-				// Boot override: same fragment endpoint as the overview card.
-				// Native <select> elements (like the Virtual Media ISO picker):
-				// the shadcn-templ Select portals its popup to <body>, and the
+				// Boot override: same fragment endpoint, target list, and three
+				// actions as the overview card. The override is staged BMC state
+				// that the host firmware applies at its next boot. The clicked
+				// submit button supplies mode (once/continuous/clear), so Clear
+				// is unambiguous — no competing mode field in the form.
+				// Native <select> (like the Virtual Media ISO picker): the
+				// shadcn-templ Select portals its popup to <body>, and the
 				// dropdown menu treats pointerdowns there as outside clicks, so
 				// a composed Select would close the menu on first use.
 				<form class="space-y-2" hx-post="/ui/overview/boot-override" hx-swap="none">
 					<p class={ SectionLabelClass }>Boot Override</p>
-					<div class="grid grid-cols-2 gap-2">
-						@bootDeviceSelect()
-						@bootPersistSelect()
-					</div>
-					<div class="flex gap-2">
+					@bootDeviceSelect()
+					<div class="flex flex-wrap gap-2">
 						@button.Button(button.Props{
-							Size:  button.SizeSm,
-							Class: "flex-1",
-							Type:  button.TypeSubmit,
+							Size:       button.SizeSm,
+							Class:      "flex-1",
+							Type:       button.TypeSubmit,
+							Attributes: templ.Attributes{"name": "mode", "value": "once"},
 						}) {
-							Apply
+							Apply once
 						}
 						@button.Button(button.Props{
-							Variant:    button.VariantDestructive,
+							Variant:    button.VariantOutline,
+							Size:       button.SizeSm,
+							Class:      "flex-1",
+							Type:       button.TypeSubmit,
+							Attributes: templ.Attributes{"name": "mode", "value": "continuous"},
+						}) {
+							Apply persistent
+						}
+						@button.Button(button.Props{
+							Variant:    button.VariantGhost,
 							Size:       button.SizeSm,
 							Type:       button.TypeSubmit,
-							Attributes: templ.Attributes{"name": "clear", "value": "1"},
+							Attributes: templ.Attributes{"name": "mode", "value": "clear"},
 						}) {
 							Clear
 						}
@@ -127,22 +138,16 @@ templ powerGridBtn(action, class string, ico func(...icon.Props) templ.Component
 	}
 }
 
-// bootDeviceSelect drives the Redfish boot device override.
+// bootDeviceSelect picks the boot-override target. Same target list as the
+// overview card's bootOverrideSelect (overview.templ) — keep them in sync.
 templ bootDeviceSelect() {
 	@NativeSelect("boot-device", "boot-override", "w-full min-w-0 px-2") {
-		<option value="None" selected>Default</option>
-		<option value="Pxe">PXE / Network</option>
-		<option value="Hdd">HDD / SD / NVMe</option>
-		<option value="Cd">USB / CD-ROM</option>
+		<option value="None" selected>None (default)</option>
+		<option value="Pxe">PXE (network)</option>
+		<option value="Hdd">HDD / MMC / NVMe</option>
+		<option value="Cd">CD / USB</option>
 		<option value="BiosSetup">BIOS Setup</option>
-	}
-}
-
-// bootPersistSelect chooses Once vs Continuous for the boot override.
-templ bootPersistSelect() {
-	@NativeSelect("boot-persist", "mode", "w-full min-w-0 px-2") {
-		<option value="once" selected>Once (default)</option>
-		<option value="continuous">Continuous</option>
+		<option value="UefiHttp">UEFI HTTP Boot</option>
 	}
 }
 

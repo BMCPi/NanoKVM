@@ -49,11 +49,10 @@ templ Base(title string, showNav bool, onDocsPage bool) {
 				</main>
 			</div>
 			if showNav {
-				// SettingsDialog and EEPROMDialog live at the root so triggers
-				// scattered through the page share their DOM scope. They have
-				// no on-page footprint when their triggers aren't clicked.
+				// SettingsDialog lives at the root so triggers scattered
+				// through the page share its DOM scope. The dialogs have no
+				// on-page footprint when their triggers aren't clicked.
 				@components.SettingsDialog()
-				@components.EEPROMDialog()
 				@components.ConfirmDialog()
 			}
 			// Toast viewport for tui.toast.add() — mounted on every page so

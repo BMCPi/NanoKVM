@@ -1,72 +1,24 @@
 package redfish
 
-// ethernet_interfaces.go exposes the host's NIC as the standard
-// EthernetInterfaces collection (/redfish/v1/Systems/1/EthernetInterfaces).
-// The EthernetInterface resource is the DSP2046 home for the MAC address the
-// U-Boot env carries as "ethaddr" — previously reported under Oem.NanoKVM
-// because ComputerSystem itself has no MACAddress property.
+// ethernet_interfaces.go serves the EthernetInterfaces collection
+// (/redfish/v1/Systems/1/EthernetInterfaces). The U-Boot env that used to
+// carry the host's MAC ("ethaddr") is gone with the EEPROM model, and the
+// host does not report NICs over the host interface yet — so the collection
+// is honestly empty rather than inventing a member. The routes stay
+// registered so the ComputerSystem link resolves.
 
 import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/stmcginnis/gofish/schemas"
-
-	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 )
 
-// ethernetInterfaceID names the single onboard NIC the env describes.
-const ethernetInterfaceID = "eth0"
-
-// EthernetInterface is the Redfish EthernetInterface resource (DSP2046 §6.24).
-type EthernetInterface struct {
-	Resource
-	MACAddress          string  `json:"MACAddress,omitempty"`
-	PermanentMACAddress string  `json:"PermanentMACAddress,omitempty"`
-	Status              *Status `json:"Status,omitempty"`
-}
-
-// hostMACAddress returns the managed host's onboard MAC, or "".
-func hostMACAddress(fw *firmware.Controller) string {
-	inv, err := fw.GetInventory()
-	if err != nil {
-		return ""
-	}
-	return inv["ethaddr"]
-}
-
 func (s *Service) GetEthernetInterfaceCollection(c *gin.Context) {
-	var links []Link
-	if hostMACAddress(s.Firmware) != "" {
-		links = append(links, Link(ethernetInterfacePath))
-	}
 	c.JSON(http.StatusOK, newCollection(
 		"EthernetInterfaceCollection", "Ethernet Interface Collection",
-		ethernetInterfacesPath, links...))
+		ethernetInterfacesPath))
 }
 
 func (s *Service) GetEthernetInterface(c *gin.Context) {
-	if c.Param("nic") != ethernetInterfaceID {
-		redfishErrorResponse(c, http.StatusNotFound, "ethernet interface not found")
-		return
-	}
-	mac := hostMACAddress(s.Firmware)
-	if mac == "" {
-		redfishErrorResponse(c, http.StatusNotFound, "no NIC inventory available")
-		return
-	}
-	c.JSON(http.StatusOK, EthernetInterface{
-		Resource: Resource{
-			ODataType:    "#EthernetInterface.v1_9_0.EthernetInterface",
-			ODataID:      ethernetInterfacePath,
-			ODataContext: context("EthernetInterface.EthernetInterface"),
-			ID:           ethernetInterfaceID,
-			Name:         "Onboard Ethernet",
-		},
-		MACAddress: mac,
-		// ethaddr is the factory-programmed address, so it is also the
-		// permanent one.
-		PermanentMACAddress: mac,
-		Status:              &Status{State: schemas.EnabledState, Health: schemas.OKHealth},
-	})
+	redfishErrorResponse(c, http.StatusNotFound, "no NIC inventory available")
 }

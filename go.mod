@@ -21,7 +21,6 @@ require (
 	github.com/pion/webrtc/v4 v4.2.18
 	github.com/pkg/sftp v1.13.10
 	github.com/prometheus/client_golang v1.23.2
-	github.com/siderolabs/go-smbios v0.3.4
 	github.com/sirupsen/logrus v1.9.4
 	github.com/spf13/viper v1.21.0
 	github.com/stmcginnis/gofish v0.23.0

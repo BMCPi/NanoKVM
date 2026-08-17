@@ -2,13 +2,12 @@ package components
 
 import (
 	"strings"
-
-	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 )
 
-// OverviewServer is the Server Information card body: the merged SMBIOS /
-// U-Boot-env identity of the managed host. Zero value renders placeholders;
-// the /ui/overview/server fragment supplies the populated model.
+// OverviewServer is the Server Information card body: the host-reported
+// identity of the managed server (with SMBIOS enrichment where captured).
+// Zero value renders placeholders; the /ui/overview/server fragment supplies
+// the populated model.
 type OverviewServer struct {
 	Board           string
 	Vendor          string
@@ -16,7 +15,6 @@ type OverviewServer struct {
 	Memory          string
 	Serial          string
 	Revision        string
-	MAC             string
 	InventorySource string
 }
 
@@ -30,88 +28,57 @@ type OverviewUpdateCheck struct {
 	Checked         bool
 }
 
-// OverviewBios is the BIOS Information card body. The firmware-status half
-// is local and cheap, so it is rendered with the page; the boot rows and the
-// U-Boot update check arrive with the /ui/overview/bios fragment.
-type OverviewBios struct {
-	FirmwareStatus string
-	DownloadNeeded bool
-	Downloading    bool
-	UBoot          OverviewUpdateCheck
-	DeviceTree     string
-	BootTargets    string
-	BootOverride   string
-	BootMethods    string
+// OverviewHostFirmware is the Host Firmware card body: what the managed
+// host's firmware last reported over the Redfish host interface, plus the
+// staged boot override. Zero value renders placeholders for first paint;
+// the /ui/overview/firmware fragment supplies the populated model.
+type OverviewHostFirmware struct {
+	BiosVersion  string
+	BootOverride string
+	BootProgress string
 }
 
-// OverviewKernel is one row of the kernel-version selector.
-type OverviewKernel struct {
-	Kernel     string
-	UBoot      string
-	Downloaded bool
-	Active     bool
+// OverviewBootOverride is the Boot Override card body: the override staged
+// on the BMC for the host firmware to pick up at its next boot. Target and
+// Enabled use the Redfish Boot vocabulary (BootSourceOverrideTarget /
+// BootSourceOverrideEnabled).
+type OverviewBootOverride struct {
+	Target  string
+	Enabled string
 }
 
-// OverviewKernels is the Kernel Version card body. Selected names the kernel
-// whose action buttons show; empty means nothing selected.
-type OverviewKernels struct {
-	Kernels     []OverviewKernel
-	Selected    string
-	Downloading bool
+// Active reports whether an override is actually staged (a real target with
+// Once/Continuous persistence).
+func (m OverviewBootOverride) Active() bool {
+	return m.Target != "" && m.Target != "None" &&
+		m.Enabled != "" && m.Enabled != "Disabled"
 }
 
-// SelectedKernel returns the selected row, if any.
-func (m OverviewKernels) SelectedKernel() (OverviewKernel, bool) {
-	for _, k := range m.Kernels {
-		if k.Kernel == m.Selected {
-			return k, true
-		}
+// SelectValue is the value the target select should show: the staged target
+// while one is active, None otherwise (also the zero model's first paint).
+func (m OverviewBootOverride) SelectValue() string {
+	if m.Active() {
+		return m.Target
 	}
-	return OverviewKernel{}, false
+	return "None"
 }
 
-// OverviewBiosFirstPaint is the local-only BIOS model rendered with the
-// page: firmware cache state now, boot rows and update check by fragment.
-func OverviewBiosFirstPaint(fw *firmware.Controller) OverviewBios {
-	st := fw.GetStatus()
-	m := OverviewBios{
-		FirmwareStatus: "Not downloaded",
-		DownloadNeeded: !st.Downloaded,
-		Downloading:    st.Downloading,
+// StagedLabel renders the staged state for display: "Pxe · Once",
+// "Hdd · Continuous", or "None · Disabled".
+func (m OverviewBootOverride) StagedLabel() string {
+	if !m.Active() {
+		return "None · Disabled"
 	}
-	if st.Downloaded {
-		m.FirmwareStatus = "Ready"
-	}
-	if st.Presented {
-		m.FirmwareStatus += " · USB Active"
-	}
-	return m
+	return m.Target + " · " + m.Enabled
 }
 
-// OverviewKernelsModel builds the kernel card from local state. activeVer ==
-// "" is fine — rows just show no ★. selected names the row whose action
-// buttons render.
-func OverviewKernelsModel(fw *firmware.Controller, selected, activeVer string) OverviewKernels {
-	ctrl := fw
-	m := OverviewKernels{Selected: selected, Downloading: ctrl.IsDownloading()}
-	for _, k := range firmware.KernelVersionsSorted() {
-		ub := firmware.KernelUBootMap[k]
-		m.Kernels = append(m.Kernels, OverviewKernel{
-			Kernel:     k,
-			UBoot:      ub,
-			Downloaded: ctrl.VersionedImageExists(ub),
-			Active: activeVer != "" && strings.EqualFold(
-				strings.TrimPrefix(activeVer, "v"), strings.TrimPrefix(ub, "v")),
-		})
+// BootOverrideLabel is StagedLabel for read-only rows (the Host Firmware
+// card) that render "none" when nothing is staged.
+func (m OverviewBootOverride) BootOverrideLabel() string {
+	if !m.Active() {
+		return "none"
 	}
-	return m
-}
-
-// OverviewKernelsFirstPaint renders with the page, so it reads only the
-// activation-tracking file — the machine.env fallback (which can touch the
-// firmware image) is left to the fragment refresh.
-func OverviewKernelsFirstPaint(fw *firmware.Controller) OverviewKernels {
-	return OverviewKernelsModel(fw, "", fw.ActiveUBootVersion())
+	return m.Target + " · " + strings.ToLower(m.Enabled)
 }
 
 // versionDisplay normalizes a version to v-prefixed form; "" and "dev" pass

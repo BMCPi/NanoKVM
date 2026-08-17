@@ -1,9 +1,9 @@
 package firmware
 
-// update.go orchestrates u-boot firmware updates: query the latest release,
-// determine whether an update is needed, and download/activate the new image.
-// The U-Boot environment lives in the I2C EEPROM (see ubootenv.Store), which
-// an image swap does not touch, so no env files are carried across updates.
+// update.go moves host boot images: download an image from a URL into the
+// active slot the USB gadget presents, plus a versioned image cache with
+// explicit activation. The BMC never flashes the host — an image swap only
+// changes what the gadget offers, and the host consumes it at its own boot.
 
 import (
 	"errors"
@@ -19,78 +19,9 @@ import (
 	"github.com/ulikunitz/xz"
 )
 
-// VersionInfo describes the current and latest u-boot versions.
-type VersionInfo struct {
-	Current         string `json:"current"`
-	Latest          string `json:"latest"`
-	UpdateAvailable bool   `json:"updateAvailable"`
-	AssetURL        string `json:"assetUrl,omitempty"`
-}
-
-// GetUBootVersionInfo returns the currently-running u-boot version (read
-// from the environment's `ver` variable) and the latest available release.
-func (c *Controller) GetUBootVersionInfo() (VersionInfo, error) {
-	current := ""
-	if env, err := c.LoadEnv(); err == nil {
-		if v, ok := env.Get("ver"); ok {
-			current = parseUBootVer(v)
-		}
-	}
-
-	info := VersionInfo{Current: current}
-	rel, err := LatestUBootRelease()
-	if err != nil {
-		return info, err
-	}
-	info.Latest = rel.Version
-	info.AssetURL = rel.AssetURL
-	if current == "" {
-		info.UpdateAvailable = true
-	} else {
-		info.UpdateAvailable = CompareUBootVersions(rel.Version, current) > 0
-	}
-	return info, nil
-}
-
-// parseUBootVer extracts a "vMAJOR.MINOR[-rcN]" token from U-Boot's
-// `ver` env variable, which typically looks like:
-//
-//	"U-Boot 2026.07-rc1 (Aug 28 2025 - 12:34:56 +0000)"
-//	"U-Boot v2026.07 (...)"
-//
-// Returns the version with a leading "v" so it compares cleanly against
-// release tags.
-func parseUBootVer(s string) string {
-	for _, tok := range strings.Fields(s) {
-		t := strings.TrimPrefix(tok, "v")
-		if t == "" {
-			continue
-		}
-		if t[0] < '0' || t[0] > '9' {
-			continue
-		}
-		// Looks like a version token (starts with a digit, contains a dot).
-		if strings.Contains(t, ".") {
-			return "v" + t
-		}
-	}
-	return ""
-}
-
-// UpdateUBoot downloads the latest u-boot image and installs it,
-// preserving the three env files from the existing image. If url is
-// empty, the latest release URL is resolved automatically.
-func (c *Controller) UpdateUBoot() error {
-	rel, err := LatestUBootRelease()
-	if err != nil {
-		return fmt.Errorf("resolve latest release: %w", err)
-	}
-	return c.UpdateUBootFromURL(rel.AssetURL)
-}
-
-// UpdateUBootFromURL replaces the current image with the .img.xz at the
-// given URL, preserving env files.
-func (c *Controller) UpdateUBootFromURL(url string) error {
+// UpdateHostImageFromURL replaces the current host boot image with the
+// .img.xz at the given URL and re-presents it on the USB gadget.
+func (c *Controller) UpdateHostImageFromURL(url string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -98,9 +29,7 @@ func (c *Controller) UpdateUBootFromURL(url string) error {
 		return fmt.Errorf("empty url")
 	}
 
-	// Download & install the new image (replaces c.imagePath atomically). The
-	// U-Boot environment lives in the EEPROM, which an image swap does not
-	// touch, so nothing has to be preserved across the update.
+	// Download & install the new image (replaces c.imagePath atomically).
 	return c.downloadFromURLLocked(url)
 }
 
@@ -324,10 +253,9 @@ func (c *Controller) DownloadVersionedImage(version, assetURL string) error {
 	return nil
 }
 
-// ActivateVersionedImage swaps the versioned image for the given u-boot
-// version into the active image slot (c.imagePath), preserving the three
-// env files from the current active image. The versioned cache file is kept
-// so it can be re-activated later without re-downloading.
+// ActivateVersionedImage swaps the versioned image for the given version
+// into the active image slot (c.imagePath). The versioned cache file is
+// kept so it can be re-activated later without re-downloading.
 func (c *Controller) ActivateVersionedImage(version string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -337,24 +265,20 @@ func (c *Controller) ActivateVersionedImage(version string) error {
 		return fmt.Errorf("versioned image for %s not found; download it first", version)
 	}
 
-	// Swap the versioned image into the active slot. The U-Boot environment
-	// lives in the EEPROM, which the swap does not touch, so nothing has to be
-	// preserved across the activation.
+	// Swap the versioned image into the active slot.
 	if err := c.swapActiveLocked(srcPath); err != nil {
 		return err
 	}
 
 	log.Infof("firmware: activated versioned image %s → %s", version, c.imagePath)
 
-	// Persist the activated version so the kernels endpoint can report the
-	// correct active entry even before the board reboots (the environment
-	// still holds the old U-Boot ver string at this point).
+	// Persist the activated version so the overview can report the correct
+	// active entry across BMC restarts.
 	trackFile := filepath.Join(filepath.Dir(c.imagePath), ".activated-uboot-version")
 	if err := os.WriteFile(trackFile, []byte(version), 0o644); err != nil {
 		log.Warnf("firmware: write activated-version tracking file: %v", err)
 	}
 
-	InvalidateLatestUBootCache()
 	return nil
 }
 

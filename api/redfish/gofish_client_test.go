@@ -10,7 +10,6 @@ package redfish
 // rather than in a customer's terraform run.
 
 import (
-	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -18,8 +17,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stmcginnis/gofish"
 	"github.com/stmcginnis/gofish/schemas"
-
-	"github.com/pi-bmc/nanokvm-app/pkg/smbios"
 )
 
 // testServer mounts the read-only surface with no auth so gofish can walk it.
@@ -35,9 +32,6 @@ func testServer(t *testing.T) *httptest.Server {
 	r.GET(systemsPath, svc.GetSystemCollection)
 	r.GET(systemPath, svc.GetSystem)
 	r.GET(biosPath, svc.GetBios)
-	r.GET(trustedComponentsPath, svc.GetTrustedComponentCollection)
-	r.GET(bootloaderComponentPath, svc.GetTrustedComponentBootloader)
-	r.GET(bootloaderSoftwarePath, svc.GetBootloaderSoftwareInventory)
 	r.GET(managersPath, svc.GetManagerCollection)
 	r.GET(managerPath, svc.GetManager)
 	r.GET(sessionServicePath, svc.GetSessionService)
@@ -124,90 +118,6 @@ func TestGofishFollowsBiosLink(t *testing.T) {
 	// GETs it. A bare-string link would leave the field empty and error.
 	if _, err := systems[0].Bios(); err != nil {
 		t.Errorf("gofish could not follow the Bios link: %v", err)
-	}
-}
-
-// The bootloader is exposed as a TrustedComponent (root of trust) with its
-// firmware as a nested SoftwareInventory. gofish must follow
-// System → Links.TrustedComponents → ActiveSoftwareImage end to end.
-func TestGofishTrustedComponentsAndSoftwareImage(t *testing.T) {
-	ts := testServer(t)
-
-	client, err := gofish.ConnectDefault(ts.URL)
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	defer client.Logout()
-
-	systems, err := client.GetService().Systems()
-	if err != nil || len(systems) == 0 {
-		t.Fatalf("systems: %v", err)
-	}
-
-	comps, err := systems[0].TrustedComponents()
-	if err != nil {
-		t.Fatalf("gofish could not follow Links.TrustedComponents: %v", err)
-	}
-	if len(comps) != 1 {
-		t.Fatalf("discovered %d trusted components, want 1", len(comps))
-	}
-	if comps[0].TrustedComponentType != schemas.IntegratedTrustedComponentType {
-		t.Errorf("TrustedComponentType = %q, want Integrated", comps[0].TrustedComponentType)
-	}
-	if comps[0].Manufacturer != "Raspberry Pi" {
-		t.Errorf("Manufacturer = %q, want Raspberry Pi", comps[0].Manufacturer)
-	}
-
-	// The nested SoftwareInventory carries the bootloader version/flash-time.
-	img, err := comps[0].ActiveSoftwareImage()
-	if err != nil {
-		t.Fatalf("gofish could not follow ActiveSoftwareImage: %v", err)
-	}
-	if img.SoftwareID != "rpi-eeprom" {
-		t.Errorf("SoftwareId = %q, want rpi-eeprom", img.SoftwareID)
-	}
-	if !img.Updateable {
-		t.Error("SoftwareInventory should be Updateable (BMC stages pieeprom.upd)")
-	}
-}
-
-// The MemorySummary we synthesise from the SMBIOS type 16/17 tables must be
-// readable by gofish's own ComputerSystem schema — the same contract the rest
-// of this file pins for the live surface. The store is unconfigured under test,
-// so exercise the mapping directly and round-trip the marshalled system.
-func TestGofishParsesMemorySummary(t *testing.T) {
-	sys := ComputerSystem{
-		Resource: Resource{
-			ODataType: "#ComputerSystem.v1_13_0.ComputerSystem",
-			ODataID:   systemPath,
-			ID:        "1",
-			Name:      "Computer System",
-		},
-	}
-	applySMBIOSInfo(&sys, &smbios.Info{
-		MemoryTotalMB: 16384,
-		Memory: []smbios.MemoryModule{{
-			Locator: "P0", SizeMB: 16384, Type: "LPDDR4", SpeedMTs: 4267,
-		}},
-	})
-
-	raw, err := json.Marshal(sys)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-
-	var gsys schemas.ComputerSystem
-	if err := json.Unmarshal(raw, &gsys); err != nil {
-		t.Fatalf("gofish cannot parse our ComputerSystem: %v\nbody: %s", err, raw)
-	}
-	if gsys.MemorySummary.TotalSystemMemoryGiB == nil {
-		t.Fatal("gofish read no TotalSystemMemoryGiB")
-	}
-	if got := *gsys.MemorySummary.TotalSystemMemoryGiB; got != 16 {
-		t.Errorf("TotalSystemMemoryGiB round-trip = %v, want 16", got)
-	}
-	if gsys.MemorySummary.MemoryMirroring != schemas.NoneMemoryMirroring {
-		t.Errorf("MemoryMirroring = %q, want None", gsys.MemorySummary.MemoryMirroring)
 	}
 }
 

@@ -1,0 +1,459 @@
+package redfish
+
+// hostreports.go serves the resources the managed host's firmware owns:
+// BootOptions, Memory, Drives, Bios attributes and SecureBoot. The host is a
+// Redfish client on the USB host interface (DSP0270) and PUSHES this
+// inventory up to the BMC; operators only read it. Writes are therefore
+// gated on hostWritable — except PATCH /Bios/Settings, which is the
+// operator's staging surface and uses normal authentication.
+//
+// Every response body here is written with an exact "application/json"
+// content type (EDK2's Redfish client rejects "; charset=utf-8") and carries
+// an @odata.etag: EDK2 round-trips ETags as If-Match, and a service without
+// them makes that protection vacuous.
+
+import (
+	"encoding/json"
+	"fmt"
+	"maps"
+	"net/http"
+	"slices"
+
+	"github.com/gin-gonic/gin"
+)
+
+// --- host-owned collection storage -------------------------------------------
+
+// hostCollectionKind selects one of the host-owned collections under the
+// state lock. The selector runs with host.mu held.
+type hostCollectionKind func(*hostState) map[string]map[string]any
+
+var (
+	bootOptionsOf = func(h *hostState) map[string]map[string]any { return h.BootOptions }
+	memoryOf      = func(h *hostState) map[string]map[string]any { return h.Memory }
+	drivesOf      = func(h *hostState) map[string]map[string]any { return h.Drives }
+)
+
+// hostCollectionIDs returns the member ids in stable (sorted) order.
+func hostCollectionIDs(kind hostCollectionKind) []string {
+	host.mu.RLock()
+	defer host.mu.RUnlock()
+	return slices.Sorted(maps.Keys(kind(host)))
+}
+
+// hostCollectionGet returns a copy of one member.
+func hostCollectionGet(kind hostCollectionKind, id string) (map[string]any, bool) {
+	host.mu.RLock()
+	defer host.mu.RUnlock()
+	m, ok := kind(host)[id]
+	if !ok {
+		return nil, false
+	}
+	return copyAnyMap(m), true
+}
+
+// hostCollectionPut stores (replaces) one member and schedules a debounced
+// save — a booting host re-POSTs its whole inventory in a burst.
+func hostCollectionPut(kind hostCollectionKind, id string, body map[string]any) {
+	host.mu.Lock()
+	kind(host)[id] = body
+	host.mu.Unlock()
+	hostStateSave()
+}
+
+// hostCollectionMerge applies a shallow PATCH to one member.
+func hostCollectionMerge(kind hostCollectionKind, id string, patch map[string]any) map[string]any {
+	host.mu.Lock()
+	m, ok := kind(host)[id]
+	if !ok {
+		host.mu.Unlock()
+		return nil
+	}
+	for k, v := range patch {
+		m[k] = v
+	}
+	merged := copyAnyMap(m)
+	host.mu.Unlock()
+	hostStateSave()
+	return merged
+}
+
+func hostCollectionDelete(kind hostCollectionKind, id string) bool {
+	host.mu.Lock()
+	_, ok := kind(host)[id]
+	if ok {
+		delete(kind(host), id)
+	}
+	host.mu.Unlock()
+	if ok {
+		hostStateSave()
+	}
+	return ok
+}
+
+// --- BIOS / SecureBoot state -------------------------------------------------
+
+func hostBiosAttributes() map[string]any {
+	host.mu.RLock()
+	defer host.mu.RUnlock()
+	return copyAnyMap(host.BiosAttributes)
+}
+
+// setHostBiosAttributes replaces (not merges) the live attribute set: the
+// host reports the complete set it booted with, so a stale key must vanish.
+func setHostBiosAttributes(attrs map[string]any) {
+	host.mu.Lock()
+	host.BiosAttributes = attrs
+	host.mu.Unlock()
+	hostStateSave()
+}
+
+func hostBiosPending() map[string]any {
+	host.mu.RLock()
+	defer host.mu.RUnlock()
+	return copyAnyMap(host.BiosPending)
+}
+
+// setHostBiosPending replaces the staged set and persists immediately: it is
+// an operator instruction the host has not read yet. Replacement (not merge)
+// is what lets the host clear the stage by PATCHing an empty set after it
+// has applied the settings.
+func setHostBiosPending(attrs map[string]any) {
+	host.mu.Lock()
+	host.BiosPending = attrs
+	host.mu.Unlock()
+	hostStateFlush()
+}
+
+func hostBiosRegistry() map[string]any {
+	host.mu.RLock()
+	defer host.mu.RUnlock()
+	if host.BiosRegistry == nil {
+		return nil
+	}
+	return copyAnyMap(host.BiosRegistry)
+}
+
+func setHostBiosRegistry(reg map[string]any) {
+	host.mu.Lock()
+	host.BiosRegistry = reg
+	host.mu.Unlock()
+	hostStateSave()
+}
+
+func hostSecureBoot() map[string]any {
+	host.mu.RLock()
+	defer host.mu.RUnlock()
+	return copyAnyMap(host.SecureBoot)
+}
+
+func mergeHostSecureBoot(patch map[string]any) map[string]any {
+	host.mu.Lock()
+	for k, v := range patch {
+		host.SecureBoot[k] = v
+	}
+	merged := copyAnyMap(host.SecureBoot)
+	host.mu.Unlock()
+	hostStateSave()
+	return merged
+}
+
+// --- response plumbing -------------------------------------------------------
+
+// writeHostJSON writes a body with an exact "application/json" content type.
+// c.JSON would append "; charset=utf-8", which EDK2's Redfish client rejects.
+func writeHostJSON(c *gin.Context, status int, body any) {
+	data, err := json.Marshal(body)
+	if err != nil {
+		redfishErrorResponse(c, http.StatusInternalServerError, "encode response: "+err.Error())
+		return
+	}
+	c.Data(status, "application/json", data)
+}
+
+// writeHostResource writes a resource with its ETag (header + @odata.etag)
+// and honours If-None-Match with a 304.
+func writeHostResource(c *gin.Context, body map[string]any) {
+	etag := hostETag(body)
+	if etag != "" {
+		c.Header("ETag", etag)
+		if inm := c.GetHeader("If-None-Match"); inm != "" && hostETagMatches(inm, etag) {
+			c.Status(http.StatusNotModified)
+			return
+		}
+		body["@odata.etag"] = etag
+	}
+	writeHostJSON(c, http.StatusOK, body)
+}
+
+// hostView converts a typed resource into the generic map form
+// writeHostResource decorates. The marshal round-trip keeps a single wire
+// format regardless of whether a handler builds structs or raw maps.
+func hostView(v any) map[string]any {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return map[string]any{}
+	}
+	m := map[string]any{}
+	if err := json.Unmarshal(data, &m); err != nil {
+		return map[string]any{}
+	}
+	return m
+}
+
+// renderHostMember decorates a stored raw report with the OData preamble the
+// URL implies. Id and @odata.id are forced to match the URL so a report that
+// carried its own cannot detach the resource from where it is served;
+// everything else the host sent is passed through untouched.
+func renderHostMember(stored map[string]any, path, id, odataType, ctxFragment, name string) map[string]any {
+	m := copyAnyMap(stored)
+	m["@odata.id"] = path
+	m["Id"] = id
+	if _, ok := m[odataTypeKey]; !ok {
+		m[odataTypeKey] = odataType
+	}
+	if _, ok := m["@odata.context"]; !ok {
+		m["@odata.context"] = context(ctxFragment)
+	}
+	if _, ok := m["Name"]; !ok {
+		m["Name"] = name
+	}
+	return m
+}
+
+// bindHostBody decodes a host report. Reports are stored raw, so the only
+// requirement is that the body is a JSON object.
+func bindHostBody(c *gin.Context) (map[string]any, bool) {
+	var body map[string]any
+	if err := c.ShouldBindJSON(&body); err != nil {
+		redfishErrorResponse(c, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return nil, false
+	}
+	if body == nil {
+		body = map[string]any{}
+	}
+	return body, true
+}
+
+// hostMemberID picks the member key for a POSTed report: the first non-empty
+// preferred field, else a generated one that does not collide.
+func hostMemberID(kind hostCollectionKind, body map[string]any, prefix string, preferred ...string) string {
+	for _, field := range preferred {
+		if v, ok := body[field].(string); ok && v != "" {
+			return v
+		}
+	}
+	existing := hostCollectionIDs(kind)
+	for i := 0; ; i++ {
+		id := fmt.Sprintf("%s%d", prefix, i)
+		if !slices.Contains(existing, id) {
+			return id
+		}
+	}
+}
+
+// --- BootOptions -------------------------------------------------------------
+//
+// One member per Boot#### variable the host's boot manager enumerates. The
+// host re-POSTs the set whenever its BDS re-enumerates; an operator reads
+// them to give BootOrder references meaning.
+
+func (s *Service) GetBootOptionCollection(c *gin.Context) {
+	ids := hostCollectionIDs(bootOptionsOf)
+	links := make([]Link, 0, len(ids))
+	for _, id := range ids {
+		links = append(links, Link(bootOptionsPath+"/"+id))
+	}
+	writeHostResource(c, hostView(newCollection(
+		"BootOptionCollection", "Boot Option Collection", bootOptionsPath, links...)))
+}
+
+func (s *Service) PostBootOption(c *gin.Context) {
+	if !hostWritable(c) {
+		return
+	}
+	body, ok := bindHostBody(c)
+	if !ok {
+		return
+	}
+	id := hostMemberID(bootOptionsOf, body, "BootOption", "BootOptionReference", "Id")
+	hostCollectionPut(bootOptionsOf, id, body)
+
+	path := bootOptionsPath + "/" + id
+	c.Header("Location", path)
+	writeHostJSON(c, http.StatusCreated,
+		renderHostMember(body, path, id, "#BootOption.v1_0_4.BootOption", "BootOption.BootOption", id))
+}
+
+func (s *Service) GetBootOption(c *gin.Context) {
+	id := c.Param("option")
+	stored, ok := hostCollectionGet(bootOptionsOf, id)
+	if !ok {
+		redfishErrorResponse(c, http.StatusNotFound, "boot option not found: "+id)
+		return
+	}
+	writeHostResource(c, renderHostMember(stored, bootOptionsPath+"/"+id, id,
+		"#BootOption.v1_0_4.BootOption", "BootOption.BootOption", id))
+}
+
+func (s *Service) PatchBootOption(c *gin.Context) {
+	if !hostWritable(c) {
+		return
+	}
+	id := c.Param("option")
+	current, ok := hostCollectionGet(bootOptionsOf, id)
+	if !ok {
+		redfishErrorResponse(c, http.StatusNotFound, "boot option not found: "+id)
+		return
+	}
+	if !hostCheckIfMatch(c, renderHostMember(current, bootOptionsPath+"/"+id, id,
+		"#BootOption.v1_0_4.BootOption", "BootOption.BootOption", id)) {
+		return
+	}
+	patch, ok := bindHostBody(c)
+	if !ok {
+		return
+	}
+	merged := hostCollectionMerge(bootOptionsOf, id, patch)
+	writeHostResource(c, renderHostMember(merged, bootOptionsPath+"/"+id, id,
+		"#BootOption.v1_0_4.BootOption", "BootOption.BootOption", id))
+}
+
+func (s *Service) DeleteBootOption(c *gin.Context) {
+	if !hostWritable(c) {
+		return
+	}
+	id := c.Param("option")
+	current, ok := hostCollectionGet(bootOptionsOf, id)
+	if !ok {
+		redfishErrorResponse(c, http.StatusNotFound, "boot option not found: "+id)
+		return
+	}
+	if !hostCheckIfMatch(c, renderHostMember(current, bootOptionsPath+"/"+id, id,
+		"#BootOption.v1_0_4.BootOption", "BootOption.BootOption", id)) {
+		return
+	}
+	hostCollectionDelete(bootOptionsOf, id)
+	c.Status(http.StatusNoContent)
+}
+
+// --- Memory ------------------------------------------------------------------
+
+func (s *Service) PostMemoryModule(c *gin.Context) {
+	if !hostWritable(c) {
+		return
+	}
+	body, ok := bindHostBody(c)
+	if !ok {
+		return
+	}
+	id := hostMemberID(memoryOf, body, "DIMM", "Id")
+	hostCollectionPut(memoryOf, id, body)
+
+	path := memoryPath + "/" + id
+	c.Header("Location", path)
+	writeHostJSON(c, http.StatusCreated,
+		renderHostMember(body, path, id, "#Memory.v1_16_0.Memory", "Memory.Memory", "Memory Module"))
+}
+
+func (s *Service) PatchMemoryModule(c *gin.Context) {
+	if !hostWritable(c) {
+		return
+	}
+	id := c.Param("module")
+	current, ok := hostCollectionGet(memoryOf, id)
+	if !ok {
+		redfishErrorResponse(c, http.StatusNotFound, "memory module not found: "+id)
+		return
+	}
+	if !hostCheckIfMatch(c, renderHostMember(current, memoryPath+"/"+id, id,
+		"#Memory.v1_16_0.Memory", "Memory.Memory", "Memory Module")) {
+		return
+	}
+	patch, ok := bindHostBody(c)
+	if !ok {
+		return
+	}
+	merged := hostCollectionMerge(memoryOf, id, patch)
+	writeHostResource(c, renderHostMember(merged, memoryPath+"/"+id, id,
+		"#Memory.v1_16_0.Memory", "Memory.Memory", "Memory Module"))
+}
+
+// --- Drives (host storage subsystem "1") -------------------------------------
+
+func (s *Service) PostHostDrive(c *gin.Context) {
+	if !hostWritable(c) {
+		return
+	}
+	if c.Param("storage") != storageID {
+		redfishErrorResponse(c, http.StatusNotFound, "storage subsystem not found")
+		return
+	}
+	body, ok := bindHostBody(c)
+	if !ok {
+		return
+	}
+	id := hostMemberID(drivesOf, body, "Drive", "Id")
+	hostCollectionPut(drivesOf, id, body)
+
+	path := drivesPath + "/" + id
+	c.Header("Location", path)
+	writeHostJSON(c, http.StatusCreated,
+		renderHostMember(body, path, id, "#Drive.v1_17_0.Drive", "Drive.Drive", id))
+}
+
+func (s *Service) PatchHostDrive(c *gin.Context) {
+	if !hostWritable(c) {
+		return
+	}
+	if c.Param("storage") != storageID {
+		redfishErrorResponse(c, http.StatusNotFound, "storage subsystem not found")
+		return
+	}
+	id := c.Param("drive")
+	current, ok := hostCollectionGet(drivesOf, id)
+	if !ok {
+		redfishErrorResponse(c, http.StatusNotFound, "drive not found: "+id)
+		return
+	}
+	if !hostCheckIfMatch(c, renderHostMember(current, drivesPath+"/"+id, id,
+		"#Drive.v1_17_0.Drive", "Drive.Drive", id)) {
+		return
+	}
+	patch, ok := bindHostBody(c)
+	if !ok {
+		return
+	}
+	merged := hostCollectionMerge(drivesOf, id, patch)
+	writeHostResource(c, renderHostMember(merged, drivesPath+"/"+id, id,
+		"#Drive.v1_17_0.Drive", "Drive.Drive", id))
+}
+
+// --- SecureBoot --------------------------------------------------------------
+
+func secureBootResource() map[string]any {
+	m := renderHostMember(hostSecureBoot(), secureBootPath, "SecureBoot",
+		"#SecureBoot.v1_1_0.SecureBoot", "SecureBoot.SecureBoot", "UEFI Secure Boot")
+	return m
+}
+
+func (s *Service) GetSecureBoot(c *gin.Context) {
+	writeHostResource(c, secureBootResource())
+}
+
+// PatchSecureBoot is host-writable: the host's firmware owns the secure-boot
+// state and reports transitions (current boot mode, enrolled state) here.
+func (s *Service) PatchSecureBoot(c *gin.Context) {
+	if !hostWritable(c) {
+		return
+	}
+	if !hostCheckIfMatch(c, secureBootResource()) {
+		return
+	}
+	patch, ok := bindHostBody(c)
+	if !ok {
+		return
+	}
+	mergeHostSecureBoot(patch)
+	writeHostResource(c, secureBootResource())
+}

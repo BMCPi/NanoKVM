@@ -7,10 +7,14 @@ info:
     This is the Redfish (DMTF DSP0266) surface the NanoKVM BMC exposes for
     out-of-band management of a managed Raspberry Pi 5.
 
-    The schemas here describe the **subset** of standard Redfish this BMC
-    implements, plus the BMC-specific BIOS layer that maps RPi 5 bootloader
-    EEPROM configuration (the `bootconf.txt` `[all]` section) onto Redfish
-    `Bios.Attributes`.
+    The BMC follows the Redfish Host Interface (DSP0270) model: the host's
+    firmware is itself a Redfish client on the USB network link (usb0,
+    link-local). Operators stage a boot override and pending BIOS settings
+    in BMC state; the host firmware reads them over that link and applies
+    them itself at boot. In the other direction the host PUSHES its
+    inventory up — identity, boot options, memory, drives, BIOS attributes,
+    secure-boot state — and the BMC serves back exactly what was reported.
+    The BMC never touches host storage.
 
     For the full Redfish data-model reference, see
     https://redfish.dmtf.org/schemas/v1/ — every `@odata.type` returned by
@@ -27,6 +31,12 @@ info:
     All other endpoints require either:
       - an `X-Auth-Token` header carrying a session token, or
       - the JWT cookie issued by the web UI's `/api/auth/login` flow.
+
+    Requests arriving over the USB host interface are accepted without
+    credentials, as DSP0270 permits: network isolation guarantees only the
+    managed host can use that link. Writes to host-owned resources
+    (BootOptions, Memory, Drives, live Bios attributes, SecureBoot, system
+    identity) are accepted **only** from the host interface.
 
     Tinkerbell / `bmclib` callers should create a session at
     `/redfish/v1/SessionService/Sessions` and re-use the returned token.
@@ -47,11 +57,11 @@ tags:
   - name: Systems
     description: Managed-server power + boot.
   - name: Bios
-    description: RPi 5 bootloader EEPROM configuration as Redfish Attributes.
+    description: Host-reported firmware attributes plus operator-staged pending settings.
   - name: Managers
     description: BMC itself + serial interfaces + virtual media.
   - name: UpdateService
-    description: Firmware update (U-Boot BIOS).
+    description: Host boot-image delivery over the USB gadget.
 
 security:
   - XAuthToken: []
@@ -206,7 +216,14 @@ paths:
               schema: { $ref: "#/components/schemas/ComputerSystem" }
     patch:
       tags: [Systems]
-      summary: Change boot override (sets U-Boot env on the FAT).
+      summary: |
+        Stage a boot override, or (host interface only) report identity.
+        The override is staged in BMC state; the host firmware reads and
+        applies it itself at its next boot. The host also PATCHes its
+        identity (BiosVersion, Manufacturer, Model, SerialNumber, UUID)
+        and BootProgress.LastState here — those fields are rejected from
+        anywhere but the host interface. The response is always the full
+        ComputerSystem, so the host reads the staged override out of it.
       requestBody:
         required: true
         content:
@@ -223,6 +240,16 @@ paths:
                     BootSourceOverrideEnabled:
                       type: string
                       enum: [Disabled, Once, Continuous]
+                BiosVersion: { type: string, description: Host report only. }
+                Manufacturer: { type: string, description: Host report only. }
+                Model: { type: string, description: Host report only. }
+                SerialNumber: { type: string, description: Host report only. }
+                UUID: { type: string, description: Host report only. }
+                BootProgress:
+                  type: object
+                  description: Host report only.
+                  properties:
+                    LastState: { type: string, example: OSRunning }
               example:
                 Boot:
                   BootSourceOverrideTarget: Pxe
@@ -234,6 +261,11 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ComputerSystem" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "403":
+          description: Host-owned fields written from outside the host interface.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RedfishError" }
 
   /redfish/v1/Systems/1/Actions/ComputerSystem.Reset:
     post:
@@ -262,67 +294,118 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "500": { $ref: "#/components/responses/ServerError" }
 
-  # ----------------------------------------------------------------- Bios
+  # ------------------------------------------------- Host-reported inventory
+  #
+  # The host firmware owns these resources and writes them over the USB host
+  # interface; operators read. Every GET carries an ETag (header and
+  # @odata.etag) and honours If-None-Match; writes honour If-Match.
 
-  /redfish/v1/Systems/1/TrustedComponents:
+  /redfish/v1/Systems/1/BootOptions:
     get:
       tags: [Systems]
       summary: |
-        Platform roots of trust. Contains one member, the rpi-eeprom
-        bootloader, linked from `ComputerSystem.Links.TrustedComponents`.
+        Boot options — one member per Boot#### variable the host's boot
+        manager enumerated. Empty until the host first reports.
       responses:
-        "200":
-          description: TrustedComponent collection.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Collection" }
-
-  /redfish/v1/Systems/1/TrustedComponents/Bootloader:
-    get:
+        "200": { $ref: "#/components/responses/Collection" }
+    post:
       tags: [Systems]
       summary: |
-        The RPi 5 bootloader (rpi-eeprom) as an Integrated root of trust.
-        `Links.ActiveSoftwareImage` points at its running firmware.
+        (Host interface only) Report one boot option. Keyed by the body's
+        BootOptionReference (falling back to Id, else a generated id); the
+        raw body is stored and served back.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                BootOptionReference: { type: string, example: Boot0001 }
+                DisplayName: { type: string, example: "UEFI PXEv4" }
+                BootOptionEnabled: { type: boolean }
       responses:
-        "200":
-          description: TrustedComponent resource.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/TrustedComponent" }
+        "201": { description: Stored; Location names the member. }
+        "403": { description: Not the host interface. }
 
-  /redfish/v1/Systems/1/TrustedComponents/Bootloader/SoftwareImages/Active:
+  /redfish/v1/Systems/1/BootOptions/{option}:
     get:
       tags: [Systems]
-      summary: |
-        The running bootloader firmware. `Version` is the rpi-eeprom git
-        hash and `ReleaseDate` the EEPROM flash time, both from the UEFI
-        variables U-Boot publishes over I2C.
+      summary: One reported boot option, exactly as the host sent it.
+      parameters:
+        - { name: option, in: path, required: true, schema: { type: string } }
       responses:
-        "200":
-          description: SoftwareInventory resource.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SoftwareInventory" }
+        "200": { description: BootOption resource. }
+        "404": { description: No such boot option. }
+    patch:
+      tags: [Systems]
+      summary: (Host interface only) Merge changes into a reported boot option.
+      parameters:
+        - { name: option, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Updated BootOption resource. }
+        "403": { description: Not the host interface. }
+        "404": { description: No such boot option. }
+        "412": { description: If-Match did not match. }
+    delete:
+      tags: [Systems]
+      summary: (Host interface only) Remove a boot option the host retired.
+      parameters:
+        - { name: option, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Removed. }
+        "403": { description: Not the host interface. }
+        "404": { description: No such boot option. }
+
+  /redfish/v1/Systems/1/SecureBoot:
+    get:
+      tags: [Systems]
+      summary: UEFI secure-boot state, as last reported by the host firmware.
+      responses:
+        "200": { description: SecureBoot resource. }
+    patch:
+      tags: [Systems]
+      summary: (Host interface only) Report secure-boot state transitions.
+      responses:
+        "200": { description: Updated SecureBoot resource. }
+        "403": { description: Not the host interface. }
+        "412": { description: If-Match did not match. }
 
   /redfish/v1/Systems/1/Memory:
     get:
       tags: [Systems]
       summary: |
-        Memory module collection — one member per installed module from the
-        host's SMBIOS type-17 tables (empty until the host first boots).
+        Memory module collection — one member per module the host firmware
+        reported (empty until the host first boots).
       responses:
-        "200": { description: MemoryCollection resource. }
+        "200": { $ref: "#/components/responses/Collection" }
+    post:
+      tags: [Systems]
+      summary: |
+        (Host interface only) Report one memory module. Keyed by the body's
+        Id (else a generated DIMMn); the raw body is stored and served back.
+      responses:
+        "201": { description: Stored; Location names the member. }
+        "403": { description: Not the host interface. }
   /redfish/v1/Systems/1/Memory/{module}:
     get:
       tags: [Systems]
-      summary: |
-        One memory module: capacity, device type, speed, part/serial
-        numbers and the array's ECC mode.
+      summary: One reported memory module, exactly as the host sent it.
       parameters:
         - { name: module, in: path, required: true, schema: { type: string } }
       responses:
         "200": { description: Memory resource. }
         "404": { description: No such module. }
+    patch:
+      tags: [Systems]
+      summary: (Host interface only) Merge changes into a reported module.
+      parameters:
+        - { name: module, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Updated Memory resource. }
+        "403": { description: Not the host interface. }
+        "404": { description: No such module. }
+        "412": { description: If-Match did not match. }
   /redfish/v1/Systems/1/Processors:
     get:
       tags: [Systems]
@@ -333,60 +416,84 @@ paths:
     get:
       tags: [Systems]
       summary: |
-        The host CPU: manufacturer, model, part number, max speed and
-        core/thread counts from SMBIOS type 4 (env fallback pre-first-boot).
+        The host CPU. A minimal static resource: the platform is by design
+        a single-socket aarch64 part, and that is all the BMC claims.
       parameters:
         - { name: processor, in: path, required: true, schema: { type: string } }
       responses:
         "200": { description: Processor resource. }
-        "404": { description: No processor inventory available. }
+        "404": { description: No such processor. }
   /redfish/v1/Systems/1/EthernetInterfaces:
     get:
       tags: [Systems]
-      summary: Host NIC collection (the onboard interface the env describes).
+      summary: |
+        Host NIC collection. Currently empty — the host does not report
+        NICs over the host interface yet — but the link stays resolvable.
       responses:
-        "200": { description: EthernetInterfaceCollection resource. }
+        "200": { $ref: "#/components/responses/Collection" }
   /redfish/v1/Systems/1/EthernetInterfaces/{nic}:
     get:
       tags: [Systems]
-      summary: The host's onboard NIC with its factory MAC address.
+      summary: Reserved; no NIC inventory is available.
       parameters:
         - { name: nic, in: path, required: true, schema: { type: string } }
       responses:
-        "200": { description: EthernetInterface resource. }
         "404": { description: No NIC inventory available. }
   /redfish/v1/Systems/1/Storage:
     get:
       tags: [Systems]
       summary: |
-        Storage collection: subsystem "1" (the BMC's USB mass-storage
-        gadget) and "Host" (the drives the host's U-Boot probed and
-        reported through the shared EEPROM).
+        Storage collection: subsystem "1" (the host's own storage, drives
+        the host firmware reported) and "BMC" (the USB mass-storage
+        gadget's LUNs the BMC presents to it).
       responses:
-        "200": { description: StorageCollection resource. }
+        "200": { $ref: "#/components/responses/Collection" }
   /redfish/v1/Systems/1/Storage/{storage}:
     get:
       tags: [Systems]
       summary: |
-        One subsystem. "1": a Drive per backed gadget LUN (host boot
-        image, plus the virtual-media ISO while inserted). "Host": a Drive
-        per device from the host's boot-time probe (NVMe/SD/USB), readable
-        even while the host is off.
+        One subsystem. "1": a Drive per device the host reported, readable
+        even while the host is off. "BMC": a Drive per backed gadget LUN
+        (host boot image, plus the virtual-media ISO while inserted).
       parameters:
         - { name: storage, in: path, required: true, schema: { type: string } }
       responses:
         "200": { description: Storage resource. }
         "404": { description: No such subsystem. }
+  /redfish/v1/Systems/1/Storage/{storage}/Drives:
+    post:
+      tags: [Systems]
+      summary: |
+        (Host interface only; storage "1") Report one drive. Keyed by the
+        body's Id (else a generated id); the raw body is stored and served
+        back.
+      parameters:
+        - { name: storage, in: path, required: true, schema: { type: string } }
+      responses:
+        "201": { description: Stored; Location names the member. }
+        "403": { description: Not the host interface. }
+        "404": { description: No such subsystem. }
   /redfish/v1/Systems/1/Storage/{storage}/Drives/{drive}:
     get:
       tags: [Systems]
-      summary: One gadget-backed drive with its capacity and backing state.
+      summary: One drive of either subsystem.
       parameters:
         - { name: storage, in: path, required: true, schema: { type: string } }
         - { name: drive, in: path, required: true, schema: { type: string } }
       responses:
         "200": { description: Drive resource. }
         "404": { description: No such drive. }
+    patch:
+      tags: [Systems]
+      summary: (Host interface only; storage "1") Merge changes into a reported drive.
+      parameters:
+        - { name: storage, in: path, required: true, schema: { type: string } }
+        - { name: drive, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Updated Drive resource. }
+        "403": { description: Not the host interface. }
+        "404": { description: No such drive. }
+        "412": { description: If-Match did not match. }
   /redfish/v1/Chassis:
     get:
       tags: [Chassis]
@@ -397,42 +504,56 @@ paths:
     get:
       tags: [Chassis]
       summary: |
-        The host baseboard (SMBIOS type 2): board manufacturer, product and
-        serial, linked to the system it carries and the manager.
+        The host baseboard, linked to the system it carries and the
+        manager. Board identity properties are omitted until a host report
+        carries them.
       responses:
         "200": { description: Chassis resource. }
   /redfish/v1/Systems/1/Bios:
     get:
       tags: [Bios]
       summary: |
-        Live bootloader EEPROM configuration. `Attributes` is the
-        `[all]` section of `bootconf.txt` (RPi 5 bootloader). Conditional
-        sections (`[gpio4=1]`, …) are NOT exposed here — use the raw
-        text endpoint `/api/firmware/eeprom` for those.
+        Firmware attributes as last reported by the managed host.
+        `@Redfish.Settings` points at the SettingsObject used to stage
+        changes for the host's next boot.
       responses:
         "200":
           description: Bios resource.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Bios" }
+    patch:
+      tags: [Bios]
+      summary: |
+        (Host interface only) Report the live attribute set. The submitted
+        Attributes replace the stored set — the host reports the complete
+        set it booted with.
+      responses:
+        "200":
+          description: Bios resource.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Bios" }
+        "403": { description: Not the host interface. }
+        "412": { description: If-Match did not match. }
 
   /redfish/v1/Systems/1/Bios/Settings:
     get:
       tags: [Bios]
-      summary: Pending bootloader changes staged in `pieeprom.upd`.
+      summary: Attributes staged for the host firmware's next boot.
       responses:
         "200":
-          description: Pending Bios resource (empty Attributes when no update is staged).
+          description: Pending Bios resource (empty Attributes when nothing is staged).
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/BiosSettings" }
+              schema: { $ref: "#/components/schemas/Bios" }
     patch:
       tags: [Bios]
       summary: |
-        Stage a bootloader EEPROM change. Replaces the entire `[all]`
-        section with the supplied Attributes; conditional sections in
-        the source `bootconf.txt` are preserved verbatim. The host's
-        `rpi-eeprom-update` flashes the staged image on next boot.
+        Stage attributes for the host's next boot (operator auth). The
+        submitted Attributes replace the staged set; the host firmware
+        reads them over the host interface, applies them at boot, and
+        clears the stage by PATCHing an empty set.
       requestBody:
         required: true
         content:
@@ -442,33 +563,39 @@ paths:
               required: [Attributes]
               properties:
                 Attributes:
-                  $ref: "#/components/schemas/BiosAttributes"
+                  type: object
+                  additionalProperties: true
               example:
                 Attributes:
-                  BOOT_ORDER: "0xf41"
-                  BOOT_UART: 1
-                  POWER_OFF_ON_HALT: 1
+                  BootTimeout: 5
       responses:
         "200":
           description: Pending Bios resource reflecting what was staged.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/BiosSettings" }
+              schema: { $ref: "#/components/schemas/Bios" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "412": { description: If-Match did not match. }
 
   /redfish/v1/Systems/1/Bios/AttributeRegistry:
     get:
       tags: [Bios]
       summary: |
-        Schema for the Bios `Attributes` map — name, type, documented
-        default, help text — for every key applicable to RPi 5.
-        Sourced from raspberrypi/documentation.
+        The attribute registry the host firmware published — the schema of
+        its Attributes map. 404 until the host PUTs one: "no attributes"
+        and "not reported yet" are different answers.
       responses:
-        "200":
-          description: Attribute registry.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/AttributeRegistry" }
+        "200": { description: AttributeRegistry document. }
+        "404": { description: The host has not published a registry. }
+    put:
+      tags: [Bios]
+      summary: |
+        (Host interface only) Publish the attribute registry. PUT, not
+        PATCH — the registry is a single document the host replaces
+        wholesale when its firmware changes.
+      responses:
+        "200": { description: Stored registry document. }
+        "403": { description: Not the host interface. }
 
   # --------------------------------------------------------------- Managers
 
@@ -640,7 +767,9 @@ paths:
   /redfish/v1/UpdateService/FirmwareInventory/BIOS:
     get:
       tags: [UpdateService]
-      summary: U-Boot (BIOS) version + update-available flag.
+      summary: |
+        Host boot firmware version, as the host itself reported it
+        ("Unknown" before the first report).
       responses:
         "200":
           description: SoftwareInventory document for the BIOS slot.
@@ -652,18 +781,22 @@ paths:
                   "@odata.type":
                     {
                       type: string,
-                      example: "#SoftwareInventory.v1_10_0.SoftwareInventory",
+                      example: "#SoftwareInventory.v1_8_0.SoftwareInventory",
                     }
                   "@odata.id": { type: string }
                   Id: { type: string, example: BIOS }
                   Name: { type: string }
-                  Version: { type: string, example: "v2026.04-rc4.1" }
+                  Version: { type: string, example: "2026.07" }
                   Updateable: { type: boolean }
 
   /redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate:
     post:
       tags: [UpdateService]
-      summary: Download + install a U-Boot image from a URL.
+      summary: |
+        Download the boot image at ImageURI and present it to the host on
+        the USB gadget. The BMC flashes nothing — the host consumes the
+        image at its own boot. ImageURI is required; there is no implicit
+        "latest".
       requestBody:
         required: true
         content:
@@ -679,18 +812,12 @@ paths:
                   type: string
                   enum: [HTTP, HTTPS]
               example:
-                ImageURI: https://github.com/tinkerbell-community/uboot-raspberrypi/releases/download/v2026.04-rc4.1/uboot-raspberrypi-2026.04-rc4.1.img.xz
+                ImageURI: https://example.com/releases/host-boot-image.img.xz
                 TransferProtocol: HTTPS
       responses:
         "202": { description: Update accepted; runs in background. }
         "400": { $ref: "#/components/responses/BadRequest" }
-
-  /redfish/v1/UpdateService/Actions/UpdateService.StartUpdate:
-    post:
-      tags: [UpdateService]
-      summary: Apply an already-uploaded image (multipart upload precursor).
-      responses:
-        "202": { description: Update accepted; runs in background. }
+        "409": { description: A download is already in progress. }
 
 components:
   securitySchemes:
@@ -794,83 +921,30 @@ components:
         "@odata.type":
           { type: string, example: "#ComputerSystem.v1_13_0.ComputerSystem" }
         "@odata.id": { type: string, example: "/redfish/v1/Systems/1" }
+        "@odata.etag": { type: string }
         Id: { type: string, example: "1" }
         Name: { type: string }
         SystemType: { type: string, example: Physical }
         PowerState: { type: string, enum: ["On", "Off"] }
+        # Identity is whatever the host last reported over the host
+        # interface. Every property is omitted rather than emitted empty.
         Model: { type: string }
         Manufacturer: { type: string }
         SerialNumber: { type: string }
-        # Identity below is read from the SMBIOS tables the host mirrors into
-        # the EEPROM (offset 0x6000), falling back to the U-Boot environment
-        # (0x4000) when the region is blank. Every property is omitted rather
-        # than emitted empty — Redfish enums have no valid empty member.
-        SKU: { type: string, description: SMBIOS type-1 SKU, e.g. "E04171". }
-        SubModel:
-          {
-            type: string,
-            description: SMBIOS type-1 Version — the board revision, e.g. "1.1".,
-          }
-        UUID:
-          {
-            type: string,
-            description: SMBIOS type-1 UUID. Not present in the U-Boot environment.,
-          }
-        BiosVersion:
-          {
-            type: string,
-            description:
-              U-Boot version. This is the standard ComputerSystem property for
-              boot-firmware version; a prior release emitted a non-schema
-              "FirmwareVersion" here instead.,
-          }
-        ProcessorSummary:
+        UUID: { type: string }
+        BiosVersion: { type: string }
+        BootProgress:
           type: object
-          description:
-            Redfish defines no Manufacturer member here — SMBIOS's CPU
-            manufacturer is reported under Oem.NanoKVM instead.
+          description: Host-reported boot phase.
           properties:
-            Model: { type: string }
-            Count: { type: integer }
-            CoreCount: { type: integer }
-            LogicalProcessorCount: { type: integer }
-        Oem:
-          type: object
-          description:
-            Vendor-namespaced values that have no standard ComputerSystem
-            property (DSP0266 §6.4.13).
-          properties:
-            NanoKVM:
-              type: object
-              properties:
-                "@odata.type":
-                  { type: string, example: "#NanoKVM.v1_0_0.ComputerSystem" }
-                InventorySource:
-                  {
-                    type: string,
-                    enum: [SMBIOS, UBootEnv],
-                    description: Which EEPROM region this identity was read from.,
-                  }
-                MACAddress:
-                  {
-                    type: string,
-                    description:
-                      From the env's ethaddr. Redfish models NICs as an
-                      EthernetInterfaces collection, which this service does not
-                      expose.,
-                  }
-                Family: { type: string }
-                BIOSVendor: { type: string }
-                BIOSDate: { type: string }
-                BoardManufacturer: { type: string }
-                BoardProduct: { type: string }
-                BoardSerial: { type: string }
-                ProcessorManufacturer: { type: string }
-                ProcessorPartNumber: { type: string }
-                ProcessorMaxSpeedMHz: { type: integer }
-                SMBIOSVersion: { type: string, example: "3.7.0" }
+            LastState: { type: string, example: OSRunning }
+            LastStateTime: { type: string, format: date-time }
         Boot:
           type: object
+          description: |
+            The staged boot override. BMC state the host firmware reads
+            over the host interface and applies itself at its next boot;
+            BootOptions links the host-reported Boot#### collection.
           properties:
             BootSourceOverrideTarget:
               { type: string, enum: [None, Pxe, Hdd, Cd, BiosSetup, UefiHttp] }
@@ -882,11 +956,9 @@ components:
             "BootSourceOverrideEnabled@Redfish.AllowableValues":
               type: array
               items: { type: string }
-            # Present when the UEFI variable store (I2C EEPROM) is available:
-            # the EFI boot manager BootOrder as Boot#### references.
-            BootOrder:
-              type: array
-              items: { type: string }
+            BootOptions:
+              type: object
+              properties: { "@odata.id": { type: string } }
         Actions:
           type: object
           properties:
@@ -901,57 +973,18 @@ components:
           type: object
           properties:
             "@odata.id": { type: string, example: "/redfish/v1/Systems/1/Bios" }
-        Links:
-          type: object
-          description:
-            Navigation links. TrustedComponents advertises platform roots of
-            trust — here, the rpi-eeprom bootloader.
-          properties:
-            TrustedComponents:
-              type: array
-              items:
-                { type: object, properties: { "@odata.id": { type: string } } }
-
-    TrustedComponent:
-      type: object
-      properties:
-        "@odata.type":
-          { type: string, example: "#TrustedComponent.v1_4_0.TrustedComponent" }
-        "@odata.id":
-          {
-            type: string,
-            example: "/redfish/v1/Systems/1/TrustedComponents/Bootloader",
-          }
-        Id: { type: string, example: Bootloader }
-        Name: { type: string }
-        Description: { type: string }
-        TrustedComponentType:
-          { type: string, enum: [Integrated, Discrete], example: Integrated }
-        Manufacturer: { type: string, example: Raspberry Pi }
-        Model: { type: string }
-        FirmwareVersion:
-          {
-            type: string,
-            description: rpi-eeprom git hash of the running bootloader.,
-          }
-        Status:
+        SecureBoot:
           type: object
           properties:
-            State: { type: string }
-            Health: { type: string }
+            "@odata.id":
+              { type: string, example: "/redfish/v1/Systems/1/SecureBoot" }
         Links:
           type: object
           properties:
-            ActiveSoftwareImage:
-              type: object
-              properties: { "@odata.id": { type: string } }
-            SoftwareImages:
+            Chassis:
               type: array
               items:
                 { type: object, properties: { "@odata.id": { type: string } } }
-            IntegratedInto:
-              type: object
-              properties: { "@odata.id": { type: string } }
 
     SoftwareInventory:
       type: object
@@ -961,27 +994,17 @@ components:
         "@odata.id":
           {
             type: string,
-            example: "/redfish/v1/Systems/1/TrustedComponents/Bootloader/SoftwareImages/Active",
+            example: "/redfish/v1/UpdateService/FirmwareInventory/BIOS",
           }
-        Id: { type: string, example: Active }
+        Id: { type: string, example: BIOS }
         Name: { type: string }
         Description: { type: string }
-        SoftwareId: { type: string, example: rpi-eeprom }
+        SoftwareId: { type: string, example: BIOS }
         Version:
           {
             type: string,
-            description:
-              rpi-eeprom git hash (from the BootloaderVersion UEFI variable).,
+            description: Host-reported boot firmware version.,
           }
-        ReleaseDate:
-          {
-            type: string,
-            format: date-time,
-            description:
-              EEPROM flash time (from the BootloaderUpdateTimestamp UEFI
-              variable).,
-          }
-        VersionScheme: { type: string, example: OEM }
         Updateable: { type: boolean }
         Status:
           type: object
@@ -994,12 +1017,24 @@ components:
       properties:
         "@odata.type": { type: string, example: "#Bios.v1_2_0.Bios" }
         "@odata.id": { type: string, example: "/redfish/v1/Systems/1/Bios" }
+        "@odata.etag": { type: string }
         Id: { type: string, example: Bios }
         Name: { type: string }
         Description: { type: string }
-        BiosVersion: { type: string, description: U-Boot version string. }
-        AttributeRegistry: { type: string, example: RPiBootloader.1 }
-        Attributes: { $ref: "#/components/schemas/BiosAttributes" }
+        BiosVersion:
+          { type: string, description: Host-reported firmware version. }
+        AttributeRegistry:
+          {
+            type: string,
+            description: Present once the host has published a registry.,
+          }
+        Attributes:
+          type: object
+          description: |
+            Flat key→value map. The host firmware owns the vocabulary and
+            publishes its schema at /Systems/1/Bios/AttributeRegistry;
+            the BMC stores and serves the values verbatim.
+          additionalProperties: true
         "@Redfish.Settings":
           type: object
           properties:
@@ -1011,99 +1046,6 @@ components:
             SupportedApplyTimes:
               type: array
               items: { type: string, example: OnReset }
-        Links:
-          type: object
-          properties:
-            ActiveSoftwareImage:
-              type: object
-              properties:
-                "@odata.id": { type: string }
-        Actions:
-          type: object
-
-    BiosSettings:
-      type: object
-      properties:
-        "@odata.type": { type: string, example: "#Bios.v1_2_0.Bios" }
-        "@odata.id":
-          { type: string, example: "/redfish/v1/Systems/1/Bios/Settings" }
-        Id: { type: string, example: Settings }
-        Name: { type: string }
-        Description: { type: string }
-        Attributes: { $ref: "#/components/schemas/BiosAttributes" }
-        Pending:
-          { type: boolean, description: True when a pieeprom.upd is staged. }
-
-    BiosAttributes:
-      type: object
-      description: |
-        Flat key→value map of bootloader EEPROM settings (the `[all]` section
-        of `bootconf.txt`). See `AttributeRegistry` for the full set of keys
-        applicable to RPi 5; below are the common ones.
-      additionalProperties:
-        oneOf:
-          - { type: string }
-          - { type: integer }
-          - { type: boolean }
-      properties:
-        BOOT_ORDER:
-          {
-            type: string,
-            example: "0xf41",
-            description: Boot mode priority; read right-to-left.,
-          }
-        BOOT_UART: { type: integer, enum: [0, 1] }
-        UART_BAUD: { type: integer, example: 115200 }
-        WAKE_ON_GPIO: { type: integer, enum: [0, 1] }
-        POWER_OFF_ON_HALT: { type: integer, enum: [0, 1] }
-        PSU_MAX_CURRENT: { type: integer, enum: [3000, 5000] }
-        NET_INSTALL_ENABLED: { type: integer, enum: [0, 1] }
-        NET_INSTALL_AT_POWER_ON: { type: integer, enum: [0, 1] }
-        DISABLE_HDMI: { type: integer, enum: [0, 1] }
-        HDMI_DELAY: { type: integer }
-        BOOT_WATCHDOG_TIMEOUT: { type: integer }
-        ENABLE_SELF_UPDATE: { type: integer, enum: [0, 1] }
-
-    AttributeRegistry:
-      type: object
-      properties:
-        "@odata.type":
-          {
-            type: string,
-            example: "#AttributeRegistry.v1_3_8.AttributeRegistry",
-          }
-        "@odata.id": { type: string }
-        Id: { type: string, example: RPiBootloader.1 }
-        Name: { type: string }
-        Language: { type: string, example: en }
-        OwningEntity: { type: string, example: raspberrypi.com }
-        RegistryVersion: { type: string }
-        SupportedSystems:
-          type: array
-          items:
-            type: object
-            properties:
-              ProductName: { type: string }
-              SystemId: { type: string }
-              AttributeRegistryVersion: { type: string }
-        RegistryEntries:
-          type: object
-          properties:
-            Attributes:
-              type: array
-              items:
-                type: object
-                properties:
-                  AttributeName: { type: string, example: BOOT_UART }
-                  Type:
-                    {
-                      type: string,
-                      enum: [Boolean, Integer, String, Enumeration, Password],
-                    }
-                  DefaultValue: { type: string, example: "0" }
-                  HelpText: { type: string }
-                  ReadOnly: { type: boolean }
-                  ResetRequired: { type: boolean }
 
     Manager:
       type: object

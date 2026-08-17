@@ -19,8 +19,6 @@ import (
 	"github.com/pi-bmc/nanokvm-app/api/redfish"
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
-	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
-	"github.com/pi-bmc/nanokvm-app/pkg/smbios"
 	"github.com/pi-bmc/nanokvm-app/ui/components"
 )
 
@@ -35,19 +33,13 @@ func overviewFragmentRoutes(g *gin.RouterGroup, d *deps.Deps) {
 	})
 	o.POST("/app/update", postOverviewAppUpdate)
 
-	o.GET("/bios", func(c *gin.Context) {
-		renderFragment(c, components.OverviewBiosBody(overviewBiosModel(d)))
+	o.GET("/firmware", func(c *gin.Context) {
+		renderFragment(c, components.OverviewHostFirmwareBody(overviewFirmwareModel(d)))
 	})
-	o.POST("/bios/update", postOverviewBiosUpdate(d))
-	o.POST("/fw/download", postOverviewFwDownload(d))
-	o.GET("/fw/progress", getOverviewFwProgress(d))
 
-	o.GET("/kernels", func(c *gin.Context) {
-		renderFragment(c, components.OverviewKernelsBody(overviewKernelsModel(d, c.Query("kernel"))))
+	o.GET("/boot-override", func(c *gin.Context) {
+		renderFragment(c, components.OverviewBootOverrideBody(overviewBootOverrideModel(d)))
 	})
-	o.POST("/kernel/download", postOverviewKernelDownload(d))
-	o.POST("/kernel/activate", postOverviewKernelActivate(d))
-
 	o.POST("/boot-override", postOverviewBootOverride(d))
 }
 
@@ -58,7 +50,7 @@ func oemString(sys redfish.ComputerSystem, key string) string {
 	return s
 }
 
-// overviewServerModel maps the merged Redfish inventory onto the Server
+// overviewServerModel maps the Redfish system inventory onto the Server
 // Information card.
 func overviewServerModel(d *deps.Deps) components.OverviewServer {
 	sys := redfish.SystemInventory(d.Firmware, d.Power)
@@ -81,25 +73,11 @@ func overviewServerModel(d *deps.Deps) components.OverviewServer {
 
 	if sys.MemorySummary != nil && sys.MemorySummary.TotalSystemMemoryGiB != nil && *sys.MemorySummary.TotalSystemMemoryGiB > 0 {
 		m.Memory = fmt.Sprintf("%g GiB", *sys.MemorySummary.TotalSystemMemoryGiB)
-		// Module type from SMBIOS, e.g. "8 GiB LPDDR4" — same enrichment the
-		// old loadDeviceDetail did from the Memory collection.
-		if info, err := smbios.GetStore().Load(); err == nil && info != nil && len(info.Memory) > 0 {
-			if t := strings.TrimSuffix(info.Memory[0].Type, "_SDRAM"); t != "" {
-				m.Memory += " " + t
-			}
-		}
 	}
 
-	// The onboard MAC lives in the firmware inventory (U-Boot's ethaddr).
-	if inv, err := d.Firmware.GetInventory(); err == nil {
-		m.MAC = inv["ethaddr"]
-	}
-
-	if oemString(sys, "InventorySource") == "SMBIOS" {
-		m.InventorySource = "SMBIOS tables"
-	} else {
-		m.InventorySource = "U-Boot machine.env"
-	}
+	// Everything the BMC knows about the host is what the host reported
+	// over the host interface.
+	m.InventorySource = "host-reported inventory"
 	return m
 }
 
@@ -116,79 +94,38 @@ func overviewAppUpdateModel() components.OverviewUpdateCheck {
 	}
 }
 
-// overviewBiosModel extends the first-paint model with the boot rows from
-// the Redfish inventory and the U-Boot release check.
-func overviewBiosModel(d *deps.Deps) components.OverviewBios {
-	m := components.OverviewBiosFirstPaint(d.Firmware)
+// stagedBootOverride reads the staged override out of the system inventory's
+// Boot block — the same state PATCH /redfish/v1/Systems/1 writes and the
+// host firmware reads at boot.
+func stagedBootOverride(d *deps.Deps) components.OverviewBootOverride {
 	sys := redfish.SystemInventory(d.Firmware, d.Power)
-
-	m.DeviceTree = oemString(sys, "DeviceTree")
-	m.BootMethods = oemString(sys, "BootMethods")
-
-	target := string(sys.Boot.BootSourceOverrideTarget)
-	enabled := string(sys.Boot.BootSourceOverrideEnabled)
-	overridden := target != "" && target != "None" && enabled != "" && enabled != "Disabled"
-	switch {
-	case len(sys.Boot.BootOrder) > 0:
-		m.BootTargets = strings.Join(sys.Boot.BootOrder, " → ")
-	case overridden:
-		m.BootTargets = target
-	default:
-		m.BootTargets = "default"
+	return components.OverviewBootOverride{
+		Target:  string(sys.Boot.BootSourceOverrideTarget),
+		Enabled: string(sys.Boot.BootSourceOverrideEnabled),
 	}
-	if overridden {
-		m.BootOverride = strings.ToLower(enabled) + ": " + target
-	} else {
-		m.BootOverride = "none"
-	}
-
-	info, err := d.Firmware.GetUBootVersionInfo()
-	current := info.Current
-	if current == "" {
-		current = sys.BiosVersion
-	}
-	m.UBoot = components.OverviewUpdateCheck{
-		Current:         current,
-		Latest:          info.Latest,
-		UpdateAvailable: info.UpdateAvailable,
-		Checked:         err == nil && info.Latest != "",
-	}
-	return m
 }
 
-// overviewKernelsModel resolves the active version with the machine.env
-// fallback the JSON API uses: the activation-tracking file wins, machine.env
-// covers installs that predate it.
-func overviewKernelsModel(d *deps.Deps, selected string) components.OverviewKernels {
-	ctrl := d.Firmware
-	active := ctrl.ActiveUBootVersion()
-	if active == "" {
-		if info, err := ctrl.GetUBootVersionInfo(); err == nil {
-			active = info.Current
-		}
+// overviewFirmwareModel builds the Host Firmware card from the system
+// inventory: host-reported BIOS version and boot progress, plus the staged
+// boot override.
+func overviewFirmwareModel(d *deps.Deps) components.OverviewHostFirmware {
+	sys := redfish.SystemInventory(d.Firmware, d.Power)
+	reported, _ := redfish.HostReported()
+
+	bios := sys.BiosVersion
+	if bios == "" {
+		bios = reported.BiosVersion
 	}
-	if _, ok := firmware.KernelUBootMap[selected]; !ok {
-		selected = ""
+	return components.OverviewHostFirmware{
+		BiosVersion:  bios,
+		BootOverride: stagedBootOverride(d).BootOverrideLabel(),
+		BootProgress: reported.BootProgress,
 	}
-	return components.OverviewKernelsModel(ctrl, selected, active)
 }
 
-// ovFwProgressDone is the terminal polling response: swap the poller out,
-// toast, and refresh every overview card.
-func ovFwProgressDone(c *gin.Context, title string) {
-	hxToast(c, "success", title, "")
-	appendTrigger(c, map[string]any{"fw-changed": nil})
-	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte("<div></div>"))
-}
-
-func getOverviewFwProgress(d *deps.Deps) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if d.Firmware.IsDownloading() {
-			renderFragment(c, components.OvFwPoller())
-			return
-		}
-		ovFwProgressDone(c, "Firmware download complete")
-	}
+// overviewBootOverrideModel feeds the Boot Override card's staging form.
+func overviewBootOverrideModel(d *deps.Deps) components.OverviewBootOverride {
+	return stagedBootOverride(d)
 }
 
 func postOverviewAppUpdate(c *gin.Context) {
@@ -210,93 +147,11 @@ func postOverviewAppUpdate(c *gin.Context) {
 	}()
 }
 
-func postOverviewBiosUpdate(d *deps.Deps) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		ctrl := d.Firmware
-		if ctrl.IsDownloading() {
-			hxToast(c, "warning", "Download already in progress", "")
-			c.Status(http.StatusConflict)
-			return
-		}
-
-		// DELIBERATELY DETACHED: the download runs past the request.
-		go func() {
-			if err := ctrl.UpdateUBoot(); err != nil {
-				log.Errorf("ui: u-boot update failed: %v", err)
-			}
-		}()
-
-		hxToast(c, "info", "U-Boot update started", "Env files are preserved.")
-		renderFragment(c, components.OvFwPoller())
-	}
-}
-
-func postOverviewFwDownload(d *deps.Deps) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		ctrl := d.Firmware
-		if ctrl.IsDownloading() {
-			hxToast(c, "warning", "Download already in progress", "")
-			c.Status(http.StatusConflict)
-			return
-		}
-
-		// DELIBERATELY DETACHED: the download runs past the request.
-		go func() {
-			if err := ctrl.DownloadAndInit(); err != nil {
-				log.Errorf("ui: firmware download failed: %v", err)
-			}
-		}()
-
-		hxToast(c, "info", "Firmware download started", "")
-		renderFragment(c, components.OvFwPoller())
-	}
-}
-
-func postOverviewKernelDownload(d *deps.Deps) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		kernel := c.PostForm("kernel")
-		force := c.PostForm("force") == "true"
-
-		reactivating, err := d.Firmware.StartKernelDownload(kernel, force)
-		if err != nil {
-			hxToast(c, "error", "Download not started", err.Error())
-			c.Status(http.StatusConflict)
-			return
-		}
-
-		if reactivating {
-			hxToast(c, "info", "Re-downloading "+kernel, "The active image is replaced when the download completes.")
-		} else {
-			hxToast(c, "info", "Downloading U-Boot for Linux "+kernel, "")
-		}
-		renderFragment(c, components.OvFwPoller())
-	}
-}
-
-func postOverviewKernelActivate(d *deps.Deps) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		kernel := c.PostForm("kernel")
-		ubootVer, ok := firmware.KernelUBootMap[kernel]
-		if !ok {
-			hxToast(c, "error", "Activation failed", fmt.Sprintf("unknown kernel version %q", kernel))
-			c.Status(http.StatusBadRequest)
-			return
-		}
-		if err := d.Firmware.ActivateVersionedImage(ubootVer); err != nil {
-			hxToast(c, "error", "Activation failed", err.Error())
-			c.Status(http.StatusConflict)
-			return
-		}
-
-		hxToast(c, "success", "U-Boot for Linux "+kernel+" activated", "Env files preserved.")
-		appendTrigger(c, map[string]any{"fw-changed": nil})
-		c.Status(http.StatusOK)
-	}
-}
-
 // postOverviewBootOverride serves both boot-override forms (the overview
-// card and the power menu): mode selects once/continuous, and "clear" or a
-// None target clears the override.
+// card and the power menu). The clicked submit button supplies mode:
+// "once" / "continuous" stage the selected target with that persistence,
+// "clear" disables the override regardless of the select. The override is
+// BMC state only — the host firmware reads and applies it at its next boot.
 func postOverviewBootOverride(d *deps.Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		target := c.PostForm("boot-override")
@@ -304,10 +159,16 @@ func postOverviewBootOverride(d *deps.Deps) gin.HandlerFunc {
 
 		enabled := schemas.OnceBootSourceOverrideEnabled
 		switch mode {
+		case "once", "":
+			// Once is the Redfish default when persistence is unspecified.
 		case "continuous":
 			enabled = schemas.ContinuousBootSourceOverrideEnabled
 		case "clear":
 			target, enabled = "None", schemas.DisabledBootSourceOverrideEnabled
+		default:
+			hxToast(c, "error", "Boot override failed", fmt.Sprintf("unknown mode %q", mode))
+			c.Status(http.StatusBadRequest)
+			return
 		}
 
 		if err := redfish.ApplyBootOverride(schemas.BootSource(target), enabled, d.Firmware); err != nil {
@@ -317,9 +178,14 @@ func postOverviewBootOverride(d *deps.Deps) gin.HandlerFunc {
 		}
 
 		if target == "" || target == "None" {
-			hxToast(c, "success", "Boot override cleared", "")
+			hxToast(c, "success", "Boot override cleared", "The host boots from its normal boot order next time.")
 		} else {
-			hxToast(c, "success", "Boot override set", target+" ("+mode+")")
+			persistence := "once"
+			if enabled == schemas.ContinuousBootSourceOverrideEnabled {
+				persistence = "persistent"
+			}
+			hxToast(c, "success", "Boot override staged",
+				target+" ("+persistence+") — the host firmware picks it up at its next boot.")
 		}
 		appendTrigger(c, map[string]any{"fw-changed": nil})
 		c.Status(http.StatusOK)

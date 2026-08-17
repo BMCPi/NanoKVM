@@ -3,8 +3,50 @@ package ipmi
 import (
 	log "github.com/sirupsen/logrus"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
+	"github.com/pi-bmc/nanokvm-app/api/redfish"
 )
+
+// IPMI boot device selector byte values (bits 5:2 of boot flags byte 2,
+// per IPMI 2.0 Table 28-14), mapped straight onto the Redfish
+// BootSourceOverrideTarget the host firmware consumes.
+const (
+	ipmiBootDevNone        byte = 0x00 // no override
+	ipmiBootDevPXE         byte = 0x04 // force PXE
+	ipmiBootDevDisk        byte = 0x08 // force default hard disk
+	ipmiBootDevCDROM       byte = 0x14 // force CD/DVD (virtual media)
+	ipmiBootDevBIOS        byte = 0x18 // force BIOS/UEFI setup
+	ipmiBootDevHTTP        byte = 0x20 // force boot from remote media (UEFI HTTP)
+	ipmiBootDevPrimaryDisk byte = 0x24 // force primary hard disk
+)
+
+// ipmiDeviceToTarget maps the selector onto a Redfish target string.
+var ipmiDeviceToTarget = map[byte]string{
+	ipmiBootDevNone:        "None",
+	ipmiBootDevPXE:         "Pxe",
+	ipmiBootDevDisk:        "Hdd",
+	ipmiBootDevCDROM:       "Cd",
+	ipmiBootDevBIOS:        "BiosSetup",
+	ipmiBootDevHTTP:        "UefiHttp",
+	ipmiBootDevPrimaryDisk: "Hdd",
+}
+
+// targetToIPMIDevice maps a Redfish target back onto the selector.
+func targetToIPMIDevice(target string) (byte, bool) {
+	switch target {
+	case "Pxe":
+		return ipmiBootDevPXE, true
+	case "Hdd":
+		return ipmiBootDevDisk, true
+	case "Cd":
+		return ipmiBootDevCDROM, true
+	case "BiosSetup":
+		return ipmiBootDevBIOS, true
+	case "UefiHttp":
+		return ipmiBootDevHTTP, true
+	default:
+		return ipmiBootDevNone, false
+	}
+}
 
 // handleGetDeviceID returns BMC device identification per IPMI Table 20-2.
 func handleGetDeviceID() []byte {
@@ -107,7 +149,8 @@ func (sm *sessionManager) handleChassisControl(cmdData []byte) []byte {
 	return []byte{ccOK}
 }
 
-// handleSetSystemBootOptions stores boot device override in firmware env.
+// handleSetSystemBootOptions stages the boot override in the BMC's Redfish
+// state; the host's firmware reads and applies it over the host interface.
 func (sm *sessionManager) handleSetSystemBootOptions(cmdData []byte) []byte {
 	if len(cmdData) < 1 {
 		return []byte{ccInvalidParam}
@@ -131,33 +174,17 @@ func (sm *sessionManager) handleSetSystemBootOptions(cmdData []byte) []byte {
 
 		log.Debugf("IPMI: set boot device=0x%02x valid=%v persistent=%v", device, valid, persistent)
 
-		// Persist to firmware env if available.
-		fwCtrl := sm.firmware
-		ubootTargets, ok := firmware.IPMIDeviceToUBoot[device]
-		if !ok {
-			ubootTargets = ""
+		target, known := ipmiDeviceToTarget[device]
+		if !valid || !known || target == "None" {
+			redfish.SetBootOverride("None", "Disabled")
+			return []byte{ccOK}
 		}
 
-		if valid {
-			var err error
-			if persistent {
-				err = fwCtrl.SetBootTarget(ubootTargets)
-			} else {
-				err = fwCtrl.SetBootTargetOnce(ubootTargets)
-			}
-			if err != nil {
-				log.Warnf("IPMI: firmware env write failed: %v", err)
-			}
-		} else {
-			// Clear both override files.
-			if err := fwCtrl.SetBootTarget(""); err != nil {
-				log.Warnf("IPMI: firmware env clear (persistent) failed: %v", err)
-			}
-			if err := fwCtrl.SetBootTargetOnce(""); err != nil {
-				log.Warnf("IPMI: firmware env clear (once) failed: %v", err)
-			}
+		enabled := "Once"
+		if persistent {
+			enabled = "Continuous"
 		}
-
+		redfish.SetBootOverride(target, enabled)
 		return []byte{ccOK}
 
 	default:
@@ -165,7 +192,8 @@ func (sm *sessionManager) handleSetSystemBootOptions(cmdData []byte) []byte {
 	}
 }
 
-// handleGetSystemBootOptions returns the stored boot device override.
+// handleGetSystemBootOptions reads the staged boot override back out of the
+// Redfish state.
 func (sm *sessionManager) handleGetSystemBootOptions(cmdData []byte) []byte {
 	if len(cmdData) < 1 {
 		return []byte{ccInvalidParam}
@@ -175,27 +203,12 @@ func (sm *sessionManager) handleGetSystemBootOptions(cmdData []byte) []byte {
 
 	switch paramSelector {
 	case bootParamBootFlags:
-		// Read from firmware env — prefer persistent, fall back to once.
-		fwCtrl := sm.firmware
-		var dev byte
-		var valid bool
-		var persistent bool
-
-		if ubootTargets, err := fwCtrl.GetBootTarget(); err == nil && ubootTargets != "" {
-			if d, ok := firmware.UBootToIPMIDevice[ubootTargets]; ok {
-				dev = d
-				valid = true
-				persistent = true
-			}
-		}
+		override := redfish.BootOverride()
+		dev, known := targetToIPMIDevice(override.Target)
+		valid := known && override.Enabled != "Disabled" && override.Enabled != ""
+		persistent := valid && override.Enabled == "Continuous"
 		if !valid {
-			if ubootTargets, err := fwCtrl.GetOnceBootTarget(); err == nil && ubootTargets != "" {
-				if d, ok := firmware.UBootToIPMIDevice[ubootTargets]; ok {
-					dev = d
-					valid = true
-					persistent = false
-				}
-			}
+			dev = ipmiBootDevNone
 		}
 
 		resp := make([]byte, 8)

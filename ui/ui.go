@@ -109,11 +109,6 @@ func pageRoutes(r *gin.Engine, d *deps.Deps) {
 	// for tooling discovery; the rendered docs page is behind auth so
 	// it shares the dashboard chrome.
 	protected.GET("/docs", apiDocsHandler())
-
-	// Server-rendered fragments fetched by page scripts. CheckToken (not
-	// RequireAuth) so an expired session yields a clean 401 for fetch()
-	// instead of a redirect into login-page HTML.
-	r.POST("/ui/eeprom/preview", middleware.CheckToken(), eepromPreviewHandler())
 }
 
 // homeModel builds the dashboard's server-rendered state, so the page paints

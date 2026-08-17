@@ -106,7 +106,11 @@ type ComputerSystem struct {
 	ProcessorSummary *ProcessorSummary `json:"ProcessorSummary,omitempty"`
 	MemorySummary    *MemorySummary    `json:"MemorySummary,omitempty"`
 	Boot             Boot              `json:"Boot"`
-	Bios             *Link             `json:"Bios,omitempty"`
+	// BootProgress carries the host's last reported boot phase (DSP2046
+	// §6.15.4) — the host PATCHes BootProgress.LastState as it advances.
+	BootProgress *BootProgress `json:"BootProgress,omitempty"`
+	Bios         *Link         `json:"Bios,omitempty"`
+	SecureBoot   *Link         `json:"SecureBoot,omitempty"`
 	// Sub-resource collections (see memory.go, processors.go, storage.go,
 	// ethernet_interfaces.go) — the standard homes for the per-device
 	// inventory that predates them under Oem.NanoKVM.
@@ -119,14 +123,18 @@ type ComputerSystem struct {
 	Oem                Oem            `json:"Oem,omitempty"`
 }
 
-// SystemLinks carries ComputerSystem navigation links. TrustedComponents is
-// the standard place to advertise platform roots of trust; on the RPi 5 the
-// rpi-eeprom bootloader is one, exposed with its firmware as a nested
-// SoftwareInventory (see trusted_components.go). Chassis binds the system to
-// the baseboard resource (chassis.go).
+// SystemLinks carries ComputerSystem navigation links. Chassis binds the
+// system to the baseboard resource (chassis.go).
 type SystemLinks struct {
-	TrustedComponents Links `json:"TrustedComponents,omitempty"`
-	Chassis           Links `json:"Chassis,omitempty"`
+	Chassis Links `json:"Chassis,omitempty"`
+}
+
+// BootProgress is the host-reported boot phase. LastState is one of the
+// DSP2046 BootProgressTypes (or an OEM string); LastStateTime is when the
+// host last reported.
+type BootProgress struct {
+	LastState     string `json:"LastState,omitempty"`
+	LastStateTime string `json:"LastStateTime,omitempty"`
 }
 
 // ProcessorSummary mirrors the Redfish property set. Note there is no
@@ -150,11 +158,14 @@ type MemorySummary struct {
 	Status               *Status                 `json:"Status,omitempty"`
 }
 
-// Boot is the ComputerSystem boot settings block.
+// Boot is the ComputerSystem boot settings block. The override values are
+// BMC state the host firmware reads over the host interface and applies
+// itself at boot; BootOptions links the host-reported Boot#### collection.
 type Boot struct {
 	BootSourceOverrideTarget  schemas.BootSource                `json:"BootSourceOverrideTarget"`
 	BootSourceOverrideEnabled schemas.BootSourceOverrideEnabled `json:"BootSourceOverrideEnabled"`
 	BootSourceOverrideMode    schemas.BootSourceOverrideMode    `json:"BootSourceOverrideMode,omitempty"`
+	BootOptions               *Link                             `json:"BootOptions,omitempty"`
 	BootOrder                 []string                          `json:"BootOrder,omitempty"`
 
 	AllowableTargets []schemas.BootSource                `json:"BootSourceOverrideTarget@Redfish.AllowableValues,omitempty"`
@@ -255,7 +266,6 @@ type UpdateService struct {
 
 type UpdateServiceActions struct {
 	SimpleUpdate SimpleUpdateAction `json:"#UpdateService.SimpleUpdate"`
-	StartUpdate  ActionTarget       `json:"#UpdateService.StartUpdate"`
 }
 
 type ActionTarget struct {
@@ -285,50 +295,20 @@ type SoftwareInventory struct {
 }
 
 // ---------------------------------------------------------------------------
-// TrustedComponent
-
-// TrustedComponent models a platform root of trust and links to the firmware
-// running on it. The rpi-eeprom bootloader is the RPi 5 RoT: it is the
-// first-stage, secure-boot-capable loader integrated into the SoC's SPI flash.
-type TrustedComponent struct {
-	Resource
-	TrustedComponentType schemas.TrustedComponentType `json:"TrustedComponentType,omitempty"`
-	Manufacturer         string                       `json:"Manufacturer,omitempty"`
-	Model                string                       `json:"Model,omitempty"`
-	FirmwareVersion      string                       `json:"FirmwareVersion,omitempty"`
-	SerialNumber         string                       `json:"SerialNumber,omitempty"`
-	Status               *Status                      `json:"Status,omitempty"`
-	Links                *TrustedComponentLinks       `json:"Links,omitempty"`
-	Oem                  Oem                          `json:"Oem,omitempty"`
-}
-
-// TrustedComponentLinks references the component's firmware images and the
-// resource it is integrated into (the ComputerSystem).
-type TrustedComponentLinks struct {
-	ActiveSoftwareImage *Link `json:"ActiveSoftwareImage,omitempty"`
-	SoftwareImages      Links `json:"SoftwareImages,omitempty"`
-	IntegratedInto      *Link `json:"IntegratedInto,omitempty"`
-}
-
-// ---------------------------------------------------------------------------
 // Bios
 
+// Bios carries host-reported attributes (or the operator-staged pending set
+// on the SettingsObject). Attributes are raw host values, so the map is
+// deliberately untyped.
 type Bios struct {
 	Resource
-	AttributeRegistry string            `json:"AttributeRegistry,omitempty"`
-	BiosVersion       string            `json:"BiosVersion,omitempty"`
-	Attributes        map[string]string `json:"Attributes"`
+	AttributeRegistry string         `json:"AttributeRegistry,omitempty"`
+	BiosVersion       string         `json:"BiosVersion,omitempty"`
+	Attributes        map[string]any `json:"Attributes"`
 
 	Settings *SettingsAnnotation `json:"@Redfish.Settings,omitempty"`
 
-	// Pending is not a Redfish property; it predates this migration and is
-	// kept because the local UI reads it. Conformant clients ignore it.
-	Pending *bool `json:"Pending,omitempty"`
-
-	Actions      map[string]ActionTarget `json:"Actions,omitempty"`
-	Links        Oem                     `json:"Links,omitempty"`
-	Oem          Oem                     `json:"Oem,omitempty"`
-	ExtendedInfo []MessageInfo           `json:"@Message.ExtendedInfo,omitempty"`
+	ExtendedInfo []MessageInfo `json:"@Message.ExtendedInfo,omitempty"`
 }
 
 // SettingsAnnotation is the DSP2046 @Redfish.Settings block pointing clients

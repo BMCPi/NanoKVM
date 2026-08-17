@@ -3,6 +3,7 @@ package redfish
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
@@ -20,7 +21,10 @@ func (s *Service) GetSystemCollection(c *gin.Context) {
 }
 
 func (s *Service) GetSystem(c *gin.Context) {
-	c.JSON(http.StatusOK, buildSystemResource(s.Firmware, s.Power))
+	// The host firmware polls this resource for its boot override, so it is
+	// served with the host-interface conventions: exact application/json
+	// content type and an ETag it can round-trip.
+	writeHostResource(c, hostView(buildSystemResource(s.Power)))
 }
 
 func (s *Service) ResetSystem(c *gin.Context) {
@@ -64,87 +68,139 @@ func (s *Service) ResetSystem(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// systemPatchRequest is the writable ComputerSystem surface. Boot is the
+// operator's override staging; the identity/progress fields are host reports
+// (pointer-typed so "absent" and "empty" stay distinguishable) and are
+// accepted only over the host interface.
+type systemPatchRequest struct {
+	Boot *struct {
+		BootSourceOverrideTarget  schemas.BootSource                `json:"BootSourceOverrideTarget"`
+		BootSourceOverrideEnabled schemas.BootSourceOverrideEnabled `json:"BootSourceOverrideEnabled"`
+		// Mode is accepted but ignored — the host firmware path is
+		// UEFI-only, so there is no toggle to honour. buildSystemResource
+		// echoes it back so PATCH responses stay consistent.
+		BootSourceOverrideMode schemas.BootSourceOverrideMode `json:"BootSourceOverrideMode"`
+	} `json:"Boot"`
+
+	BiosVersion  *string `json:"BiosVersion"`
+	Manufacturer *string `json:"Manufacturer"`
+	Model        *string `json:"Model"`
+	SerialNumber *string `json:"SerialNumber"`
+	UUID         *string `json:"UUID"`
+	BootProgress *struct {
+		LastState *string `json:"LastState"`
+	} `json:"BootProgress"`
+}
+
+// hasHostReport reports whether the PATCH carries host-owned fields.
+func (r *systemPatchRequest) hasHostReport() bool {
+	return r.BiosVersion != nil || r.Manufacturer != nil || r.Model != nil ||
+		r.SerialNumber != nil || r.UUID != nil ||
+		(r.BootProgress != nil && r.BootProgress.LastState != nil)
+}
+
+// PatchSystem handles both write directions on the ComputerSystem: an
+// operator staging a boot override, and the host firmware reporting its
+// identity and boot progress. The full system resource is returned — the
+// host reads the staged override out of the PATCH response.
 func (s *Service) PatchSystem(c *gin.Context) {
-	var req struct {
-		Boot struct {
-			BootSourceOverrideTarget  schemas.BootSource                `json:"BootSourceOverrideTarget"`
-			BootSourceOverrideEnabled schemas.BootSourceOverrideEnabled `json:"BootSourceOverrideEnabled"`
-			// Mode is accepted but ignored — the RPi5 firmware path is
-			// UEFI-only, so there is no toggle to honour. buildSystemResource
-			// echoes it back so PATCH responses stay consistent.
-			BootSourceOverrideMode schemas.BootSourceOverrideMode `json:"BootSourceOverrideMode"`
-		} `json:"Boot"`
-	}
+	var req systemPatchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		redfishErrorResponse(c, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	target := req.Boot.BootSourceOverrideTarget
-	enabled := req.Boot.BootSourceOverrideEnabled
+	if req.hasHostReport() {
+		if !hostWritable(c) {
+			return
+		}
+		updateHostReported(func(h *HostReport) {
+			for dst, src := range map[*string]*string{
+				&h.BiosVersion:  req.BiosVersion,
+				&h.Manufacturer: req.Manufacturer,
+				&h.Model:        req.Model,
+				&h.SerialNumber: req.SerialNumber,
+				&h.UUID:         req.UUID,
+			} {
+				if src != nil {
+					*dst = *src
+				}
+			}
+			if req.BootProgress != nil && req.BootProgress.LastState != nil {
+				h.BootProgress = *req.BootProgress.LastState
+			}
+		})
+	}
+
+	if req.Boot != nil {
+		if err := applyBootPatch(req.Boot.BootSourceOverrideTarget,
+			req.Boot.BootSourceOverrideEnabled); err != nil {
+			redfishErrorResponse(c, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
+	writeHostResource(c, hostView(buildSystemResource(s.Power)))
+}
+
+// applyBootPatch validates and stages a boot-override change with the PATCH
+// semantics: empty enabled means Once, and Disabled or a None target clears
+// the override.
+func applyBootPatch(target schemas.BootSource, enabled schemas.BootSourceOverrideEnabled) error {
 	if enabled == "" {
 		enabled = schemas.OnceBootSourceOverrideEnabled // Redfish convention
 	}
+	if !overrideEnabledSupported(enabled) {
+		return fmt.Errorf("invalid BootSourceOverrideEnabled: %s", enabled)
+	}
 
-	// Disabled clears the override regardless of target.
 	if enabled == schemas.DisabledBootSourceOverrideEnabled || target == schemas.NoneBootSource {
-		clearBootOverride(s.Firmware)
-		log.Debugf("redfish boot override cleared")
-		c.JSON(http.StatusOK, buildSystemResource(s.Firmware, s.Power))
-		return
+		clearBootOverride()
+		log.Debug("redfish boot override cleared")
+		return nil
 	}
 
 	if !bootSourceSupported(target) {
-		redfishErrorResponse(c, http.StatusBadRequest,
-			"invalid BootSourceOverrideTarget: "+string(target))
-		return
+		return fmt.Errorf("invalid BootSourceOverrideTarget: %s", target)
 	}
 
-	if err := setBootOverride(target, enabled, s.Firmware); err != nil {
-		log.Warnf("redfish: boot override write failed: %v", err)
-	}
-
-	log.Debugf("redfish boot override: target=%s enabled=%s", target, enabled)
-	c.JSON(http.StatusOK, buildSystemResource(s.Firmware, s.Power))
+	stageBootOverride(target, enabled)
+	log.Debugf("redfish boot override staged: target=%s enabled=%s", target, enabled)
+	return nil
 }
 
-// SystemInventory returns the merged ComputerSystem resource for in-process
+// SystemInventory returns the ComputerSystem resource for in-process
 // consumers — the ui package's overview fragments render the Server
 // Information card from it. Same data GET /redfish/v1/Systems/1 serves.
-// (Precedent: api/vm exports EnableTLS/DisableTLS for the settings fragments.)
-func SystemInventory(fw *firmware.Controller, pw *power.Controller) ComputerSystem {
-	return buildSystemResource(fw, pw)
+// The firmware controller is no longer a data source (identity is
+// host-reported), but the parameter stays so ui call sites keep compiling.
+func SystemInventory(_ *firmware.Controller, pw *power.Controller) ComputerSystem {
+	return buildSystemResource(pw)
 }
 
 // ApplyBootOverride sets or clears the boot-source override for in-process
 // consumers (the ui boot-override fragments), with the same semantics as
-// PATCH /redfish/v1/Systems/1: empty enabled means Once, and Disabled or a
-// None target clears the override.
-func ApplyBootOverride(target schemas.BootSource, enabled schemas.BootSourceOverrideEnabled, fw *firmware.Controller) error {
-	if enabled == "" {
-		enabled = schemas.OnceBootSourceOverrideEnabled
-	}
-	if enabled == schemas.DisabledBootSourceOverrideEnabled || target == schemas.NoneBootSource {
-		clearBootOverride(fw)
-		return nil
-	}
-	if !bootSourceSupported(target) {
-		return fmt.Errorf("invalid BootSourceOverrideTarget: %s", target)
-	}
-	return setBootOverride(target, enabled, fw)
+// PATCH /redfish/v1/Systems/1. The firmware controller parameter is unused
+// but kept so ui call sites keep compiling.
+func ApplyBootOverride(target schemas.BootSource, enabled schemas.BootSourceOverrideEnabled, _ *firmware.Controller) error {
+	return applyBootPatch(target, enabled)
 }
 
-func buildSystemResource(fw *firmware.Controller, pw *power.Controller) ComputerSystem {
+func buildSystemResource(pw *power.Controller) ComputerSystem {
 	powerState := schemas.OffPowerState
 	if on, err := pw.State(); err == nil && on {
 		powerState = schemas.OnPowerState
 	}
 
 	biosLink := Link(biosPath)
+	secureBootLink := Link(secureBootPath)
 	memoryLink := Link(memoryPath)
 	processorsLink := Link(processorsPath)
 	storageLink := Link(storageRootPath)
 	nicsLink := Link(ethernetInterfacesPath)
+
+	reported, _ := HostReported()
+
 	sys := ComputerSystem{
 		Resource: Resource{
 			ODataType:    "#ComputerSystem.v1_13_0.ComputerSystem",
@@ -155,14 +211,20 @@ func buildSystemResource(fw *firmware.Controller, pw *power.Controller) Computer
 		},
 		SystemType: schemas.PhysicalSystemType,
 		PowerState: powerState,
-		Boot:       readBoot(fw),
-		// Bios points the client at the EEPROM configuration surface (see
-		// bios.go). Standard navigation property — clients follow @odata.id
-		// to GET the current bootloader settings.
-		Bios: &biosLink,
-		// Per-device inventory collections. Always linked (JetKVM-style):
-		// clients descend and find whatever the current SMBIOS/env/gadget
-		// state provides, which may be an empty collection pre-first-boot.
+		Boot:       readBoot(),
+		// Identity is whatever the host last reported over the host
+		// interface; omit-when-empty keeps a never-booted host from
+		// advertising blank strings.
+		Manufacturer: reported.Manufacturer,
+		Model:        reported.Model,
+		SerialNumber: reported.SerialNumber,
+		UUID:         reported.UUID,
+		BiosVersion:  reported.BiosVersion,
+		Bios:         &biosLink,
+		SecureBoot:   &secureBootLink,
+		// Host-owned sub-collections. Always linked: clients descend and
+		// find whatever the host has reported, which may be an empty
+		// collection before its first boot.
 		Memory:             &memoryLink,
 		Processors:         &processorsLink,
 		Storage:            &storageLink,
@@ -173,18 +235,19 @@ func buildSystemResource(fw *firmware.Controller, pw *power.Controller) Computer
 				AllowableResetVal: supportedResetTypes,
 			},
 		},
-		// The rpi-eeprom bootloader is exposed as a TrustedComponent (the
-		// platform root of trust); its version/flash-time live on the nested
-		// SoftwareInventory. See trusted_components.go.
 		Links: &SystemLinks{
-			TrustedComponents: Links{Link(bootloaderComponentPath)},
-			Chassis:           Links{Link(chassisItemPath)},
+			Chassis: Links{Link(chassisItemPath)},
 		},
 	}
 
-	// Environment first, SMBIOS overlaid on top — see inventory.go.
-	applyEnvInventory(fw, &sys)
-	applySMBIOSInventory(&sys)
+	if reported.BootProgress != "" {
+		sys.BootProgress = &BootProgress{
+			LastState: reported.BootProgress,
+			// The host reports progress as it happens, so the report time is
+			// the state-change time for all practical purposes.
+			LastStateTime: reported.ReportedAt.UTC().Format(time.RFC3339),
+		}
+	}
 
 	return sys
 }

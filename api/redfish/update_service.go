@@ -1,9 +1,13 @@
 package redfish
 
-// update_service.go implements a minimal Redfish UpdateService surface
-// for the U-Boot firmware: FirmwareInventory listing the current/latest
-// versions, plus a SimpleUpdate action that triggers an in-place
-// download from the pi-bmc/firmware-images GitHub releases.
+// update_service.go implements a minimal Redfish UpdateService: a
+// FirmwareInventory whose BIOS entry reports the version the host itself
+// reported, plus a SimpleUpdate action that downloads a host boot image
+// from a caller-supplied URL and presents it on the USB gadget. The BMC
+// does not flash anything — the image is transport, consumed by the host.
+//
+// StartUpdate is gone deliberately: its "no parameters, fetch latest"
+// semantics regressed hosts to stale images by design.
 
 import (
 	"net/http"
@@ -11,8 +15,6 @@ import (
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
 	"github.com/stmcginnis/gofish/schemas"
-
-	"github.com/pi-bmc/nanokvm-app/pkg/smbios"
 )
 
 // GetUpdateService returns the UpdateService root.
@@ -32,7 +34,6 @@ func (s *Service) GetUpdateService(c *gin.Context) {
 				Target:                    simpleUpdatePath,
 				AllowableTransferProtocol: []string{"HTTPS"},
 			},
-			StartUpdate: ActionTarget{Target: startUpdatePath},
 		},
 	})
 }
@@ -45,63 +46,46 @@ func (s *Service) GetFirmwareInventoryCollection(c *gin.Context) {
 	))
 }
 
-// GetFirmwareInventoryUBoot returns the U-Boot firmware inventory entry
-// (exposed under the "BIOS" id since U-Boot serves the BIOS role here).
-func (s *Service) GetFirmwareInventoryUBoot(c *gin.Context) {
-	ctrl := s.Firmware
-	info, err := ctrl.GetUBootVersionInfo()
-	current := info.Current
-	if current == "" {
-		current = "Unknown"
+// GetFirmwareInventoryBIOS returns the host boot firmware inventory entry.
+// The version is whatever the host last reported about itself — the BMC has
+// no other window into what the host is actually running.
+func (s *Service) GetFirmwareInventoryBIOS(c *gin.Context) {
+	reported, _ := HostReported()
+	version := reported.BiosVersion
+	if version == "" {
+		version = "Unknown"
 	}
 
-	description := "U-Boot bootloader firmware"
-	if err != nil {
-		description += " (latest-version lookup failed: " + err.Error() + ")"
-	}
-
-	resp := SoftwareInventory{
+	c.JSON(http.StatusOK, SoftwareInventory{
 		Resource: Resource{
 			ODataType:    "#SoftwareInventory.v1_8_0.SoftwareInventory",
 			ODataID:      firmwareBIOSPath,
 			ODataContext: context("SoftwareInventory.SoftwareInventory"),
 			ID:           "BIOS",
-			Name:         "BIOS (U-Boot)",
-			Description:  description,
+			Name:         "BIOS",
+			Description:  "Host boot firmware version, as reported by the host",
 		},
-		SoftwareID: "U-Boot",
-		Version:    current,
+		SoftwareID: "BIOS",
+		Version:    version,
 		Updateable: true,
 		Status:     &Status{State: schemas.EnabledState, Health: schemas.OKHealth},
-	}
-	// SMBIOS type 0 carries the firmware vendor and build date — the
-	// standard SoftwareInventory members for what used to sit under
-	// Oem.NanoKVM as BIOSVendor/BIOSDate on the ComputerSystem.
-	if info2, err := smbios.GetStore().Load(); err == nil && info2 != nil {
-		resp.Manufacturer = info2.BIOSVendor
-		resp.ReleaseDate = info2.BIOSDate
-	}
-	if info.Latest != "" {
-		resp.Oem = Oem{
-			"BMCPi": map[string]any{
-				"LatestVersion":   info.Latest,
-				"UpdateAvailable": info.UpdateAvailable,
-				"AssetURL":        info.AssetURL,
-			},
-		}
-	}
-	c.JSON(http.StatusOK, resp)
+	})
 }
 
-// SimpleUpdate triggers a u-boot update from a provided ImageURI (or the
-// latest GitHub release if omitted).
+// SimpleUpdate downloads the image at ImageURI and presents it to the host
+// on the USB gadget. ImageURI is required: there is no implicit "latest".
 func (s *Service) SimpleUpdate(c *gin.Context) {
 	var req struct {
 		ImageURI         string   `json:"ImageURI"`
 		TransferProtocol string   `json:"TransferProtocol"`
 		Targets          []string `json:"Targets"`
 	}
-	_ = c.ShouldBindJSON(&req) // all fields optional
+	_ = c.ShouldBindJSON(&req) // remaining fields optional
+
+	if req.ImageURI == "" {
+		redfishErrorResponse(c, http.StatusBadRequest, "ImageURI is required")
+		return
+	}
 
 	ctrl := s.Firmware
 	if ctrl.IsDownloading() {
@@ -110,42 +94,15 @@ func (s *Service) SimpleUpdate(c *gin.Context) {
 	}
 
 	go func(url string) {
-		var err error
-		if url != "" {
-			err = ctrl.UpdateUBootFromURL(url)
-		} else {
-			err = ctrl.UpdateUBoot()
-		}
-		if err != nil {
-			log.Errorf("redfish: u-boot update failed: %v", err)
+		if err := ctrl.UpdateHostImageFromURL(url); err != nil {
+			log.Errorf("redfish: host image update failed: %v", err)
 		}
 	}(req.ImageURI)
 
 	c.JSON(http.StatusAccepted, Message{
 		ODataType: "#Message.v1_1_0.Message",
 		MessageID: "Update.1.0.UpdateInProgress",
-		Message:   "U-Boot update started",
-		Severity:  "OK",
-	})
-}
-
-// StartUpdate is an alias for SimpleUpdate with no parameters: always
-// fetches the latest release from GitHub.
-func (s *Service) StartUpdate(c *gin.Context) {
-	ctrl := s.Firmware
-	if ctrl.IsDownloading() {
-		redfishErrorResponse(c, http.StatusConflict, "update already in progress")
-		return
-	}
-	go func() {
-		if err := ctrl.UpdateUBoot(); err != nil {
-			log.Errorf("redfish: u-boot update failed: %v", err)
-		}
-	}()
-	c.JSON(http.StatusAccepted, Message{
-		ODataType: "#Message.v1_1_0.Message",
-		MessageID: "Update.1.0.UpdateInProgress",
-		Message:   "U-Boot update started",
+		Message:   "Host image update started",
 		Severity:  "OK",
 	})
 }

@@ -3,14 +3,12 @@ package components
 import (
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
-	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/sysinfo"
 	"github.com/pi-bmc/nanokvm-app/ui/components/badge"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/card"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
 	selectcomp "github.com/pi-bmc/nanokvm-app/ui/components/select"
-	"github.com/pi-bmc/nanokvm-app/ui/components/spinner"
 )
 
 // overviewSidebarID is the ID of the slide-in panel.
@@ -57,9 +55,8 @@ templ OverviewSidebar() {
 			<div class="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 py-3 space-y-4">
 				@overviewServerCard()
 				@overviewBmcCard()
-				@overviewBiosCard()
+				@overviewHostFirmwareCard()
 				@overviewBootOverrideCard()
-				@overviewKernelCard()
 			</div>
 		</div>
 	</aside>
@@ -102,8 +99,8 @@ templ overviewSidebarStyles() {
 }
 
 // overviewServerCard is the server identity card. The body is a fragment:
-// the inventory merge reads SMBIOS + the U-Boot env, so it loads after
-// first paint exactly like the old fetch did.
+// the inventory merge reads what the host last reported over Redfish, so it
+// loads after first paint exactly like the old fetch did.
 templ overviewServerCard() {
 	@card.Card() {
 		@card.Header() {
@@ -132,10 +129,9 @@ templ OverviewServerBody(m OverviewServer) {
 		@ovRow("Memory", m.Memory)
 		@ovRow("Serial", m.Serial)
 		@ovRow("Revision", m.Revision)
-		@ovRow("Board MAC", m.MAC)
 	}
-	// The service merges SMBIOS over the U-Boot env and reports which won
-	// in Oem.NanoKVM.InventorySource, so the footer names the actual source.
+	// The service reports the winning inventory source in
+	// Oem.NanoKVM.InventorySource, so the footer names the actual source.
 	@card.Footer(card.FooterProps{Class: "pt-2 text-xs text-muted-foreground"}) {
 		// templ trims text nodes, so spacing around the injected span and
 		// the link comes from margin utilities.
@@ -220,118 +216,48 @@ templ OverviewAppUpdateBody(m OverviewUpdateCheck) {
 	}
 }
 
-// overviewBiosCard shows U-Boot identity + firmware state. First paint
-// carries the cheap firmware-cache status; the fragment fills in the boot
-// rows and the release check.
-templ overviewBiosCard() {
+// overviewHostFirmwareCard shows what the host firmware last reported over
+// the Redfish host interface, plus the boot override currently staged for
+// it. Pure display — the controls live in the Boot Override card below.
+templ overviewHostFirmwareCard() {
 	@card.Card() {
 		@card.Header() {
 			@card.Title(card.TitleProps{Class: "text-sm"}) {
-				BIOS Information
+				Host Firmware
 			}
 			@card.Description(card.DescriptionProps{Class: "text-xs"}) {
-				U-Boot identity and boot-method discovery.
+				Firmware state reported by the managed host.
 			}
 		}
-		<div class="contents" hx-get="/ui/overview/bios" hx-trigger="load, fw-changed from:body">
-			@OverviewBiosBody(OverviewBiosFirstPaint(deps.FromContext(ctx).Firmware))
+		<div class="contents" hx-get="/ui/overview/firmware" hx-trigger="load, fw-changed from:body">
+			@OverviewHostFirmwareBody(OverviewHostFirmware{})
 		</div>
 	}
 }
 
-// OverviewBiosBody renders the BIOS card content + footer from the model.
-templ OverviewBiosBody(m OverviewBios) {
+// OverviewHostFirmwareBody renders the host-firmware rows from the model.
+// Boot Progress is host-reported and only present once the host firmware has
+// checked in over the host interface, so the row is omitted while empty
+// rather than showing a placeholder that suggests missing data.
+templ OverviewHostFirmwareBody(m OverviewHostFirmware) {
 	@card.Content(card.ContentProps{Class: "py-0 pb-2"}) {
-		@ovRow("Firmware", m.FirmwareStatus)
-		<div class="ov-row">
-			<span class="ov-label">U-Boot</span>
-			<span class="ov-value flex items-center gap-1.5 justify-end">
-				<span>
-					if v := versionDisplay(m.UBoot.Current); v != "" {
-						{ v }
-					} else {
-						—
-					}
-				</span>
-				if m.UBoot.Checked && m.UBoot.UpdateAvailable {
-					@button.Button(button.Props{
-						Variant: button.VariantOutline,
-						Size:    button.SizeSm,
-						Class:   "h-6 px-2 text-xs",
-						Attributes: templ.Attributes{
-							"hx-post":            "/ui/overview/bios/update",
-							"hx-target":          "#ov-fw-progress",
-							"hx-swap":            "innerHTML",
-							"hx-disabled-elt":    "this",
-							"hx-confirm":         "Downloads the latest U-Boot image. Env files (machine.env, persistent.env, once.env) are preserved.",
-							"data-confirm-title": "Update the BIOS (U-Boot)?",
-							"data-confirm-label": "Update",
-						},
-					}) {
-						Update → { versionDisplay(m.UBoot.Latest) }
-					}
-				} else if m.UBoot.Checked && m.UBoot.Current != "" {
-					@badge.Badge(badge.Props{
-						Variant: badge.VariantSecondary,
-						Class:   "bg-green-500/15 text-green-500",
-					}) {
-						Latest
-					}
-				}
-			</span>
-		</div>
-		@ovRow("Device Tree", m.DeviceTree)
-		@ovRow("Boot Targets", m.BootTargets)
+		@ovRow("BIOS Version", m.BiosVersion)
 		@ovRow("Boot Override", m.BootOverride)
-		@ovRow("Boot Methods", m.BootMethods)
-	}
-	@card.Footer(card.FooterProps{Class: "pt-2 flex flex-col gap-2 w-full"}) {
-		if m.DownloadNeeded {
-			<div class="w-full flex items-center justify-between">
-				<span class="text-xs text-muted-foreground">Firmware image not cached</span>
-				@button.Button(button.Props{
-					Variant: button.VariantOutline,
-					Size:    button.SizeSm,
-					Attributes: templ.Attributes{
-						"hx-post":         "/ui/overview/fw/download",
-						"hx-target":       "#ov-fw-progress",
-						"hx-swap":         "innerHTML",
-						"hx-disabled-elt": "this",
-					},
-				}) {
-					Download
-				}
-			</div>
+		if m.BootProgress != "" {
+			@ovRow("Boot Progress", m.BootProgress)
 		}
-		<div id="ov-fw-progress">
-			if m.Downloading {
-				@OvFwPoller()
-			}
-		</div>
-		<div class="flex items-center justify-between w-full">
-			<span class="text-xs text-muted-foreground">RPi 5 bootloader EEPROM</span>
-			@EEPROMDialogTrigger()
-		</div>
+	}
+	@card.Footer(card.FooterProps{Class: "pt-2 text-xs text-muted-foreground"}) {
+		Reported by the host firmware via
+		<a href="/redfish/v1/Systems/1" target="_blank" rel="noopener noreferrer" class="ml-1 underline underline-offset-4 hover:text-foreground">Redfish</a>.
 	}
 }
 
-// OvFwPoller polls the shared firmware download flag every few seconds and
-// swaps itself out at the terminal state (the progress handler answers with
-// nothing and raises the toast + fw-changed refresh).
-templ OvFwPoller() {
-	<div
-		class="flex items-center gap-2 text-xs text-muted-foreground"
-		hx-get="/ui/overview/fw/progress"
-		hx-trigger="every 3s"
-		hx-swap="outerHTML"
-	>
-		@spinner.Spinner(spinner.Props{Class: "size-3.5"})
-		Downloading image…
-	</div>
-}
-
-// overviewBootOverrideCard wraps the Redfish boot override controls: one
-// form, submitted by whichever mode button is clicked.
+// overviewBootOverrideCard stages a Redfish boot override on the BMC: the
+// host's firmware reads the staged target over the host interface and
+// applies it at its next boot. One form, submitted by whichever mode button
+// is clicked; the body is a fragment so the select and the staged-state row
+// track the live BMC state.
 templ overviewBootOverrideCard() {
 	@card.Card() {
 		@card.Header() {
@@ -339,45 +265,67 @@ templ overviewBootOverrideCard() {
 				Boot Override
 			}
 			@card.Description(card.DescriptionProps{Class: "text-xs"}) {
-				Override the next boot source via Redfish.
+				Staged on the BMC; the host firmware applies it at its next boot.
 			}
 		}
-		<form class="contents" hx-post="/ui/overview/boot-override" hx-swap="none">
-			@card.Content(card.ContentProps{Class: "py-2"}) {
-				@bootOverrideSelect()
-			}
-			@card.Footer(card.FooterProps{Class: "pt-2 flex items-center gap-2 flex-wrap"}) {
-				@button.Button(button.Props{
-					Variant:    button.VariantOutline,
-					Size:       button.SizeSm,
-					Type:       button.TypeSubmit,
-					Attributes: templ.Attributes{"name": "mode", "value": "once"},
-				}) {
-					Once
-				}
-				@button.Button(button.Props{
-					Variant:    button.VariantOutline,
-					Size:       button.SizeSm,
-					Type:       button.TypeSubmit,
-					Attributes: templ.Attributes{"name": "mode", "value": "continuous"},
-				}) {
-					Persistent
-				}
-			}
-		</form>
+		<div class="contents" hx-get="/ui/overview/boot-override" hx-trigger="load, fw-changed from:body">
+			@OverviewBootOverrideBody(OverviewBootOverride{})
+		</div>
 	}
+}
+
+// OverviewBootOverrideBody renders the staging form + the currently staged
+// state. The zero model renders with the page (select on None, staged row
+// placeholder); the fragment fills in the live state.
+templ OverviewBootOverrideBody(m OverviewBootOverride) {
+	<form class="contents" hx-post="/ui/overview/boot-override" hx-swap="none">
+		@card.Content(card.ContentProps{Class: "py-2 space-y-1.5"}) {
+			@bootOverrideSelect(m.SelectValue())
+			<div class="ov-row">
+				<span class="ov-label">Staged</span>
+				<span class="ov-value">{ m.StagedLabel() }</span>
+			</div>
+		}
+		@card.Footer(card.FooterProps{Class: "pt-2 flex items-center gap-2 flex-wrap"}) {
+			@button.Button(button.Props{
+				Variant:    button.VariantOutline,
+				Size:       button.SizeSm,
+				Type:       button.TypeSubmit,
+				Attributes: templ.Attributes{"name": "mode", "value": "once"},
+			}) {
+				Apply once
+			}
+			@button.Button(button.Props{
+				Variant:    button.VariantOutline,
+				Size:       button.SizeSm,
+				Type:       button.TypeSubmit,
+				Attributes: templ.Attributes{"name": "mode", "value": "continuous"},
+			}) {
+				Apply persistent
+			}
+			@button.Button(button.Props{
+				Variant:    button.VariantGhost,
+				Size:       button.SizeSm,
+				Type:       button.TypeSubmit,
+				Attributes: templ.Attributes{"name": "mode", "value": "clear"},
+			}) {
+				Clear
+			}
+		}
+	</form>
 }
 
 // bootOverrideSelect backs the Boot Override form; the hidden input carries
 // name=boot-override. The explicit ID keeps the portaled popup's
-// aria-controls stable across fragment re-renders.
-templ bootOverrideSelect() {
-	@selectcomp.Select(selectcomp.Props{ID: "boot-override-select", Name: "boot-override", Value: "None"}) {
+// aria-controls stable across fragment re-renders. The target list mirrors
+// the power menu's (see bootDeviceSelect in power_menu.templ).
+templ bootOverrideSelect(value string) {
+	@selectcomp.Select(selectcomp.Props{ID: "boot-override-select", Name: "boot-override", Value: value}) {
 		@selectcomp.Trigger(selectcomp.TriggerProps{Class: "w-full"}) {
 			@selectcomp.Value(selectcomp.ValueProps{Placeholder: "None (default)"})
 		}
 		@selectcomp.Content() {
-			// Select Props.Value "None" already marks this item selected.
+			// Select Props.Value marks the matching item selected.
 			@selectcomp.Item(selectcomp.ItemProps{Value: "None"}) {
 				None (default)
 			}
@@ -397,119 +345,6 @@ templ bootOverrideSelect() {
 				UEFI HTTP Boot
 			}
 		}
-	}
-}
-
-// overviewKernelCard wraps the kernel-version selector + per-kernel actions.
-// Selection is server state: the select's change bubbles to the wrapper,
-// which re-fetches the body with ?kernel=… and renders that row's actions.
-templ overviewKernelCard() {
-	@card.Card() {
-		@card.Header() {
-			@card.Title(card.TitleProps{Class: "text-sm"}) {
-				Kernel Version
-			}
-			@card.Description(card.DescriptionProps{Class: "text-xs"}) {
-				Cached U-Boot images by supported Linux kernel version.
-			}
-		}
-		<div
-			class="contents"
-			hx-get="/ui/overview/kernels"
-			hx-trigger="change, fw-changed from:body"
-			hx-include="find input[name='kernel']"
-		>
-			@OverviewKernelsBody(OverviewKernelsFirstPaint(deps.FromContext(ctx).Firmware))
-		</div>
-	}
-}
-
-// OverviewKernelsBody renders the selector plus the selected kernel's
-// actions. The explicit select ID keeps the portaled popup bound across
-// re-renders (see bootOverrideSelect).
-templ OverviewKernelsBody(m OverviewKernels) {
-	@card.Content(card.ContentProps{Class: "py-2 space-y-1.5"}) {
-		@selectcomp.Select(selectcomp.Props{ID: "kernel-select", Name: "kernel", Value: m.Selected}) {
-			@selectcomp.Trigger(selectcomp.TriggerProps{Class: "w-full"}) {
-				@selectcomp.Value(selectcomp.ValueProps{Placeholder: "Select kernel version…"})
-			}
-			@selectcomp.Content() {
-				for _, k := range m.Kernels {
-					@selectcomp.Item(selectcomp.ItemProps{Value: k.Kernel}) {
-						Linux { k.Kernel } → U-Boot { k.UBoot }
-						if k.Active {
-							<span class="text-muted-foreground">★ Active</span>
-						} else if k.Downloaded {
-							<span class="text-muted-foreground">(Downloaded)</span>
-						}
-					}
-				}
-			}
-		}
-		if sel, ok := m.SelectedKernel(); ok && sel.Active {
-			<div class="text-xs text-muted-foreground">★ Active</div>
-		}
-	}
-	@card.Footer(card.FooterProps{Class: "pt-2 flex flex-col gap-2 w-full"}) {
-		if sel, ok := m.SelectedKernel(); ok {
-			<div class="flex flex-wrap items-center gap-1.5">
-				if !sel.Downloaded {
-					@button.Button(button.Props{
-						Variant: button.VariantOutline,
-						Size:    button.SizeSm,
-						Attributes: templ.Attributes{
-							"hx-post":         "/ui/overview/kernel/download",
-							"hx-include":      "input[name='kernel']",
-							"hx-target":       "#kernel-progress",
-							"hx-swap":         "innerHTML",
-							"hx-disabled-elt": "this",
-						},
-					}) {
-						Download
-					}
-				} else {
-					@button.Button(button.Props{
-						Variant: button.VariantOutline,
-						Size:    button.SizeSm,
-						Attributes: templ.Attributes{
-							"hx-post":            "/ui/overview/kernel/download",
-							"hx-vals":            `{"force": "true"}`,
-							"hx-include":         "input[name='kernel']",
-							"hx-target":          "#kernel-progress",
-							"hx-swap":            "innerHTML",
-							"hx-disabled-elt":    "this",
-							"hx-confirm":         "The existing cached image will be overwritten. If it is the active image, it is replaced in place (env files preserved).",
-							"data-confirm-title": "Re-download U-Boot for Linux " + sel.Kernel + "?",
-							"data-confirm-label": "Re-download",
-							"title":              "Re-download to overwrite existing cached image",
-						},
-					}) {
-						Refresh
-					}
-					if !sel.Active {
-						@button.Button(button.Props{
-							Size: button.SizeSm,
-							Attributes: templ.Attributes{
-								"hx-post":            "/ui/overview/kernel/activate",
-								"hx-include":         "input[name='kernel']",
-								"hx-swap":            "none",
-								"hx-disabled-elt":    "this",
-								"hx-confirm":         "Env files (machine.env, persistent.env, once.env) are preserved.",
-								"data-confirm-title": "Activate U-Boot for Linux " + sel.Kernel + "?",
-								"data-confirm-label": "Activate",
-							},
-						}) {
-							Activate
-						}
-					}
-				}
-			</div>
-		}
-		<div id="kernel-progress">
-			if m.Downloading {
-				@OvFwPoller()
-			}
-		</div>
 	}
 }
 

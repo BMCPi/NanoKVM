@@ -555,16 +555,6 @@ func (sm *sessionManager) handleIPMIPayload(sess *session, payload []byte, authe
 			respData = []byte{ccInvalidCommand}
 		}
 
-	case netFnOEMReq:
-		switch cmd {
-		case cmdOEMGetUBootVersion:
-			respData = sm.handleOEMGetUBootVersion()
-		case cmdOEMUpdateUBoot:
-			respData = sm.handleOEMUpdateUBoot()
-		default:
-			respData = []byte{ccInvalidCommand}
-		}
-
 	default:
 		respData = []byte{ccInvalidCommand}
 	}
