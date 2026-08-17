@@ -321,8 +321,13 @@ func (c *Capturer) run() {
 			case errors.Is(err, unix.ENOLINK):
 				// No input signal: a state, not an error. The kernel's
 				// bridge poller emits a source-change event when a
-				// signal appears, so wait on that rather than spinning.
-				c.publish(video.State{})
+				// signal appears, so wait on that rather than spinning —
+				// and publish only the transition, not every idle pass
+				// (observed on the board as an identical state twice a
+				// second, waking every consumer for nothing).
+				if c.State() != (video.State{}) {
+					c.publish(video.State{})
+				}
 				c.waitEvent()
 				continue
 			default:
