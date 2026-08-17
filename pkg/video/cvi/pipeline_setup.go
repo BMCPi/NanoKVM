@@ -26,6 +26,12 @@ const (
 	vpssChn  int32  = 0
 	vencChn  int    = 0
 	vpssDevN uint8  = 0
+
+	// vpssChnDepth is how many finished frames VPSS will hold for this
+	// process to collect. It has to be at least one for GetChnFrame to work
+	// at all; two lets the next frame be written while one is in hand, which
+	// is what a stock board is configured with.
+	vpssChnDepth uint32 = 2
 )
 
 // Enum values transcribed from the vendor uapi headers. Each is the "no
@@ -161,18 +167,27 @@ func (c *Capturer) bringUp(s pipeSpec) error {
 		return err
 	}
 
-	// VI -> VPSS -> VENC, in kernel space. Once these are up, frames move
-	// between stages as VB block handoffs and this process only ever reads
-	// the encoded bitstream off the end.
+	// VI -> VPSS in kernel space, and there it stops.
+	//
+	// Binding VPSS to VENC as well is the obvious next line and it is wrong.
+	// A bind makes the *producer* decide when a frame moves: every frame VPSS
+	// finishes is pushed into the encoder's input queue whether or not the
+	// encoder can take one. At 1080p the encoder cannot keep up with a 60fps
+	// host, so the queue fills, and the driver's way of reporting that is one
+	// KERN_ERR out of vb_qbuf per dropped frame. On a board whose console is a
+	// 115200 serial line that is enough to stop scheduling userspace, and the
+	// pipeline takes the VB pool down with it on the way out.
+	//
+	// Leaving the second bind off makes the *consumer* decide instead: VPSS
+	// holds finished frames up to its channel depth and this process collects
+	// them when it is ready. Frames it is not ready for are never fetched, so
+	// VPSS skips them -- counted as StartFail, silently, by design. That is
+	// what the vendor's own userspace does, and a stock board mid-stream shows
+	// 33956 frames skipped that way against 0 lost and not one error line.
 	if err := c.sys.Bind(Chn(ModVI, viDev, viChn), Chn(ModVPSS, vpssGrp, vpssChn)); err != nil {
 		return err
 	}
 	c.boundViVpss = true
-
-	if err := c.sys.Bind(Chn(ModVPSS, vpssGrp, vpssChn), Chn(ModVENC, int32(vencChn), 0)); err != nil {
-		return err
-	}
-	c.boundVpssVenc = true
 
 	// Start the pipe only once the whole chain exists downstream of it.
 	if err := c.vi.StartPipe(viPipe); err != nil {
@@ -405,6 +420,12 @@ func (c *Capturer) setupVPSS(s pipeSpec) error {
 			S32DstFrameRate: int32(s.fps),
 		},
 		StAspectRatio: AspectRatio{EnMode: aspectRatioNone},
+		// Depth is how many finished frames the driver will hold for a
+		// reader. Zero means none, and GetChnFrame on a channel with none
+		// can never return anything -- so this is what makes the handoff to
+		// the encoder possible at all. Two is what a stock board uses: one
+		// being handed over while the next is being written.
+		U32Depth: vpssChnDepth,
 	}
 	if err := c.vpss.SetChnAttr(vpssGrp, vpssChn, &chn); err != nil {
 		return err
@@ -511,18 +532,16 @@ func (c *Capturer) teardown() error {
 		}
 	}
 
-	// 1. Unbind, so the encoder's handler learns bind mode is going away.
-	if c.boundVpssVenc {
-		fail(c.sys.Unbind(Chn(ModVPSS, vpssGrp, vpssChn), Chn(ModVENC, int32(vencChn), 0)))
-		c.boundVpssVenc = false
-	}
+	// 1. Unbind. Only VI -> VPSS exists: the encoder is fed by hand rather
+	//    than bound, so there is nothing between VPSS and VENC to take apart.
+	//    The frame loop has already stopped by the time teardown runs, which
+	//    is what ends the handoff.
 	if c.boundViVpss {
 		fail(c.sys.Unbind(Chn(ModVI, viDev, viChn), Chn(ModVPSS, vpssGrp, vpssChn)))
 		c.boundViVpss = false
 	}
 
-	// 2. Stop receiving. Now that unbind has run, this is what joins the
-	//    handler thread.
+	// 2. Stop receiving, which joins the encoder's handler thread.
 	if c.recvStarted {
 		fail(c.enc.StopRecvFrame())
 		c.recvStarted = false

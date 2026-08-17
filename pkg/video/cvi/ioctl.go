@@ -64,6 +64,7 @@ var (
 	vencGetChnAttr     = vencIO(7)
 	vencGetStream      = vencIO(8)
 	vencReleaseStream  = vencIO(9)
+	vencSendFrame      = vencIO(11)
 	vencRequestIDR     = vencIO(13)
 	vencSetJpegParam   = vencIO(24)
 	vencSetRcParam     = vencIO(27)

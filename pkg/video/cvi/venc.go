@@ -185,6 +185,25 @@ func (e *Encoder) GetStream(stream *VENCStream, packs []VENCPack, timeoutMs int3
 	return e.cmd(vencGetStream, unsafe.Pointer(&ex), "get stream")
 }
 
+// SendFrame hands one frame to the encoder.
+//
+// This is the alternative to binding a source to VENC in the kernel, and the
+// difference is who decides when a frame moves. A bind pushes every frame the
+// previous stage produces into the encoder's input queue whether or not it can
+// take one; when it cannot, the driver drops the frame and says so with a
+// KERN_ERR, once per frame. Sending explicitly makes the encoder's readiness
+// the thing that paces the pipeline, so the frames that cannot be encoded are
+// simply never fetched -- which is what the vendor's own userspace does, and
+// why a stock board shows tens of thousands of skipped frames and not one
+// error.
+//
+// The kernel dereferences the pointer inside the argument, so frame must stay
+// reachable for the duration; cmd's KeepAlive on ex covers it.
+func (e *Encoder) SendFrame(frame *VideoFrameInfo, timeoutMs int32) error {
+	ex := VideoFrameInfoEx{PstFrame: frame, S32MilliSec: timeoutMs}
+	return e.cmd(vencSendFrame, unsafe.Pointer(&ex), "send frame")
+}
+
 // ReleaseStream returns a frame's buffers to the encoder. The stream and packs
 // must be the ones a preceding GetStream filled in.
 func (e *Encoder) ReleaseStream(stream *VENCStream, timeoutMs int32) error {

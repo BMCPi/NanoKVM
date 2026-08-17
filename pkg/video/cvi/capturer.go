@@ -54,6 +54,14 @@ const (
 	// notice a shutdown request even while the host is sending nothing.
 	getStreamTimeout = 500
 
+	// getFrameTimeout bounds the two halves of the handoff from the scaler to
+	// the encoder. Shorter than getStreamTimeout on purpose: at 30fps a frame
+	// is due every 33ms, so waiting much longer than that for one means the
+	// source has stopped rather than that the next frame is nearly ready, and
+	// the loop is better off going back round to check whether it should
+	// still be running.
+	getFrameTimeout = 100
+
 	// maxPacks bounds one frame's pack array. H.264 splits an access unit
 	// into a handful of packs (SPS, PPS, slices); 16 is well clear of that
 	// and the driver truncates to what it is given.
@@ -86,7 +94,6 @@ type Capturer struct {
 	// halfway is the common case here, not an edge case.
 	txStarted      bool
 	boundViVpss    bool
-	boundVpssVenc  bool
 	pipeStarted    bool
 	grpStarted     bool
 	recvStarted    bool
@@ -546,12 +553,19 @@ func applyDefaults(cfg video.Config) video.Config {
 }
 
 // runFrames pulls encoded frames until done is closed.
-// runFrames pulls encoded frames until done is closed.
+// runFrames drives the second half of the pipeline until done is closed.
 //
-// It is the only thing draining the encoder, so it must not stop quietly. Any
-// exit that is not a shutdown raises failed, because a pipeline left running
-// with nothing reading the far end of it does not just stall -- it backs up
-// through VENC into the VB pool and takes the media stack down with it.
+// VPSS is not bound to the encoder (see bringUp), so this loop is what moves
+// frames between them: collect a finished frame, hand it to the encoder, give
+// the buffer back, then take whatever the encoder has finished. Running those
+// in step is the point -- the loop can only go round as fast as the encoder
+// lets it, so a host sending faster than the encoder can work simply leaves
+// frames uncollected, and VPSS skips them instead of anything overflowing.
+//
+// It is also the only thing draining the encoder, so it must not stop quietly.
+// Any exit that is not a shutdown raises failed, because a pipeline left
+// running with nothing reading the far end of it backs up through VENC into
+// the VB pool and takes the media stack down with it.
 func (c *Capturer) runFrames(done <-chan struct{}, failed chan<- struct{}) {
 	// Distinguishes "told to stop" from "gave up"; only the latter is a
 	// reason to tear the pipeline down.
@@ -567,6 +581,7 @@ func (c *Capturer) runFrames(done <-chan struct{}, failed chan<- struct{}) {
 	}()
 
 	var stream VENCStream
+	var frame VideoFrameInfo
 	packs := make([]VENCPack, maxPacks)
 
 	// One scratch buffer reused for every frame. This is what Frame.Data
@@ -582,6 +597,39 @@ func (c *Capturer) runFrames(done <-chan struct{}, failed chan<- struct{}) {
 			stopped = true
 			return
 		default:
+		}
+
+		// Collect a finished frame from the scaler. Coming up empty is
+		// normal -- a console that is not changing still produces frames,
+		// but a host that has gone quiet does not, and neither is a fault.
+		if err := c.vpss.GetChnFrame(vpssGrp, vpssChn, &frame, getFrameTimeout); err != nil {
+			if isNoFrame(err) {
+				continue
+			}
+			c.publishErr(err)
+			return
+		}
+
+		// Hand it to the encoder, then give the buffer back immediately.
+		// Holding it across the encode would keep a VB block out of
+		// circulation for the whole frame time for no reason -- the encoder
+		// has taken what it needs by the time SendFrame returns.
+		sendErr := c.enc.SendFrame(&frame, getFrameTimeout)
+		if relErr := c.vpss.ReleaseChnFrame(vpssGrp, vpssChn, &frame); relErr != nil {
+			// A frame that cannot be released is a block permanently gone
+			// from the pool; a few of those and VI has nowhere to write.
+			c.publishErr(relErr)
+			return
+		}
+		if sendErr != nil {
+			// The encoder refusing a frame is survivable -- it is the
+			// back-pressure this design is built around -- so drop it and
+			// carry on rather than tearing the pipeline down.
+			if isNoFrame(sendErr) {
+				continue
+			}
+			c.publishErr(sendErr)
+			return
 		}
 
 		if err := c.enc.GetStream(&stream, packs, getStreamTimeout); err != nil {

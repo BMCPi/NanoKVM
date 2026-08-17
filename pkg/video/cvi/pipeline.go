@@ -419,6 +419,40 @@ func (p *VPSS) DisableChn(grp, chn int32) error {
 	return p.cmd(0x24, iocWrite, unsafe.Pointer(&cfg), unsafe.Sizeof(cfg), "disable chn")
 }
 
+// VPSSChnFrmCfg is struct vpss_chn_frm_cfg (vpss_uapi.h), the argument to both
+// halves of the frame handoff.
+type VPSSChnFrmCfg struct {
+	VpssGrp      int32
+	VpssChn      int32
+	StVideoFrame VideoFrameInfo
+	S32MilliSec  int32
+}
+
+// GetChnFrame takes a finished frame off a channel.
+//
+// This only works on a channel whose Depth is non-zero: depth is how many
+// frames the driver is willing to hold for a reader, and a channel with none
+// has nowhere to keep one. It blocks for up to timeoutMs.
+//
+// Every frame this returns must be given back with ReleaseChnFrame. The buffer
+// belongs to the VB pool, and a frame held here is a block VI cannot write
+// into -- lose enough of them and the pool empties, which the driver reports as
+// "yuv bypass outbuf is empty" just before the pipeline stops.
+func (p *VPSS) GetChnFrame(grp, chn int32, frame *VideoFrameInfo, timeoutMs int32) error {
+	cfg := VPSSChnFrmCfg{VpssGrp: grp, VpssChn: chn, S32MilliSec: timeoutMs}
+	if err := p.cmd(0x2b, iocRead|iocWrite, unsafe.Pointer(&cfg), unsafe.Sizeof(cfg), "get chn frame"); err != nil {
+		return err
+	}
+	*frame = cfg.StVideoFrame
+	return nil
+}
+
+// ReleaseChnFrame returns a frame from GetChnFrame to the pool.
+func (p *VPSS) ReleaseChnFrame(grp, chn int32, frame *VideoFrameInfo) error {
+	cfg := VPSSChnFrmCfg{VpssGrp: grp, VpssChn: chn, StVideoFrame: *frame}
+	return p.cmd(0x2c, iocRead|iocWrite, unsafe.Pointer(&cfg), unsafe.Sizeof(cfg), "release chn frame")
+}
+
 // --- sys: binding stages together --------------------------------------
 
 // Sys is the module that wires stages to each other.

@@ -44,20 +44,51 @@ import (
 // read-modify-write on their own bit, so nothing here is racing them.
 const (
 	clkgenBase = 0x03002000
-	// REG_CLK_EN_3, from drivers/clk/sophgo/clk-cv1800.h.
+	// Register offsets from drivers/clk/sophgo/clk-cv1800.h.
+	clkEn2Off = 0x008
 	clkEn3Off = 0x00C
-	// clk_csi0_rx_vip is bit 2 of REG_CLK_EN_3. Only link 0 is enabled:
-	// this board's bridge is on csi_mac0, and clk_csi1_rx would be power
-	// spent on a receiver nothing is wired to.
-	clkCsi0RxBit = 1 << 2
+	clkEn4Off = 0x010
 
 	clkMapLen = 0x1000
 )
 
-// setupCSIClock enables the CSI receiver clock gate if it is off.
+// The gates to turn on, taken from a stock board with working capture.
 //
-// It must run before the receiver is configured. Enabling the gate afterwards
-// is not enough on its own -- the front end latches its configuration while
+// This list is not derived from what the datapath ought to need -- it is
+// measured. A NanoKVM running Sipeed's own firmware, mid-stream, reports these
+// enabled in /sys/kernel/debug/clk/clk_summary while ours reported every one of
+// them at zero. Each is a gate that no soph-media driver calls clk_get on, so
+// the vendor's 5.10 kernel leaves it as the bootloader left it and upstream's
+// clk_disable_unused switches it off.
+//
+// clk_img_d_vip is deliberately absent: the stock board reads it as 0 too, so
+// it belongs to a path this pipeline does not use, and enabling it would be
+// guessing rather than matching.
+var vipClockGates = []struct {
+	name string
+	off  uintptr
+	bit  uint32
+}{
+	// The CSI receiver front end. Without it the D-PHY still locks and the
+	// lanes still reach HS_HST, but nothing is ever assembled into a packet.
+	{"clk_csi0_rx_vip", clkEn3Off, 1 << 2},
+
+	// The VIP image path. Stock has all four of these on; the naming is
+	// opaque and the vendor documents none of it, so they are enabled as a
+	// set because that is how the working board has them.
+	{"clk_vip_ip0", clkEn4Off, 1 << 9},
+	{"clk_vip_ip1", clkEn4Off, 1 << 10},
+	{"clk_vip_ip2", clkEn4Off, 1 << 11},
+	{"clk_vip_ip3", clkEn4Off, 1 << 12},
+
+	// The video-side image interface into the scaler.
+	{"clk_img_v_vip", clkEn2Off, 1 << 22},
+}
+
+// setupCSIClock enables the capture path's clock gates if they are off.
+//
+// It must run before the receiver is configured. Enabling a gate afterwards is
+// not enough on its own -- these blocks latch their configuration while
 // clocked, so a link set up with the clock down stays deaf until it is set up
 // again.
 func setupCSIClock() error {
@@ -74,31 +105,36 @@ func setupCSIClock() error {
 	}
 	defer unix.Munmap(m)
 
-	reg := (*uint32)(unsafe.Pointer(&m[clkEn3Off]))
-	if *reg&clkCsi0RxBit == 0 {
-		// Read-modify-write the single bit. The other gates in this word
+	for _, g := range vipClockGates {
+		// Read-modify-write the single bit. The other gates in each word
 		// belong to the clock framework, which is still tracking them.
-		*reg |= clkCsi0RxBit
+		reg := (*uint32)(unsafe.Pointer(&m[g.off]))
+		if *reg&g.bit == 0 {
+			*reg |= g.bit
+		}
 	}
 	return nil
 }
 
-// CSIClockEnabled reports whether the CSI receiver clock gate is on, for
-// bring-up diagnostics. The clock framework's own view of this gate (in
-// /sys/kernel/debug/clk) stays at zero either way, because it is not the one
-// that turned it on.
-func CSIClockEnabled() (bool, error) {
+// CSIClockState reports which of the capture path's gates are on, for bring-up
+// diagnostics. The clock framework's own view of these (in /sys/kernel/debug/clk)
+// stays at zero either way, because it is not the one that turned them on.
+func CSIClockState() (map[string]bool, error) {
 	f, err := os.OpenFile("/dev/mem", os.O_RDONLY|unix.O_SYNC, 0)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	defer f.Close()
 
 	m, err := unix.Mmap(int(f.Fd()), clkgenBase, clkMapLen, unix.PROT_READ, unix.MAP_SHARED)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	defer unix.Munmap(m)
 
-	return *(*uint32)(unsafe.Pointer(&m[clkEn3Off]))&clkCsi0RxBit != 0, nil
+	out := make(map[string]bool, len(vipClockGates))
+	for _, g := range vipClockGates {
+		out[g.name] = *(*uint32)(unsafe.Pointer(&m[g.off]))&g.bit != 0
+	}
+	return out, nil
 }
