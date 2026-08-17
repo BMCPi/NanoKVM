@@ -167,15 +167,48 @@ templ videoPanelScript() {
 			// State pushed by the hub: Ready false means the bridge sees no
 			// input. That is a normal condition for a BMC (host powered off,
 			// cable out), so it is reported as its own state and not an error.
+			//
+			// Kept rather than acted on directly, because it and the peer
+			// connection arrive in either order. The hub sends the current
+			// state as soon as the socket opens -- before the browser has
+			// negotiated anything -- and then only when the state actually
+			// changes. A host that is sitting there quietly never changes it.
+			// So acting only on arrival meant a session that connected
+			// perfectly was left showing "Connecting…" indefinitely, because
+			// the only state message it ever received was one it discarded
+			// for arriving too early.
+			let lastState = null;
+
 			function onState(s) {
 				if (!s) return;
-				if (s.Ready && s.Width && s.Height) {
+				lastState = s;
+				render();
+			}
+
+			// Draws whatever the two halves currently say. Safe to call from
+			// either of them, in any order, as many times as they like.
+			function render() {
+				const s = lastState;
+				if (s && s.Ready && s.Width && s.Height) {
 					const fps = s.FramePerSecond ? ' @ ' + Math.round(s.FramePerSecond) + 'fps' : '';
 					el('video-mode').textContent = s.Width + '×' + s.Height + fps;
 				} else {
 					el('video-mode').textContent = '—';
 				}
+
+				// Until the peer connection is up there is nothing to say
+				// beyond what connectVideo already put on screen.
 				if (!connected) return;
+
+				if (!s) {
+					// Connected, but the BMC has not said anything about the
+					// capture yet. Distinct from "no signal": the difference
+					// is whether we have been told, and saying so beats a
+					// spinner that means nothing.
+					setVideoStatus('connecting');
+					setOverlay('Connected', 'Waiting for the BMC to report the capture state.');
+					return;
+				}
 				if (s.Ready) {
 					setVideoStatus('connected');
 					setOverlay(null);
@@ -193,6 +226,7 @@ templ videoPanelScript() {
 
 			function teardown() {
 				connected = false;
+				lastState = null;
 				if (vws) { try { vws.close(); } catch (e) {} vws = null; }
 				if (pc) { try { pc.close(); } catch (e) {} pc = null; }
 				const v = el('video-stream');
@@ -231,10 +265,30 @@ templ videoPanelScript() {
 						: { type: 'candidate' };
 					vws.send(JSON.stringify(msg));
 				};
+				// The peer connection, not the answer, is what "connected"
+				// means. An answer only says the two sides agree on what to
+				// negotiate; media cannot arrive until ICE has actually found
+				// a path, and on a network where it never does, treating the
+				// answer as success leaves the UI claiming a working session
+				// over a black frame.
 				pc.onconnectionstatechange = () => {
 					if (!pc) return;
-					if (pc.connectionState === 'failed') {
-						fail('Connection failed', 'The WebRTC session could not be established. Check that the browser can reach the BMC directly or that a TURN server is configured.');
+					switch (pc.connectionState) {
+						case 'connected':
+							connected = true;
+							render();
+							break;
+						case 'disconnected':
+							// Transient by nature and usually self-healing, so
+							// this reports rather than tears down. The BMC
+							// gives it a bounded grace period and drops the
+							// session if it does not come back.
+							setVideoStatus('connecting');
+							setOverlay('Reconnecting…', 'The media connection dropped. Waiting for it to recover.');
+							break;
+						case 'failed':
+							fail('Connection failed', 'The WebRTC session could not be established. Check that the browser can reach the BMC directly or that a TURN server is configured.');
+							break;
 					}
 				};
 
@@ -258,7 +312,11 @@ templ videoPanelScript() {
 						case 'answer':
 							try {
 								await pc.setRemoteDescription({ type: 'answer', sdp: m.sdp });
-								connected = true;
+								// Negotiated, but not yet connected: ICE still
+								// has to find a path. Say which of the two is
+								// outstanding rather than leaving the earlier
+								// "negotiating" text up, which is now wrong.
+								setOverlay('Connecting…', 'Negotiated. Waiting for the media connection.');
 							} catch (err) {
 								fail('Negotiation failed', String(err));
 							}

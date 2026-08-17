@@ -116,6 +116,31 @@ func newTestHub(t *testing.T, cap video.Capturer) *Hub {
 	return hub
 }
 
+// shortenLinger collapses the post-viewer grace period so a test does not have
+// to wait out five real seconds to observe the pipeline stopping.
+func shortenLinger(t *testing.T) {
+	t.Helper()
+	prev := pipelineLinger
+	pipelineLinger = time.Millisecond
+	t.Cleanup(func() { pipelineLinger = prev })
+}
+
+// waitForStops blocks until the capturer has been stopped want times. The stop
+// is deferred by the linger and runs on a timer goroutine, so it cannot be
+// asserted synchronously the way the start can.
+func waitForStops(t *testing.T, cap *fakeCapturer, want int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, stops, _ := cap.counts(); stops >= want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	_, stops, _ := cap.counts()
+	t.Fatalf("pipeline stopped %d times, want %d", stops, want)
+}
+
 func TestNewHubRejectsCodecWebRTCCannotCarry(t *testing.T) {
 	_, err := NewHub(newFakeCapturer(), Options{Capture: video.Config{Codec: video.CodecMJPEG}})
 	if err == nil {
@@ -127,6 +152,8 @@ func TestNewHubRejectsCodecWebRTCCannotCarry(t *testing.T) {
 // encoding into the void: the first viewer starts the pipeline, the last one
 // stops it, and viewers in between do neither.
 func TestPipelineRunsOnlyWhileWatched(t *testing.T) {
+	shortenLinger(t)
+
 	cap := newFakeCapturer()
 	hub := newTestHub(t, cap)
 
@@ -151,9 +178,14 @@ func TestPipelineRunsOnlyWhileWatched(t *testing.T) {
 		t.Fatalf("pipeline stopped while a viewer remained: starts=%d stops=%d, want 1/0", starts, stops)
 	}
 
+	// The last viewer leaving stops it, but only after the linger -- a page
+	// reload is a disconnect immediately followed by a connect, and tearing
+	// the capture chain down for that is both slow and where this hardware
+	// breaks.
 	second.Close()
-	if starts, stops, _ := cap.counts(); starts != 1 || stops != 1 {
-		t.Fatalf("after last session: starts=%d stops=%d, want 1/1", starts, stops)
+	waitForStops(t, cap, 1)
+	if starts, _, _ := cap.counts(); starts != 1 {
+		t.Fatalf("pipeline restarted while idle: starts=%d, want 1", starts)
 	}
 
 	// A later viewer starts it again rather than finding a dead hub.
@@ -389,5 +421,143 @@ func TestSessionStreamsToPeer(t *testing.T) {
 			default:
 			}
 		}
+	}
+}
+
+// A session holds the capture pipeline up for as long as it exists, so one
+// whose browser never negotiates is not merely idle -- it keeps the encoder
+// running on a one-core SoC for a viewer that is not there. The deadline is
+// what stops a half-open socket doing that indefinitely.
+func TestNegotiationDeadlineIsArmedUntilAnOfferArrives(t *testing.T) {
+	hub := newTestHub(t, newFakeCapturer())
+	defer func() { _ = hub.Close() }()
+
+	session, err := hub.NewSession(newChanSignaler())
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	defer session.Close()
+
+	session.mu.Lock()
+	armed := session.negotiate != nil
+	session.mu.Unlock()
+	if !armed {
+		t.Fatal("no negotiation deadline armed; a socket that never offers would hold the pipeline forever")
+	}
+
+	// An offer is the browser asking for something, which is what makes the
+	// session legitimate. Renegotiation later must not re-arm the deadline.
+	session.disarmNegotiation()
+
+	session.mu.Lock()
+	stillArmed := session.negotiate != nil
+	session.mu.Unlock()
+	if stillArmed {
+		t.Error("negotiation deadline survived the offer; it could fire under a live stream")
+	}
+}
+
+// Closing must leave nothing pending. Both timers call Close, which closeOnce
+// makes harmless, but a session that has ended should not be holding wakeups.
+func TestCloseDisarmsBothDeadlines(t *testing.T) {
+	hub := newTestHub(t, newFakeCapturer())
+	defer func() { _ = hub.Close() }()
+
+	session, err := hub.NewSession(newChanSignaler())
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	session.armDisconnect()
+	session.Close()
+
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.negotiate != nil {
+		t.Error("negotiation deadline still armed after Close")
+	}
+	if session.disconnect != nil {
+		t.Error("disconnect grace still armed after Close")
+	}
+}
+
+// ICE reports Disconnected repeatedly while a link is down. The grace period
+// has to run from when it was first lost -- restarting it on every
+// notification would let a permanently dead session renew itself forever.
+func TestDisconnectGraceDoesNotRestartOnRepeatedNotifications(t *testing.T) {
+	hub := newTestHub(t, newFakeCapturer())
+	defer func() { _ = hub.Close() }()
+
+	session, err := hub.NewSession(newChanSignaler())
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	defer session.Close()
+
+	session.armDisconnect()
+	session.mu.Lock()
+	first := session.disconnect
+	session.mu.Unlock()
+	if first == nil {
+		t.Fatal("disconnect grace was not armed")
+	}
+
+	session.armDisconnect()
+	session.mu.Lock()
+	second := session.disconnect
+	session.mu.Unlock()
+	if second != first {
+		t.Error("a second Disconnected replaced the timer, restarting the grace period")
+	}
+
+	// Recovery cancels it: the link came back, so the session is healthy.
+	session.clearDisconnect()
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.disconnect != nil {
+		t.Error("disconnect grace survived reconnection")
+	}
+}
+
+// A page reload is a disconnect immediately followed by a connect. Rebuilding
+// the capture chain for that is slow -- seconds on this SoC -- and it is also
+// how a reload could hang outright: the stop runs under the Hub's lock and
+// waits for the capture supervisor, so the reconnecting browser's attach queues
+// behind a teardown that may be part-way through a bring-up. NewSession does
+// not return, no answer is sent, and the page sits on "Connecting..." until the
+// teardown finishes, which for a wedged media driver is never.
+func TestReloadReusesTheRunningPipeline(t *testing.T) {
+	shortenLinger(t)
+
+	cap := newFakeCapturer()
+	hub := newTestHub(t, cap)
+	defer func() { _ = hub.Close() }()
+
+	first, err := hub.NewSession(newChanSignaler())
+	if err != nil {
+		t.Fatalf("first session: %v", err)
+	}
+
+	// The reload: gone and back before the linger expires.
+	first.Close()
+	second, err := hub.NewSession(newChanSignaler())
+	if err != nil {
+		t.Fatalf("session after reload: %v", err)
+	}
+	defer second.Close()
+
+	starts, stops, _ := cap.counts()
+	if stops != 0 {
+		t.Errorf("reload tore the pipeline down: stops=%d, want 0", stops)
+	}
+	if starts != 1 {
+		t.Errorf("reload rebuilt the pipeline: starts=%d, want 1", starts)
+	}
+
+	// And the reprieve is real rather than merely deferred: the pipeline is
+	// still up well after the linger would have expired, because a viewer
+	// arrived in the meantime.
+	time.Sleep(20 * time.Millisecond)
+	if _, stops, _ := cap.counts(); stops != 0 {
+		t.Errorf("pipeline stopped under an attached viewer: stops=%d, want 0", stops)
 	}
 }

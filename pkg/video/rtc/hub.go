@@ -56,7 +56,31 @@ const (
 	// and feeding it to the packetizer would jump the RTP timestamp far
 	// enough to look like a stream restart to the receiver.
 	maxFrameDuration = time.Second
+
+	// pipelineLinger is how long the pipeline keeps running after the last
+	// viewer leaves.
+	//
+	// The case this exists for is a page reload, which is a disconnect
+	// immediately followed by a connect. Without it that sequence tears the
+	// whole capture chain down and builds it again -- receiver, VI, VPSS,
+	// encoder -- which takes seconds on this SoC and is by far the most
+	// fragile thing the driver does.
+	//
+	// It also removes a way for a reload to hang outright. Stopping happens
+	// under the Hub's lock and Capturer.Stop waits for the supervisor, which
+	// may be part-way through a bring-up; the reconnecting browser's attach
+	// blocks behind it, so NewSession does not return, no answer is ever
+	// sent, and the page sits on "Connecting..." for as long as the teardown
+	// takes -- which, if the media driver has wedged, is forever.
+	//
+	// Long enough to cover a reload, short enough that closing the tab and
+	// walking away still stops the encoder promptly.
+	defaultPipelineLinger = 5 * time.Second
 )
+
+// pipelineLinger is a variable only so tests can shorten it; nothing outside
+// this package changes it, and nothing in it writes to it at runtime.
+var pipelineLinger = defaultPipelineLinger
 
 // Options configures a Hub.
 type Options struct {
@@ -92,6 +116,7 @@ type Hub struct {
 	mu       sync.Mutex
 	sessions map[*Session]struct{}
 	stop     chan struct{}
+	linger   *time.Timer
 	wg       sync.WaitGroup
 	closed   bool
 
@@ -190,6 +215,9 @@ func (h *Hub) Close() error {
 	}
 
 	h.mu.Lock()
+	// Shutting down is not a reload, so the linger does not apply -- and a
+	// timer left armed would fire against a Hub that is already gone.
+	h.cancelLingerLocked()
 	h.stopPipelineLocked()
 	h.mu.Unlock()
 
@@ -205,7 +233,14 @@ func (h *Hub) attach(s *Session) error {
 	if h.closed {
 		return ErrClosed
 	}
-	if len(h.sessions) == 0 {
+
+	// A viewer arriving cancels any pending shutdown, which is what makes a
+	// reload cheap: the pipeline it is about to use is the one still running.
+	h.cancelLingerLocked()
+
+	// Keyed on whether the pipeline is up rather than on the session count,
+	// because during the linger those disagree -- no sessions, still running.
+	if h.stop == nil {
 		if err := h.startPipelineLocked(); err != nil {
 			return err
 		}
@@ -214,7 +249,8 @@ func (h *Hub) attach(s *Session) error {
 	return nil
 }
 
-// detach removes a session, stopping the pipeline if it was the last.
+// detach removes a session and, if it was the last, starts the clock on
+// shutting the pipeline down. See pipelineLinger for why it is not immediate.
 func (h *Hub) detach(s *Session) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -224,7 +260,33 @@ func (h *Hub) detach(s *Session) {
 	}
 	delete(h.sessions, s)
 	if len(h.sessions) == 0 {
-		h.stopPipelineLocked()
+		h.armLingerLocked()
+	}
+}
+
+// armLingerLocked schedules the pipeline to stop once the linger expires.
+// Callers hold h.mu.
+func (h *Hub) armLingerLocked() {
+	if h.linger != nil || h.stop == nil {
+		return
+	}
+	h.linger = time.AfterFunc(pipelineLinger, func() {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		h.linger = nil
+		// Re-check under the lock: a viewer may have arrived while this was
+		// waiting to run, in which case the pipeline is in use again.
+		if len(h.sessions) == 0 {
+			h.stopPipelineLocked()
+		}
+	})
+}
+
+// cancelLingerLocked calls off a pending shutdown. Callers hold h.mu.
+func (h *Hub) cancelLingerLocked() {
+	if h.linger != nil {
+		h.linger.Stop()
+		h.linger = nil
 	}
 }
 

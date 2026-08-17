@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/pion/webrtc/v4"
 	log "github.com/sirupsen/logrus"
@@ -16,6 +17,27 @@ import (
 // client that will not send an offer, and the queue is a memory leak an
 // unauthenticated-looking endpoint should not offer.
 const maxPendingCandidates = 64
+
+// Deadlines that stop a session outliving the browser behind it.
+//
+// Both exist because a session is not free to leave lying around: attaching one
+// starts the capture pipeline, and the pipeline runs until the last session
+// detaches. A browser that opens the socket and then goes away -- a closed
+// laptop, a dropped Wi-Fi link, a tab closed while the machine suspends --
+// leaves the encoder running on a SoC that has one core to spare, indefinitely.
+const (
+	// negotiationTimeout bounds the wait for the browser's offer. Generous
+	// on purpose: it is not a latency budget but a liveness one, and the
+	// only thing it needs to beat is "never".
+	negotiationTimeout = 30 * time.Second
+
+	// disconnectGrace is how long a connected session may sit in
+	// Disconnected before it is given up on. ICE reports that state for
+	// ordinary transient loss and recovers from it by itself, so this has to
+	// be long enough not to punish a brief blip -- but a closed browser tab
+	// also passes through Disconnected, and does not always reach Failed.
+	disconnectGrace = 20 * time.Second
+)
 
 // Session is one browser's peer connection to the console.
 //
@@ -32,8 +54,62 @@ type Session struct {
 	pending    []webrtc.ICECandidateInit
 	haveRemote bool
 
+	// Liveness deadlines. Both are nil when not armed, and both are stopped
+	// by Close, so a session that ends normally leaves no timer behind.
+	negotiate  *time.Timer
+	disconnect *time.Timer
+
 	done      chan struct{}
 	closeOnce sync.Once
+}
+
+// armNegotiation starts the deadline for the browser's offer.
+func (s *Session) armNegotiation() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.negotiate = time.AfterFunc(negotiationTimeout, func() {
+		log.Warnf("rtc: no offer within %s, dropping session", negotiationTimeout)
+		s.Close()
+	})
+}
+
+// disarmNegotiation cancels that deadline, once an offer has arrived.
+func (s *Session) disarmNegotiation() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.negotiate != nil {
+		s.negotiate.Stop()
+		s.negotiate = nil
+	}
+}
+
+// armDisconnect starts the grace period for a session that has dropped to
+// Disconnected. Repeated notifications do not extend it: the clock should run
+// from when the link was first lost, not from the last time ICE said so.
+func (s *Session) armDisconnect() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.disconnect != nil {
+		return
+	}
+	s.disconnect = time.AfterFunc(disconnectGrace, func() {
+		log.Infof("rtc: still disconnected after %s, dropping session", disconnectGrace)
+		s.Close()
+	})
+}
+
+// clearDisconnect cancels the grace period, because the link came back.
+func (s *Session) clearDisconnect() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.disconnect != nil {
+		s.disconnect.Stop()
+		s.disconnect = nil
+	}
 }
 
 // NewSession creates a peer connection, binds it to the Hub's track and
@@ -85,6 +161,18 @@ func (h *Hub) NewSession(sig Signaler) (*Session, error) {
 		log.Debugf("rtc: connection state %s", st)
 		switch st {
 		case webrtc.PeerConnectionStateConnected:
+			s.clearDisconnect()
+
+			// Tell the browser where the capture stands, now that it is
+			// listening. The push in NewSession happens before negotiation,
+			// when the browser is still deciding whether it has a session at
+			// all and discards it; after that, state only moves when the
+			// capture state actually changes. A host that is simply sitting
+			// there produces no change, so without this a session that
+			// negotiated perfectly is never told anything and the UI cannot
+			// tell "connected, waiting for the host" from "still connecting".
+			s.sendState(h.State())
+
 			// The console runs a long GOP because its picture barely
 			// changes, so a viewer that joins between keyframes would
 			// otherwise see nothing until the next scheduled one.
@@ -92,19 +180,29 @@ func (h *Hub) NewSession(sig Signaler) (*Session, error) {
 				!errors.Is(err, video.ErrNotSupported) {
 				log.Warnf("rtc: keyframe on connect: %s", err)
 			}
+
+		case webrtc.PeerConnectionStateDisconnected:
+			// Not fatal on its own: ICE reports this for transient loss and
+			// recovers by itself, so tearing down here would turn a blip
+			// into a reconnect. But it is also what a closed browser tab
+			// looks like on the way to failed, and a session that never
+			// arrives at either leaves the capture pipeline running for a
+			// viewer that is gone. So it gets a deadline rather than a pass.
+			s.armDisconnect()
+
 		case webrtc.PeerConnectionStateFailed, webrtc.PeerConnectionStateClosed:
 			s.Close()
-		default:
-			// New, Connecting and Disconnected are all states to sit
-			// through. Disconnected especially: ICE reports it on
-			// transient loss and recovers on its own, so tearing down
-			// there would turn a blip in the network into a reconnect.
 		}
 	})
 
 	// Give the browser the current signal state before negotiation, so it
 	// can show "no signal" immediately instead of an indefinite spinner.
 	s.sendState(h.State())
+
+	// And bound the wait for an offer. Until one arrives this session is
+	// holding the capture pipeline up on behalf of a browser that has not
+	// asked for anything, which a half-open socket can do indefinitely.
+	s.armNegotiation()
 
 	return s, nil
 }
@@ -130,6 +228,13 @@ func (s *Session) Done() <-chan struct{} { return s.done }
 func (s *Session) Close() {
 	s.closeOnce.Do(func() {
 		close(s.done)
+
+		// Timers first: both fire into Close, and closeOnce makes that
+		// harmless, but a session that has ended should not be holding a
+		// pending wakeup either.
+		s.disarmNegotiation()
+		s.clearDisconnect()
+
 		s.hub.detach(s)
 		if s.pc != nil {
 			if err := s.pc.Close(); err != nil {
@@ -140,6 +245,12 @@ func (s *Session) Close() {
 }
 
 func (s *Session) handleOffer(sdp string) error {
+	// The browser has asked for something, so it is no longer a socket that
+	// might never negotiate. Cancel before doing the work rather than after:
+	// a renegotiation on a live session must not re-arm a deadline that would
+	// then fire under a perfectly healthy stream.
+	s.disarmNegotiation()
+
 	err := s.pc.SetRemoteDescription(webrtc.SessionDescription{
 		Type: webrtc.SDPTypeOffer,
 		SDP:  sdp,
