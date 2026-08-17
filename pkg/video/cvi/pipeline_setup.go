@@ -90,7 +90,46 @@ func (s pipeSpec) srcFPS() int {
 // leaves the encoder's handler thread running against a source that is not
 // there yet, which is the same lifetime hazard teardown() is careful about at
 // the other end.
+// reclaimStale destroys pipeline objects a previous run left behind.
+//
+// These objects live in the driver, not in this process, so they outlive it.
+// teardown unwinds them on the way out, but it is guarded by flags recording
+// what *this* process built -- which is exactly right for a rebuild and exactly
+// useless after an unclean exit. A crash, a SIGKILL, or a supervisor restart
+// while a pipeline was up leaves VPSS group 0, the VI pipe and the encoder
+// channel allocated, and the next process to start finds every create call
+// refused:
+//
+//	cvi: bring-up failed: cvi: vpss create group: vpss: resource exists (0xc0068004)
+//
+// That is permanent. Nothing in the new process owns the leftovers, so nothing
+// releases them, and every bring-up from then on fails the same way until the
+// modules are unloaded or the board is rebooted -- which reads as a capture
+// pipeline that worked once and never again.
+//
+// So bring-up destroys before it creates, unconditionally. Every call here is
+// expected to fail in the ordinary case, where there is nothing to reclaim,
+// which is why none of them is checked: "does not exist" is the answer this
+// wants. Order is teardown's, because the driver enforces the same lifetime
+// rules on the way out however it is asked.
+func (c *Capturer) reclaimStale() {
+	_ = c.sys.Unbind(Chn(ModVI, viDev, viChn), Chn(ModVPSS, vpssGrp, vpssChn))
+	_ = c.enc.StopRecvFrame()
+	_ = c.enc.DestroyChn()
+	_ = c.vpss.StopGroup(vpssGrp)
+	_ = c.vpss.DisableChn(vpssGrp, vpssChn)
+	_ = c.vpss.DestroyGroup(vpssGrp)
+	_ = c.vi.StopPipe(viPipe)
+	_ = c.vi.DisableChn(viPipe, viChn)
+	_ = c.vi.DestroyPipe(viPipe)
+	_ = c.vi.DisableDev(viDev)
+}
+
 func (c *Capturer) bringUp(s pipeSpec) error {
+	// Clear anything a previous run left in the driver before creating the
+	// same objects again; see reclaimStale.
+	c.reclaimStale()
+
 	// VB first, and not optionally. VI and VPSS take their frame buffers
 	// from the common pools, and they do not check: vpss_set_chn_attr walks
 	// find_vb_pool -> isPoolInited and dereferences a NULL pool array if VB
