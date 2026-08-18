@@ -229,7 +229,10 @@ func (g *Gadget) desiredFunctions() []string {
 		out = append(out, name)
 	}
 	if g.cfg.HID {
-		out = append(out, "hid.GS0", "hid.GS1", "hid.GS2")
+		// Boot keyboard + combined pointer function (see hid.go). A stale
+		// hid.GS2 link from the three-function layout falls out of the
+		// desired set and reconcileLinks removes it.
+		out = append(out, "hid.GS0", "hid.GS1")
 	}
 	return out
 }

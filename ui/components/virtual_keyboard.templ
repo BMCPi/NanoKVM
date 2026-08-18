@@ -15,30 +15,23 @@ import (
 // elements made interactive; presses are translated to xterm byte sequences
 // and written to the serial WebSocket via sendSerialInput().
 //
-// The panel lives at the bottom of the page flex column and animates its
-// *height* (the grid-rows 0fr→1fr trick), so opening slides it up while the
-// console panes above shrink to make room — layout participation, not an
-// overlay. The inner div is the required min-h-0/overflow-hidden clip for the
-// fractional-row animation. `inert` keeps the collapsed copy out of the tab
-// order. The console toolbar's keyboard button calls toggleVirtualKeyboard();
-// Detach lifts it out of the flow into a floating window and the header
-// becomes a drag handle.
+// The panel is a fixed bottom sheet: full-width, anchored to the bottom of
+// the viewport, hidden by translating it fully below the screen edge. Opening
+// slides it up *over* the console — an overlay, not a layout participant, so
+// the serial/HDMI panes keep their size. `inert` keeps the offscreen copy out
+// of the tab order. The console toolbar's keyboard button calls
+// toggleVirtualKeyboard(); Detach lifts it into a floating window and the
+// header becomes a drag handle.
 templ VirtualKeyboard() {
 	<div
 		id="virtual-keyboard"
-		class="group/vk grid grid-rows-[0fr] bg-card transition-[grid-template-rows] duration-300 ease-out"
+		class="group/vk fixed inset-x-0 bottom-0 z-40 translate-y-full border-t border-border bg-card transition-transform duration-300 ease-out"
 		data-vk-detached="false"
 		inert
 	>
-		// justify-end anchors the content to the bottom of the growing clip,
-		// so the panel emerges rigidly from the screen's bottom edge (its
-		// upper rows revealed as the row grows) instead of unfolding in
-		// place from its top.
-		<div class="flex min-h-0 flex-col justify-end overflow-hidden">
-			@vkHeader()
-			@vkBoard()
-			@vkStatusBar()
-		</div>
+		@vkHeader()
+		@vkBoard()
+		@vkStatusBar()
 	</div>
 	@virtualKeyboardScript()
 }
@@ -271,15 +264,6 @@ templ virtualKeyboardScript() {
 
 			const panel = () => document.getElementById('virtual-keyboard');
 
-			// Refit the terminal once the height animation settles: the resize
-			// dispatched at toggle time sees the console's starting size, this
-			// one sees its final size.
-			panel()?.addEventListener('transitionend', (e) => {
-				if (e.propertyName === 'grid-template-rows') {
-					window.dispatchEvent(new Event('resize'));
-				}
-			});
-
 			// VK_HID maps this keyboard's own cap codes onto the HID key names
 			// pkg/hid understands. The caps are labelled for a human ("PgUp",
 			// "Esc") and the letter/digit rows are generated from single
@@ -419,17 +403,15 @@ templ virtualKeyboardScript() {
 				if (!p) return;
 				let show;
 				if (p.dataset.vkDetached === 'true') {
-					// Floating window: no layout to animate, just visibility.
+					// Floating window: no slide to animate, just visibility.
 					show = p.classList.contains('hidden');
 					p.classList.toggle('hidden', !show);
 				} else {
-					// Docked: animate the grid row height so the console panes
-					// above shrink/grow with the slide.
-					show = p.classList.contains('grid-rows-[0fr]');
-					p.classList.toggle('grid-rows-[0fr]', !show);
-					p.classList.toggle('grid-rows-[1fr]', show);
-					p.classList.toggle('border-t', show);
-					p.classList.toggle('border-border', show);
+					// Docked: slide the sheet up from below the viewport edge.
+					// It overlays the console, so nothing else needs to resize.
+					show = p.classList.contains('translate-y-full');
+					p.classList.toggle('translate-y-full', !show);
+					p.classList.toggle('translate-y-0', show);
 				}
 				if (show) { p.removeAttribute('inert'); } else { p.setAttribute('inert', ''); }
 				const btn = document.getElementById('btn-virtual-keyboard');
@@ -437,9 +419,6 @@ templ virtualKeyboardScript() {
 					btn.classList.toggle('bg-accent', show);
 					btn.setAttribute('aria-expanded', show ? 'true' : 'false');
 				}
-				// The console pane is resizing — refit now and again when the
-				// height animation lands on its final size (transitionend).
-				window.dispatchEvent(new Event('resize'));
 			};
 
 			window.vkToggleDetach = function() {
@@ -449,13 +428,14 @@ templ virtualKeyboardScript() {
 				p.dataset.vkDetached = state.detached ? 'true' : 'false';
 				const label = document.getElementById('vk-detach-label');
 				const btn = document.getElementById('vk-detach-btn');
-				// Docked, the panel is an in-flow animated grid row; floating,
-				// it is a fixed window with frozen geometry and none of that.
-				const DOCKED = ['grid-rows-[1fr]', 'border-t', 'border-border',
-					'transition-[grid-template-rows]'];
+				// Docked, the panel is the viewport-anchored bottom sheet;
+				// floating, it keeps `fixed` but swaps the edge anchoring for
+				// frozen left/top/width geometry the drag handler can move.
+				const DOCKED = ['inset-x-0', 'bottom-0', 'border-t',
+					'translate-y-0', 'transition-transform'];
 				if (state.detached) {
 					const r = p.getBoundingClientRect();
-					// Freeze current geometry, then float free of the flow.
+					// Freeze current geometry, then float free of the edges.
 					// left/top position the margin edge, so margins are zeroed
 					// to keep the first drag from shifting it.
 					p.style.width = r.width + 'px';
@@ -463,17 +443,16 @@ templ virtualKeyboardScript() {
 					p.style.top = r.top + 'px';
 					p.style.margin = '0';
 					p.classList.remove(...DOCKED);
-					p.classList.add('fixed', 'z-50', 'grid-rows-[1fr]', 'rounded-md', 'border', 'shadow-2xl');
+					p.classList.add('rounded-md', 'border', 'shadow-2xl');
 					if (label) label.textContent = 'Attach';
-					if (btn) btn.title = 'Attach below the console';
+					if (btn) btn.title = 'Attach to the bottom of the screen';
 				} else {
-					p.classList.remove('fixed', 'z-50', 'rounded-md', 'border', 'shadow-2xl', 'hidden');
+					p.classList.remove('rounded-md', 'border', 'shadow-2xl', 'hidden');
 					p.classList.add(...DOCKED);
 					p.style.width = p.style.left = p.style.top = p.style.margin = '';
 					if (label) label.textContent = 'Detach';
 					if (btn) btn.title = 'Detach into a floating window';
 				}
-				window.dispatchEvent(new Event('resize'));
 			};
 
 			// Drag the detached panel by its header (buttons excluded).

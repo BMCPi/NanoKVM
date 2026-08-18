@@ -37,10 +37,11 @@ templ Base(title string, showNav bool, onDocsPage bool) {
 				if showNav {
 					@components.Navbar(onDocsPage)
 					if !onDocsPage {
-						// The virtual keyboard drops down from the top bar that
-						// toggles it, above the console panes, so it serves the
-						// HDMI and serial consoles alike rather than being
-						// docked under one of them.
+						// The virtual keyboard is a fixed bottom sheet that
+						// slides up over the console panes, serving the HDMI
+						// and serial consoles alike. Being position:fixed it
+						// is out of flow — its spot in the column is
+						// irrelevant to layout.
 						@components.VirtualKeyboard()
 					}
 				}

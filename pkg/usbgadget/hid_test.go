@@ -70,25 +70,55 @@ func TestReportDescriptorsMatchS03usbdev(t *testing.T) {
 
 func TestHIDSpecs(t *testing.T) {
 	specs := hidSpecs()
-	want := []struct {
-		name         string
-		protocol     int
-		reportLength int
-		desc         []byte
+	if len(specs) != 2 {
+		t.Fatalf("got %d specs, want keyboard + combined pointer", len(specs))
+	}
+	// The keyboard stays a strict 8-byte boot function — pre-boot firmware
+	// (EDK2 UsbKbDxe, U-Boot) forces boot protocol and cannot parse a
+	// Report-ID keyboard.
+	kb := specs[0]
+	if kb.name != "hid.GS0" || kb.protocol != 1 || kb.reportLength != 8 {
+		t.Errorf("keyboard spec = %+v, want hid.GS0 protocol=1 len=8", kb)
+	}
+	if !bytes.Equal(kb.reportDesc, keyboardReportDesc) {
+		t.Error("keyboard descriptor is not the pinned boot descriptor")
+	}
+	// The pointer function's report_length covers its largest report
+	// including the ID byte (absolute: 1 + 6).
+	ms := specs[1]
+	if ms.name != "hid.GS1" || ms.protocol != 2 || ms.reportLength != 7 {
+		t.Errorf("mouse spec = %+v, want hid.GS1 protocol=2 len=7", ms)
+	}
+	if !bytes.Equal(ms.reportDesc, combinedMouseReportDesc) {
+		t.Error("mouse spec does not carry the combined pointer descriptor")
+	}
+}
+
+// The combined descriptor is exactly the three pinned collections with a
+// Report ID inserted after each Collection(Application) open — nothing
+// reordered, nothing regenerated.
+func TestCombinedDescriptorDerivation(t *testing.T) {
+	parts := []struct {
+		desc []byte
+		id   byte
 	}{
-		{"hid.GS0", 1, 8, keyboardReportDesc},
-		{"hid.GS1", 2, 4, mouseReportDesc},
-		{"hid.GS2", 2, 6, touchpadReportDesc},
+		{mouseReportDesc, ReportIDRelMouse},
+		{touchpadReportDesc, ReportIDAbsMouse},
 	}
-	if len(specs) != len(want) {
-		t.Fatalf("got %d specs, want %d", len(specs), len(want))
+	var want []byte
+	for _, p := range parts {
+		want = append(want, p.desc[:6]...)
+		want = append(want, 0x85, p.id)
+		want = append(want, p.desc[6:]...)
 	}
-	for i, w := range want {
-		if specs[i].name != w.name || specs[i].protocol != w.protocol || specs[i].reportLength != w.reportLength {
-			t.Errorf("spec %d = %+v, want name=%s protocol=%d len=%d", i, specs[i], w.name, w.protocol, w.reportLength)
-		}
-		if !bytes.Equal(specs[i].reportDesc, w.desc) {
-			t.Errorf("spec %d report descriptor mismatch", i)
+	if !bytes.Equal(combinedMouseReportDesc, want) {
+		t.Fatal("combined descriptor drifted from its derivation")
+	}
+	// Every collection opens with Usage Page + Usage + Collection(App); the
+	// derivation depends on that 6-byte prefix.
+	for i, p := range parts {
+		if p.desc[4] != 0xa1 || p.desc[5] != 0x01 {
+			t.Errorf("part %d does not open with Collection(Application)", i)
 		}
 	}
 }

@@ -1,7 +1,8 @@
-// Package hid drives the USB HID gadget functions the BMC presents to the
-// managed host: the boot keyboard, the relative mouse and the absolute pointer.
-// pkg/usbgadget/hid.go declares their report descriptors and links the
-// functions in a fixed order, so they surface as /dev/hidg0, hidg1 and hidg2.
+// Package hid drives the two USB HID gadget functions the BMC presents to
+// the managed host: the strict boot keyboard (/dev/hidg0, plain 8-byte
+// reports so pre-boot firmware can parse them) and the combined pointer
+// function (/dev/hidg1: relative mouse + absolute pointer multiplexed with
+// Report IDs). pkg/usbgadget/hid.go declares the descriptors.
 //
 // The keyboard half has to mirror what a real boot-protocol keyboard does,
 // because that is what the host's HID stack was told to expect: modifiers are
@@ -32,11 +33,20 @@ func signedByte(v int8) byte {
 	return byte(v) //nolint:gosec // two's-complement reinterpretation is the wire format
 }
 
-// Character devices, in the order pkg/usbgadget links hid.GS0/GS1/GS2.
+// Character devices, in the order pkg/usbgadget links hid.GS0/GS1. Pointer
+// report shapes, ID first:
+//
+//	relative: [1, buttons, dx, dy, wheel]   (5 bytes)
+//	absolute: [2, buttons, x16, y16, wheel] (7 bytes)
 const (
 	keyboardDevice = "/dev/hidg0" // 8-byte boot keyboard: [mod, 0, k1..k6]
-	relMouseDevice = "/dev/hidg1" // 4-byte relative mouse: [buttons, dx, dy, wheel]
-	absMouseDevice = "/dev/hidg2" // 6-byte absolute pointer: [buttons, x16, y16, wheel]
+	mouseDevice    = "/dev/hidg1" // combined pointer function
+)
+
+// Pointer report IDs; must match pkg/usbgadget's descriptor.
+const (
+	reportIDRelMouse byte = 1
+	reportIDAbsMouse byte = 2
 )
 
 const (
@@ -118,8 +128,7 @@ const AbsMax = 0x7FFF
 // timer, say) cannot interleave and lose an update.
 type Controller struct {
 	keyboard *device
-	relMouse *device
-	absMouse *device
+	mouse    *device
 
 	// mu guards keys and autoRelease, and serialises keyboard report writes.
 	mu          sync.Mutex
@@ -144,8 +153,7 @@ type Controller struct {
 func NewController() *Controller {
 	return &Controller{
 		keyboard:    &device{path: keyboardDevice, flags: os.O_RDWR},
-		relMouse:    &device{path: relMouseDevice, flags: os.O_WRONLY},
-		absMouse:    &device{path: absMouseDevice, flags: os.O_WRONLY},
+		mouse:       &device{path: mouseDevice, flags: os.O_WRONLY},
 		keys:        KeysDown{Keys: make([]byte, keyBufferSize)},
 		autoRelease: make(map[byte]*time.Timer),
 		subs:        make(map[chan LEDState]struct{}),
@@ -268,7 +276,7 @@ func (c *Controller) setKeys(modifier byte, keys []byte) {
 	c.keys = KeysDown{Modifier: modifier, Keys: keys}
 }
 
-// writeKeyboard emits one 8-byte report. Caller must hold mu.
+// writeKeyboard emits one 8-byte boot report. Caller must hold mu.
 func (c *Controller) writeKeyboard(modifier byte, keys []byte) error {
 	c.warnAboveRange(keys)
 
@@ -276,8 +284,8 @@ func (c *Controller) writeKeyboard(modifier byte, keys []byte) error {
 	report = append(report, modifier, 0x00)
 	report = append(report, keys[:keyBufferSize]...)
 
-	// Reading the host's LED reports needs the keyboard device open, and it is
-	// only ever opened here, so arm the listener on first write.
+	// Reading the host's LED reports needs the keyboard device open, and it
+	// is only ever opened here, so arm the listener on first write.
 	err := c.keyboard.write(report)
 	if err == nil {
 		c.ledsOnce.Do(func() { go c.watchLEDReports() })
@@ -398,9 +406,10 @@ func (c *Controller) WatchLEDs() (<-chan LEDState, func()) {
 }
 
 // watchLEDReports reads the keyboard's OUT reports for as long as the device
-// stays open. The host writes one byte whenever a lock key changes — including
-// changes made on a physically attached keyboard, which is exactly why this is
-// read rather than inferred.
+// stays open. The host writes one byte whenever a lock key changes — the
+// boot keyboard has no Report IDs, so the report is the bare LED byte.
+// Reading rather than inferring matters because lock state can change from a
+// physically attached keyboard too.
 func (c *Controller) watchLEDReports() {
 	buf := make([]byte, 8)
 	for {
@@ -477,19 +486,22 @@ func (c *Controller) AbsMouse(x, y uint16, buttons byte, wheel int8) error {
 	if y > AbsMax {
 		y = AbsMax
 	}
-	report := make([]byte, 6)
-	report[0] = buttons
-	binary.LittleEndian.PutUint16(report[1:3], x)
-	binary.LittleEndian.PutUint16(report[3:5], y)
-	report[5] = signedByte(wheel)
-	return c.absMouse.write(report)
+	report := make([]byte, 7)
+	report[0] = reportIDAbsMouse
+	report[1] = buttons
+	binary.LittleEndian.PutUint16(report[2:4], x)
+	binary.LittleEndian.PutUint16(report[4:6], y)
+	report[6] = signedByte(wheel)
+	return c.mouse.write(report)
 }
 
 // RelMouse moves the pointer by a delta. Needed for hosts that ignore absolute
 // pointers (some BIOS setup screens) and for pointer-locked play, where the
 // browser reports deltas rather than positions.
 func (c *Controller) RelMouse(dx, dy int8, buttons byte, wheel int8) error {
-	return c.relMouse.write([]byte{buttons, signedByte(dx), signedByte(dy), signedByte(wheel)})
+	return c.mouse.write([]byte{
+		reportIDRelMouse, buttons, signedByte(dx), signedByte(dy), signedByte(wheel),
+	})
 }
 
 // Close releases the character devices and stops pending auto-releases.
@@ -499,8 +511,7 @@ func (c *Controller) Close() {
 	c.mu.Unlock()
 
 	c.keyboard.close()
-	c.relMouse.close()
-	c.absMouse.close()
+	c.mouse.close()
 }
 
 // ── Character-device plumbing ─────────────────────────────────────────────

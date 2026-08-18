@@ -27,10 +27,25 @@ func newTestController(t *testing.T) *Controller {
 
 	c := NewController()
 	c.keyboard = stub("hidg0")
-	c.relMouse = stub("hidg1")
-	c.absMouse = stub("hidg2")
+	c.mouse = stub("hidg1")
 	t.Cleanup(c.Close)
 	return c
+}
+
+// idReports splits the combined pointer device's bytes into fixed-size
+// reports of one collection, verifying and stripping each report's leading
+// Report ID so the assertions below stay in payload terms.
+func idReports(t *testing.T, d *device, id byte, size int) [][]byte {
+	t.Helper()
+	raw := reports(t, d, size+1)
+	out := make([][]byte, 0, len(raw))
+	for i, r := range raw {
+		if r[0] != id {
+			t.Fatalf("report %d has ID %#x, want %#x", i, r[0], id)
+		}
+		out = append(out, r[1:])
+	}
+	return out
 }
 
 // reports splits a device's accumulated bytes into fixed-size reports.
@@ -254,7 +269,7 @@ func TestAbsMouseReportLayout(t *testing.T) {
 		t.Fatalf("abs mouse: %v", err)
 	}
 
-	got := reports(t, c.absMouse, 6)
+	got := idReports(t, c.mouse, reportIDAbsMouse, 6)
 	wantReport(t, got[0], MouseLeft, 0x34, 0x12, 0xFF, 0x7F, 0xFD)
 }
 
@@ -267,7 +282,7 @@ func TestAbsMouseClampsToDescriptorRange(t *testing.T) {
 		t.Fatalf("abs mouse: %v", err)
 	}
 
-	got := reports(t, c.absMouse, 6)
+	got := idReports(t, c.mouse, reportIDAbsMouse, 6)
 	wantReport(t, got[0], 0, 0xFF, 0x7F, 0xFF, 0x7F, 0)
 }
 
@@ -280,7 +295,7 @@ func TestRelMouseReportLayout(t *testing.T) {
 		t.Fatalf("rel mouse: %v", err)
 	}
 
-	got := reports(t, c.relMouse, 4)
+	got := idReports(t, c.mouse, reportIDRelMouse, 4)
 	wantReport(t, got[0], MouseRight|MouseMiddle, 0xFF, 0x05, 0x01)
 }
 

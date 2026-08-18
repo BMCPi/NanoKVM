@@ -396,9 +396,9 @@ type UsbGadget struct {
 	// toggle.
 	Disk bool `yaml:"disk"`
 
-	// HID enables the keyboard/mouse/touchpad functions (hid.GS0/1/2). The HID
-	// report streams are consumed by a separate component; the gadget only has
-	// to create the functions with the correct report descriptors.
+	// HID enables the combined keyboard/mouse/touchpad function (hid.GS0). The
+	// HID report stream is multiplexed over /dev/hidg0 with Report IDs; the
+	// gadget creates the function with the combined report descriptor.
 	HID bool `yaml:"hid"`
 	// BIOSMode sets subclass=1 on the HID functions (boot-protocol compatible
 	// for BIOS/UEFI setup screens). Formerly the /boot/BIOS flag.

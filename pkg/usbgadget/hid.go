@@ -1,14 +1,23 @@
 package usbgadget
 
-// HID report descriptors for the three human-interface functions the gadget
-// exposes: hid.GS0 (boot keyboard), hid.GS1 (relative mouse) and hid.GS2
-// (absolute touchpad).
+// HID report descriptors for the two human-interface functions the gadget
+// exposes: hid.GS0, a strict boot-protocol keyboard, and hid.GS1, the two
+// pointer collections (relative mouse + absolute pointer) multiplexed over
+// one interface with Report IDs (HID 1.11 §5.6/§8.1).
 //
-// These byte sequences are read by the host's USB HID stack and by the separate
-// component that writes the /dev/hidgN character devices, so they MUST stay
-// byte-for-byte identical to the descriptors the previous packaging/etc/init.d/
-// S03usbdev shell script wrote (its `echo -ne \x..` lines). Do not "clean up",
-// reorder, or regenerate them — hid_test.go pins them to these exact bytes.
+// The keyboard stays its own unmodified 8-byte boot function on purpose:
+// pre-boot environments (EDK2 UsbKbDxe, U-Boot) force boot protocol and
+// assume exactly 8 bytes, and a Report ID would make every keystroke a
+// 9-byte packet they misparse — typing in UEFI setup is a core KVM duty.
+// The mice have no such duty (boot-mouse support in firmware is marginal
+// and our pre-boot pointer story is the absolute device, which boot
+// protocol cannot describe anyway), so they share an interface freely.
+//
+// The three per-collection descriptors below are the historical S03usbdev
+// byte sequences, unchanged (hid_test.go pins them); the combined mouse
+// descriptor is derived by inserting a Report ID item after each
+// Collection(Application) open. The report IDs and prefixed payload shapes
+// are shared contract with pkg/hid.
 
 // keyboardReportDesc: boot-protocol keyboard, 8-byte reports (modifier byte,
 // reserved byte, 6 keycodes). protocol=1, report_length=8.
@@ -50,6 +59,30 @@ var touchpadReportDesc = []byte{
 	0xc0, 0xc0,
 }
 
+// Report IDs within the combined mouse function. Shared contract with pkg/hid.
+const (
+	ReportIDRelMouse byte = 1
+	ReportIDAbsMouse byte = 2
+)
+
+// withReportID inserts a Report ID item after the 6-byte collection prefix
+// (Usage Page, Usage, Collection(Application)) each descriptor opens with.
+func withReportID(desc []byte, id byte) []byte {
+	out := make([]byte, 0, len(desc)+2)
+	out = append(out, desc[:6]...)
+	out = append(out, 0x85, id) // Report ID (id)
+	out = append(out, desc[6:]...)
+	return out
+}
+
+// combinedMouseReportDesc is the descriptor of the shared pointer function.
+var combinedMouseReportDesc = func() []byte {
+	var out []byte
+	out = append(out, withReportID(mouseReportDesc, ReportIDRelMouse)...)
+	out = append(out, withReportID(touchpadReportDesc, ReportIDAbsMouse)...)
+	return out
+}()
+
 // hidSpec is one HID function's configfs shape (its report-descriptor + boot
 // attributes). subclass (BIOS mode) and wakeup_on_write are applied separately
 // from the gadget config.
@@ -60,12 +93,12 @@ type hidSpec struct {
 	reportDesc   []byte
 }
 
-// hidSpecs returns the ordered HID functions: keyboard, relative mouse,
-// absolute touchpad. The order matches the canonical interface order.
+// hidSpecs returns the ordered HID functions: the boot keyboard and the
+// combined pointer function. The mouse function's report_length is its
+// largest report including the ID byte (absolute: 1+6).
 func hidSpecs() []hidSpec {
 	return []hidSpec{
 		{name: "hid.GS0", protocol: 1, reportLength: 8, reportDesc: keyboardReportDesc},
-		{name: "hid.GS1", protocol: 2, reportLength: 4, reportDesc: mouseReportDesc},
-		{name: "hid.GS2", protocol: 2, reportLength: 6, reportDesc: touchpadReportDesc},
+		{name: "hid.GS1", protocol: 2, reportLength: 7, reportDesc: combinedMouseReportDesc},
 	}
 }
