@@ -22,8 +22,10 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/mdns"
 	"github.com/pi-bmc/nanokvm-app/pkg/network"
+	"github.com/pi-bmc/nanokvm-app/pkg/serial"
 	sshsvc "github.com/pi-bmc/nanokvm-app/pkg/ssh"
 	"github.com/pi-bmc/nanokvm-app/pkg/sysinfo"
+	"github.com/pi-bmc/nanokvm-app/pkg/timesync"
 	"github.com/pi-bmc/nanokvm-app/pkg/usbgadget"
 	"github.com/pi-bmc/nanokvm-app/ui/components"
 )
@@ -36,19 +38,28 @@ func settingsFragmentRoutes(g *gin.RouterGroup, d *deps.Deps) {
 	})
 	s.PATCH("/autoupdate", patchAutoUpdate)
 	s.PATCH("/console", patchConsole)
+	s.PATCH("/timesync", patchTimeSync)
 
 	s.GET("/network", func(c *gin.Context) {
 		renderFragment(c, components.SettingsNetworkBody(networkModel()))
 	})
 	s.PATCH("/network", patchNetwork)
+	s.PATCH("/mdns", patchMDNS)
 	s.GET("/network/status", func(c *gin.Context) {
 		renderFragment(c, components.SettingsNetworkStatusRows(networkStatus()))
 	})
+
+	s.GET("/serial", func(c *gin.Context) {
+		renderFragment(c, components.SettingsSerialBody(serialModel()))
+	})
+	s.PATCH("/serial", patchSerial)
 
 	s.GET("/hardware", func(c *gin.Context) {
 		renderFragment(c, components.SettingsHardwareBody(hardwareModel(d)))
 	})
 	s.POST("/hardware", postHardware(d))
+	s.PATCH("/gadget", patchGadget(d))
+	s.PATCH("/power", patchPower(d))
 
 	s.GET("/access", func(c *gin.Context) {
 		renderFragment(c, components.SettingsAccessBody(accessModel()))
@@ -56,12 +67,40 @@ func settingsFragmentRoutes(g *gin.RouterGroup, d *deps.Deps) {
 	s.POST("/access/ssh", postSSHEnabled)
 	s.POST("/access/ssh/keys", postSSHKeys)
 	s.POST("/access/tls", postTLS)
+	s.PATCH("/access/ports", patchWebPorts)
+	s.PATCH("/access/security", patchLoginSecurity)
+	s.PATCH("/access/protocols", patchProtocols)
+
+	s.GET("/telemetry", func(c *gin.Context) {
+		renderFragment(c, components.SettingsTelemetryBody(telemetryModel()))
+	})
+	s.PATCH("/telemetry", patchTelemetry)
 
 	s.GET("/advanced", func(c *gin.Context) {
 		renderFragment(c, components.SettingsAdvancedBody(advancedModel()))
 	})
+	s.PATCH("/logging", patchLogging)
+	s.PATCH("/webrtc", patchWebRTC)
+	s.PATCH("/storage", patchStorage)
 	s.POST("/reboot", postReboot)
 }
+
+// atoiClamp parses a submitted number. A missing, unparseable or out-of-range
+// value keeps current rather than resetting the setting: these forms submit on
+// every change, so a half-typed number must not be able to clobber a good one.
+// min is re-checked here and not only in the input's min attribute, because a
+// hand-crafted POST never sees that attribute.
+func atoiClamp(s string, current, min int) int {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || n < min {
+		return current
+	}
+	return n
+}
+
+// restartNote is the description every "applies at startup" toast carries, so
+// the UI never implies a change took effect that has not.
+const restartNote = "Saved. Applies after the BMC restarts."
 
 // checked reads a checkbox out of a submitted form. An unchecked box is
 // omitted by the browser entirely, which is the HTML way of saying false —
@@ -73,17 +112,40 @@ func checked(c *gin.Context, name string) bool {
 // ── General ─────────────────────────────────────────────────────────────
 
 func generalModel() components.SettingsGeneral {
-	au := config.GetInstance().AutoUpdate
+	conf := config.GetInstance()
+	au := conf.AutoUpdate
+	ts := conf.TimeSync
 	return components.SettingsGeneral{
 		AppVersion:            application.CurrentVersion(),
 		ImageVersion:          sysinfo.ImageVersion(),
-		Hardware:              config.GetInstance().Hardware.Version.String(),
+		Hardware:              conf.Hardware.Version.String(),
 		AutoUpdateEnabled:     au.Enabled,
 		AutoUpdateInterval:    strconv.Itoa(au.IntervalMinutes),
 		AutoUpdateApplication: au.Application,
 		AutoUpdateBIOS:        au.BIOS,
-		ConsolePrimaryView:    config.GetInstance().Console.PrimaryView,
+		ConsolePrimaryView:    conf.Console.PrimaryView,
+		TimeSyncEnabled:       ts.Enabled,
+		TimeSyncServers:       strings.Join(ts.Servers, ", "),
+		TimeSyncInterval:      strconv.Itoa(ts.IntervalMinutes),
 	}
+}
+
+// patchTimeSync re-reads the whole sync loop. Stop before Start because Start
+// returns early when the subsystem is disabled — without the Stop, turning
+// timesync off would leave the previous loop running and still touching the
+// clock.
+func patchTimeSync(c *gin.Context) {
+	ts := &config.GetInstance().TimeSync
+	ts.Enabled = checked(c, "enabled")
+	ts.Servers = splitList(c.PostForm("servers"))
+	ts.IntervalMinutes = atoiClamp(c.PostForm("intervalMinutes"), ts.IntervalMinutes, 1)
+
+	config.Save()
+	timesync.Stop()
+	timesync.Start()
+
+	hxToast(c, "success", "Settings saved", "Clock synchronisation reconfigured.")
+	renderFragment(c, components.SettingsGeneralBody(generalModel()))
 }
 
 // patchConsole persists which view the dashboard opens on.
@@ -125,17 +187,91 @@ func patchAutoUpdate(c *gin.Context) {
 
 func networkModel() components.SettingsNetwork {
 	n := config.GetInstance().Network
+	md := config.GetInstance().MDNS
 	return components.SettingsNetwork{
-		Enabled:    n.Enabled,
-		Mode:       strings.ToLower(n.Eth0.Mode),
-		MAC:        n.Eth0.MAC,
-		Address:    n.Eth0.Address,
-		Gateway:    n.Eth0.Gateway,
-		DNS:        strings.Join(n.Eth0.DNS, ", "),
-		RHIAddress: n.RHI.Address,
-		RHILease:   n.RHI.Lease,
-		Status:     networkStatus(),
+		Enabled:       n.Enabled,
+		Mode:          strings.ToLower(n.Eth0.Mode),
+		MAC:           n.Eth0.MAC,
+		Address:       n.Eth0.Address,
+		Gateway:       n.Eth0.Gateway,
+		DNS:           strings.Join(n.Eth0.DNS, ", "),
+		RHIAddress:    n.RHI.Address,
+		RHILease:      n.RHI.Lease,
+		MDNSEnabled:   md.Enabled,
+		MDNSHostname:  md.Hostname,
+		MDNSInterface: md.Interface,
+		MDNSIPv4:      md.IPv4,
+		MDNSIPv6:      md.IPv6,
+		Status:        networkStatus(),
 	}
+}
+
+// patchMDNS restarts only the responder, leaving addressing alone — which is
+// why it is a separate form from the batched eth0 config whose Save warns it
+// may drop the session.
+func patchMDNS(c *gin.Context) {
+	md := &config.GetInstance().MDNS
+	md.Enabled = checked(c, "enabled")
+	md.Hostname = strings.TrimSpace(c.PostForm("hostname"))
+	md.Interface = strings.TrimSpace(c.PostForm("interface"))
+	md.IPv4 = checked(c, "ipv4")
+	md.IPv6 = checked(c, "ipv6")
+
+	config.Save()
+	mdns.Restart()
+
+	hxToast(c, "success", "Settings saved", "Discovery responder restarted.")
+	renderFragment(c, components.SettingsNetworkBody(networkModel()))
+}
+
+// ── Serial ──────────────────────────────────────────────────────────────
+
+func serialModel() components.SettingsSerial {
+	s := config.GetInstance().Serial
+	return components.SettingsSerial{
+		Device:         s.Device,
+		BaudRate:       strconv.Itoa(s.BaudRate),
+		DataBits:       strconv.Itoa(s.DataBits),
+		Parity:         strings.ToLower(s.Parity),
+		StopBits:       strconv.Itoa(s.StopBits),
+		FlowControl:    strings.ToLower(s.FlowControl),
+		CaptureEnabled: s.Capture.Enabled,
+		CaptureFile:    s.Capture.File,
+		CaptureMaxKB:   strconv.Itoa(s.Capture.MaxSizeKB),
+	}
+}
+
+// patchSerial writes the port config and re-opens the port so the new framing
+// takes effect now rather than at the next reboot. That disconnects live
+// console sessions — the form's hx-confirm says so before it happens.
+//
+// The device path is not validated here: an operator moving the console to a
+// different tty is a legitimate change, and the broker already reports an open
+// failure through the console's own connection status.
+func patchSerial(c *gin.Context) {
+	s := &config.GetInstance().Serial
+	if dev := strings.TrimSpace(c.PostForm("device")); dev != "" {
+		s.Device = dev
+	}
+	s.BaudRate = atoiClamp(c.PostForm("baudRate"), s.BaudRate, 50)
+	s.DataBits = atoiClamp(c.PostForm("dataBits"), s.DataBits, 5)
+	s.StopBits = atoiClamp(c.PostForm("stopBits"), s.StopBits, 1)
+	if p := strings.ToLower(strings.TrimSpace(c.PostForm("parity"))); p != "" {
+		s.Parity = p
+	}
+	if f := strings.ToLower(strings.TrimSpace(c.PostForm("flowControl"))); f != "" {
+		s.FlowControl = f
+	}
+	s.Capture.Enabled = checked(c, "captureEnabled")
+	s.Capture.MaxSizeKB = atoiClamp(c.PostForm("captureMaxKB"), s.Capture.MaxSizeKB, 16)
+
+	config.Save()
+	serial.Restart()
+
+	log.Infof("serial: settings updated via ui (%s @ %d %d/%s/%d)",
+		s.Device, s.BaudRate, s.DataBits, s.Parity, s.StopBits)
+	hxToast(c, "success", "Serial settings saved", "The port was re-opened; reconnect the console.")
+	renderFragment(c, components.SettingsSerialBody(serialModel()))
 }
 
 // networkStatus reports what the interfaces actually came up with, which is
@@ -218,15 +354,75 @@ func splitList(s string) []string {
 
 func hardwareModel(d *deps.Deps) components.SettingsHardware {
 	st := usbgadget.Get().State()
+	g := config.GetInstance().UsbGadget
 	m := components.SettingsHardware{
+		// Ethernet and Disk come from the live gadget, the rest from config:
+		// the first pair is reconciled at runtime and can differ from what was
+		// asked for, the rest is only read when the tree is built at boot.
 		USBNetwork: st.Ethernet != usbgadget.EthernetOff,
 		USBDisk:    st.Disk,
 		MediaState: "Not inserted",
+
+		GadgetEnabled: g.Enabled,
+		HID:           g.HID,
+		BIOSMode:      g.BIOSMode,
+		WakeupOnWrite: g.WakeupOnWrite,
+		VendorID:      g.VendorID,
+		ProductID:     g.ProductID,
+		Manufacturer:  g.Manufacturer,
+		Product:       g.Product,
+		SerialNumber:  g.SerialNumber,
+
+		PowerLegacyMode: config.GetInstance().Power.LegacyMode,
 	}
 	if d.Firmware.GetVirtualMediaState().Inserted {
 		m.MediaState = "Inserted"
 	}
 	return m
+}
+
+// patchGadget persists the descriptor and HID settings. Nothing is applied
+// live: pkg/usbgadget exposes runtime setters for Ethernet and Disk only, and
+// everything here is consumed by build() when the configfs tree is created at
+// startup. Re-enumerating the device under a running host mid-session would
+// also drop the keyboard the operator may be using to watch it happen.
+func patchGadget(d *deps.Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		g := &config.GetInstance().UsbGadget
+		g.Enabled = checked(c, "enabled")
+		g.HID = checked(c, "hid")
+		g.BIOSMode = checked(c, "biosMode")
+		g.WakeupOnWrite = checked(c, "wakeupOnWrite")
+		if v := strings.TrimSpace(c.PostForm("vendorID")); v != "" {
+			g.VendorID = v
+		}
+		if v := strings.TrimSpace(c.PostForm("productID")); v != "" {
+			g.ProductID = v
+		}
+		g.Manufacturer = strings.TrimSpace(c.PostForm("manufacturer"))
+		g.Product = strings.TrimSpace(c.PostForm("product"))
+		g.SerialNumber = strings.TrimSpace(c.PostForm("serialNumber"))
+
+		config.Save()
+
+		hxToast(c, "success", "USB settings saved", restartNote)
+		renderFragment(c, components.SettingsHardwareBody(hardwareModel(d)))
+	}
+}
+
+// patchPower switches how the power pin is driven. Not applied live:
+// power.NewController snapshots legacyMode at construction (pkg/power/power.go
+// — "legacyMode and the GPIO pins are fixed at construction from config"), and
+// the controller is built once in main and threaded through deps, so the
+// running instance keeps the old mode until the process restarts.
+func patchPower(d *deps.Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		config.GetInstance().Power.LegacyMode = checked(c, "legacyMode")
+		config.Save()
+
+		hxToast(c, "success", "Settings saved", restartNote)
+		renderFragment(c, components.SettingsHardwareBody(hardwareModel(d)))
+	}
 }
 
 // postHardware sets the gadget functions to the submitted state rather than
@@ -260,30 +456,141 @@ func accessModel() components.SettingsAccess {
 	if err != nil {
 		log.Warnf("ui: read authorized keys: %v", err)
 	}
+	conf := config.GetInstance()
 	return components.SettingsAccess{
-		SSHEnabled: config.GetInstance().SSH.Enabled,
-		SSHKeys:    keys,
-		TLSEnabled: config.GetInstance().Proto == "https",
+		SSHEnabled:      conf.SSH.Enabled,
+		SSHKeys:         keys,
+		SSHPort:         strconv.Itoa(conf.SSH.Port),
+		SSHPasswordAuth: conf.SSH.PasswordAuth,
+
+		TLSEnabled: conf.Proto == "https",
+		HTTPPort:   strconv.Itoa(conf.Port.Http),
+		HTTPSPort:  strconv.Itoa(conf.Port.Https),
+
+		LoginMaxFailures:     strconv.Itoa(conf.Security.LoginMaxFailures),
+		LoginLockoutDuration: strconv.Itoa(conf.Security.LoginLockoutDuration),
+
+		SessionDuration:    strconv.FormatUint(conf.JWT.RefreshTokenDuration, 10),
+		RevokeTokensLogout: conf.JWT.RevokeTokensOnLogout,
+
+		IPMIEnabled:    conf.IPMI.Enabled,
+		IPMIPort:       strconv.Itoa(conf.IPMI.Port),
+		RedfishEnabled: conf.Redfish.Enabled,
 	}
 }
 
-// postSSHEnabled starts or stops the in-process listener. A failure (the port
-// is taken, say) rolls the config back, and because the response is the panel
-// re-read from config the switch snaps back on its own.
+// postSSHEnabled owns the whole SSH form — the switch, the port and the
+// password-auth policy — because all three are applied by the same restart.
+//
+// A failure (the port is taken, say) rolls the whole submission back, and
+// because the response is the panel re-read from config, the controls snap back
+// on their own rather than showing a state the listener never reached.
 func postSSHEnabled(c *gin.Context) {
 	conf := config.GetInstance()
-	previous := conf.SSH.Enabled
+	previous := conf.SSH
+
 	conf.SSH.Enabled = checked(c, "enabled")
+	conf.SSH.PasswordAuth = checked(c, "passwordAuth")
+	conf.SSH.Port = atoiClamp(c.PostForm("port"), conf.SSH.Port, 1)
 
 	if err := sshsvc.Restart(); err != nil {
-		conf.SSH.Enabled = previous
+		conf.SSH = previous
 		log.Errorf("ui: apply SSH state: %s", err)
 		hxToast(c, "error", "SSH unchanged", err.Error())
-	} else if previous != conf.SSH.Enabled {
+		// Put the listener back the way it was; the restart above left it
+		// stopped, and the rolled-back config is what it should be running.
+		if rerr := sshsvc.Restart(); rerr != nil {
+			log.Errorf("ui: restore SSH listener: %s", rerr)
+		}
+	} else if previous != conf.SSH {
 		config.Save()
+		hxToast(c, "success", "SSH settings saved", "")
 	}
 
 	renderFragment(c, components.SettingsAccessBody(accessModel()))
+}
+
+// patchWebPorts records the listener ports. Not applied live: the HTTP server
+// binds them in main at startup, so changing one here without a restart would
+// leave the UI claiming a port nothing is listening on.
+func patchWebPorts(c *gin.Context) {
+	p := &config.GetInstance().Port
+	p.Http = atoiClamp(c.PostForm("httpPort"), p.Http, 1)
+	p.Https = atoiClamp(c.PostForm("httpsPort"), p.Https, 1)
+
+	config.Save()
+
+	hxToast(c, "success", "Settings saved", restartNote)
+	renderFragment(c, components.SettingsAccessBody(accessModel()))
+}
+
+// patchLoginSecurity applies immediately: pkg/auth/brute_force.go and
+// pkg/middleware/jwt.go read these out of config on every attempt rather than
+// caching them, so there is nothing to restart.
+func patchLoginSecurity(c *gin.Context) {
+	conf := config.GetInstance()
+	conf.Security.LoginMaxFailures = atoiClamp(c.PostForm("maxFailures"), conf.Security.LoginMaxFailures, 1)
+	// Zero is meaningful here — it disables lockout — so the floor is 0, not 1.
+	conf.Security.LoginLockoutDuration = atoiClamp(c.PostForm("lockoutDuration"), conf.Security.LoginLockoutDuration, 0)
+	if n := atoiClamp(c.PostForm("sessionDuration"), int(conf.JWT.RefreshTokenDuration), 60); n > 0 {
+		conf.JWT.RefreshTokenDuration = uint64(n)
+	}
+	conf.JWT.RevokeTokensOnLogout = checked(c, "revokeOnLogout")
+
+	config.Save()
+
+	hxToast(c, "success", "Settings saved", "Login policy applied to new sessions.")
+	renderFragment(c, components.SettingsAccessBody(accessModel()))
+}
+
+// patchProtocols records the out-of-band interfaces. Neither is applied live:
+// the IPMI listener is started once in main, and the Redfish routes are
+// registered on the router at startup.
+func patchProtocols(c *gin.Context) {
+	conf := config.GetInstance()
+	conf.IPMI.Enabled = checked(c, "ipmiEnabled")
+	conf.IPMI.Port = atoiClamp(c.PostForm("ipmiPort"), conf.IPMI.Port, 1)
+	conf.Redfish.Enabled = checked(c, "redfishEnabled")
+
+	config.Save()
+
+	hxToast(c, "success", "Settings saved", restartNote)
+	renderFragment(c, components.SettingsAccessBody(accessModel()))
+}
+
+// ── Telemetry ───────────────────────────────────────────────────────────
+
+func telemetryModel() components.SettingsTelemetry {
+	t := config.GetInstance().Telemetry
+	return components.SettingsTelemetry{
+		Enabled:           t.Enabled,
+		ServiceName:       t.ServiceName,
+		PrometheusEnabled: t.Prometheus.Enabled,
+		PrometheusPath:    t.Prometheus.Path,
+		OTLPEndpoint:      t.OTLP.Endpoint,
+		OTLPInsecure:      t.OTLP.Insecure,
+	}
+}
+
+// patchTelemetry records collection settings. telemetry.Init wires the
+// meter/tracer providers and the scrape handler once at startup, so none of
+// this takes effect until the process restarts — including the master switch,
+// which is why the toast says so rather than implying the charts will fill in.
+func patchTelemetry(c *gin.Context) {
+	t := &config.GetInstance().Telemetry
+	t.Enabled = checked(c, "enabled")
+	t.ServiceName = strings.TrimSpace(c.PostForm("serviceName"))
+	t.Prometheus.Enabled = checked(c, "prometheusEnabled")
+	if p := strings.TrimSpace(c.PostForm("prometheusPath")); p != "" {
+		t.Prometheus.Path = p
+	}
+	t.OTLP.Endpoint = strings.TrimSpace(c.PostForm("otlpEndpoint"))
+	t.OTLP.Insecure = checked(c, "otlpInsecure")
+
+	config.Save()
+
+	hxToast(c, "success", "Settings saved", restartNote)
+	renderFragment(c, components.SettingsTelemetryBody(telemetryModel()))
 }
 
 func postSSHKeys(c *gin.Context) {
@@ -344,7 +651,76 @@ func postTLS(c *gin.Context) {
 // ── Advanced ────────────────────────────────────────────────────────────
 
 func advancedModel() components.SettingsAdvanced {
-	return components.SettingsAdvanced{DeviceKey: sysinfo.DeviceKey()}
+	conf := config.GetInstance()
+	return components.SettingsAdvanced{
+		DeviceKey: sysinfo.DeviceKey(),
+
+		LogLevel: strings.ToLower(conf.Logger.Level),
+		LogFile:  conf.Logger.File,
+
+		Stun:     conf.Stun,
+		TurnAddr: conf.Turn.TurnAddr,
+		TurnUser: conf.Turn.TurnUser,
+		TurnCred: conf.Turn.TurnCred,
+
+		MediaDir: conf.Firmware.MediaDir,
+	}
+}
+
+// patchLogging applies the level immediately — pkg/logger's only act on it is
+// logrus.SetLevel, so doing the same here is the whole application. An
+// unparseable level is rejected rather than defaulting, because silently
+// logging at a different level than the one displayed is worse than an error.
+func patchLogging(c *gin.Context) {
+	lvl := strings.ToLower(strings.TrimSpace(c.PostForm("level")))
+	parsed, err := log.ParseLevel(lvl)
+	if err != nil {
+		hxToast(c, "error", "Log level unchanged", "Unrecognised level "+lvl+".")
+		renderFragment(c, components.SettingsAdvancedBody(advancedModel()))
+		return
+	}
+
+	config.GetInstance().Logger.Level = lvl
+	log.SetLevel(parsed)
+	config.Save()
+
+	hxToast(c, "success", "Settings saved", "Now logging at "+lvl+".")
+	renderFragment(c, components.SettingsAdvancedBody(advancedModel()))
+}
+
+// patchWebRTC records the ICE servers. These are read when a console session
+// negotiates, and handed to the browser as the page's ice-servers data
+// attribute, so a change reaches the next session without a restart — no
+// running session is renegotiated.
+func patchWebRTC(c *gin.Context) {
+	conf := config.GetInstance()
+	conf.Stun = strings.TrimSpace(c.PostForm("stun"))
+	conf.Turn.TurnAddr = strings.TrimSpace(c.PostForm("turnAddr"))
+	conf.Turn.TurnUser = strings.TrimSpace(c.PostForm("turnUser"))
+	conf.Turn.TurnCred = strings.TrimSpace(c.PostForm("turnCred"))
+
+	config.Save()
+
+	hxToast(c, "success", "Settings saved", "Applies to the next console session.")
+	renderFragment(c, components.SettingsAdvancedBody(advancedModel()))
+}
+
+// patchStorage moves where uploaded ISOs are kept. Existing images are not
+// relocated — the directory is read per operation, so the old ones simply stop
+// being listed, and saying so beats appearing to delete them.
+func patchStorage(c *gin.Context) {
+	dir := strings.TrimSpace(c.PostForm("mediaDir"))
+	if dir == "" {
+		hxToast(c, "error", "Media directory unchanged", "A path is required.")
+		renderFragment(c, components.SettingsAdvancedBody(advancedModel()))
+		return
+	}
+
+	config.GetInstance().Firmware.MediaDir = dir
+	config.Save()
+
+	hxToast(c, "success", "Settings saved", "Images already uploaded stay where they are.")
+	renderFragment(c, components.SettingsAdvancedBody(advancedModel()))
 }
 
 // postReboot answers before rebooting so the toast reaches the browser; the

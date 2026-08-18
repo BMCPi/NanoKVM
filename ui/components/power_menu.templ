@@ -6,6 +6,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/dropdownmenu"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
+	selectcomp "github.com/pi-bmc/nanokvm-app/ui/components/select"
 	"github.com/pi-bmc/nanokvm-app/ui/utils"
 )
 
@@ -79,10 +80,6 @@ templ PowerMenu() {
 				// that the host firmware applies at its next boot. The clicked
 				// submit button supplies mode (once/continuous/clear), so Clear
 				// is unambiguous — no competing mode field in the form.
-				// Native <select> (like the Virtual Media ISO picker): the
-				// shadcn-templ Select portals its popup to <body>, and the
-				// dropdown menu treats pointerdowns there as outside clicks, so
-				// a composed Select would close the menu on first use.
 				<form class="space-y-2" hx-post="/ui/overview/boot-override" hx-swap="none">
 					<p class={ SectionLabelClass }>Boot Override</p>
 					@bootDeviceSelect()
@@ -140,24 +137,37 @@ templ powerGridBtn(action, class string, ico func(...icon.Props) templ.Component
 
 // bootDeviceSelect picks the boot-override target. Same target list as the
 // overview card's bootOverrideSelect (overview.templ) — keep them in sync.
+//
+// The Select portals its popup to <body>, which used to make this a plain
+// <select>: the menu read a press on a portaled option as an outside click and
+// dismissed itself. The menu now recognises a Select popup as its own (see
+// dropdownmenu.js), so the composed control works here.
 templ bootDeviceSelect() {
-	@NativeSelect("boot-device", "boot-override", "w-full min-w-0 px-2") {
-		<option value="None" selected>None (default)</option>
-		<option value="Pxe">PXE (network)</option>
-		<option value="Hdd">HDD / MMC / NVMe</option>
-		<option value="Cd">CD / USB</option>
-		<option value="BiosSetup">BIOS Setup</option>
-		<option value="UefiHttp">UEFI HTTP Boot</option>
+	@selectcomp.Select(selectcomp.Props{ID: "boot-device", Name: "boot-override", Value: "None"}) {
+		@selectcomp.Trigger(selectcomp.TriggerProps{Class: "h-8 w-full min-w-0"}) {
+			@selectcomp.Value(selectcomp.ValueProps{Placeholder: "None (default)"})
+		}
+		@selectcomp.Content() {
+			@selectcomp.Item(selectcomp.ItemProps{Value: "None"}) {
+				None (default)
+			}
+			@selectcomp.Item(selectcomp.ItemProps{Value: "Pxe"}) {
+				PXE (network)
+			}
+			@selectcomp.Item(selectcomp.ItemProps{Value: "Hdd"}) {
+				HDD / MMC / NVMe
+			}
+			@selectcomp.Item(selectcomp.ItemProps{Value: "Cd"}) {
+				CD / USB
+			}
+			@selectcomp.Item(selectcomp.ItemProps{Value: "BiosSetup"}) {
+				BIOS Setup
+			}
+			@selectcomp.Item(selectcomp.ItemProps{Value: "UefiHttp"}) {
+				UEFI HTTP Boot
+			}
+		}
 	}
-}
-
-// NativeSelect renders a plain <select> styled to match the Input component.
-// Used where the composed Select can't go — inside dropdown menus, whose
-// outside-click dismiss would fire on the Select's body-portaled popup.
-templ NativeSelect(id string, name string, class string) {
-	<select id={ id } name={ name } class={ "h-8 rounded-md border border-input bg-transparent text-sm dark:bg-input/30", class }>
-		{ children... }
-	</select>
 }
 
 // powerMenuScript is the SSE half of the pill: the server pushes a `power`

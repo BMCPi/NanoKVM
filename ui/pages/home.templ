@@ -2,6 +2,7 @@ package pages
 
 import (
 	"github.com/pi-bmc/nanokvm-app/ui/components"
+	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
 	"github.com/pi-bmc/nanokvm-app/ui/components/tabs"
 	"github.com/pi-bmc/nanokvm-app/ui/layouts"
@@ -34,7 +35,7 @@ templ Home(m HomeModel) {
 	@layouts.Base("NanoKVM BMC", true, false) {
 		<link rel="stylesheet" href="/css/xterm.min.css"/>
 		<style>
-			#console-pane { display: flex; flex-direction: column; height: 100%; padding: 0.25rem 0.5rem 0.5rem; gap: 0; }
+			#console-pane { display: flex; flex-direction: column; height: 100%; padding: 0; gap: 0; }
 			#console-pane.expanded { position: fixed; inset: 0; z-index: 40; background: var(--background); padding: 0; }
 			#terminal-wrap { flex: 1; min-height: 0; position: relative; overflow: hidden; }
 			#terminal { height: 100%; }
@@ -44,34 +45,55 @@ templ Home(m HomeModel) {
 			   is itself a flex item and only its parent has a definite height;
 			   min-height:0 is what lets it shrink below its content instead of
 			   overflowing the viewport. */
-			#console-tabs { flex: 1; min-height: 0; }
+			#console-tabs { flex: 1; min-height: 0; height: 100%; }
 			#console-tabs [data-tui-tabs-content] { min-height: 0; }
 		</style>
 		<div class="flex h-full min-h-0 w-full">
-			<div class="flex-1 min-w-0">
-				<div class="flex h-full min-h-0 flex-col gap-1 px-2 pb-2 pt-1">
-					@tabs.Tabs(tabs.Props{
-						ID:           consoleTabsID,
-						DefaultValue: consoleDefaultTab(m),
-						Class:        "gap-1",
-					}) {
-						@tabs.List(tabs.ListProps{Variant: tabs.VariantLine, Class: "h-8 self-start"}) {
-							@tabs.Trigger(tabs.TriggerProps{Value: tabHDMI}) {
-								@icon.Monitor()
+			<div class="flex-1 min-w-0 flex flex-col h-full min-h-0">
+				@tabs.Tabs(tabs.Props{
+					ID:           consoleTabsID,
+					DefaultValue: consoleDefaultTab(m),
+					Class:        "gap-0 h-full min-h-0 flex-1",
+				}) {
+					// Contextual Secondary Sub-Navbar (JetKVM 2-Tier Pattern)
+					<div class="flex items-center justify-between border-b border-border bg-card/60 backdrop-blur-xs px-2.5 py-1.5 gap-2 shrink-0">
+						// Left: Segmented View Switcher Pill
+						@tabs.List(tabs.ListProps{Class: "h-8 p-0.5 rounded-md border border-border/40 bg-muted/60 gap-0.5"}) {
+							@tabs.Trigger(tabs.TriggerProps{Value: tabHDMI, Class: "h-7 px-3 text-xs gap-1.5 rounded-sm data-[active]:shadow-xs"}) {
+								@icon.Monitor(icon.Props{Class: "size-3.5"})
 								<span>HDMI</span>
 							}
-							@tabs.Trigger(tabs.TriggerProps{Value: tabSerial}) {
-								@icon.Terminal()
+							@tabs.Trigger(tabs.TriggerProps{Value: tabSerial, Class: "h-7 px-3 text-xs gap-1.5 rounded-sm data-[active]:shadow-xs"}) {
+								@icon.Terminal(icon.Props{Class: "size-3.5"})
 								<span>Serial Console</span>
 							}
 						}
-						// No display utility on the panes: tabs.js switches them
-						// with the `hidden` CLASS, which a `flex` here would beat.
-						// The layout lives on the wrapper inside each pane.
-						@tabs.Content(tabs.ContentProps{Value: tabHDMI}) {
+						// Right: Session Action Controls (Virtual Media, Macros, Virtual Keyboard)
+						<div class="flex items-center gap-1 shrink-0">
+							@components.VirtualMediaMenu()
+							@components.MacroBar()
+							@button.Button(button.Props{
+								ID:      "btn-virtual-keyboard",
+								Variant: button.VariantGhost,
+								Size:    button.SizeSm,
+								Attributes: templ.Attributes{
+									"onclick":       "toggleVirtualKeyboard()",
+									"aria-label":    "Virtual Keyboard",
+									"aria-expanded": "false",
+									"title":         "Virtual keyboard",
+								},
+							}) {
+								@icon.Keyboard()
+								<span class="hidden sm:inline">Keyboard</span>
+							}
+						</div>
+					</div>
+					// Main Console Viewports (Padding-free, edge-to-edge)
+					<div class="flex-1 min-h-0 p-2">
+						@tabs.Content(tabs.ContentProps{Value: tabHDMI, Class: "h-full min-h-0"}) {
 							@components.VideoPanel(m.ICEServersJSON)
 						}
-						@tabs.Content(tabs.ContentProps{Value: tabSerial}) {
+						@tabs.Content(tabs.ContentProps{Value: tabSerial, Class: "h-full min-h-0"}) {
 							<div id="console-pane">
 								@components.ConsoleToolbar()
 								@components.ConsoleSearchBar()
@@ -80,8 +102,8 @@ templ Home(m HomeModel) {
 								</div>
 							</div>
 						}
-					}
-				</div>
+					</div>
+				}
 			</div>
 			@components.OverviewSidebar()
 		</div>

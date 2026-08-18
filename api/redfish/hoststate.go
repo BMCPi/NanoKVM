@@ -198,6 +198,12 @@ func hostStateSave() {
 	})
 }
 
+// FlushHostState writes any debounced host state to disk now. Called on the
+// shutdown path: the host's own reports save debounced, so without this a
+// SIGTERM inside the debounce window discards whatever the host last said and
+// the BMC comes back advertising the previous boot's inventory.
+func FlushHostState() { hostStateFlush() }
+
 // hostStateFlush writes immediately, for operator instructions and shutdown.
 func hostStateFlush() {
 	hostSaveMu.Lock()

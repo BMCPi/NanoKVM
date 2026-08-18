@@ -3,6 +3,7 @@ package components
 import (
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
+	"github.com/pi-bmc/nanokvm-app/ui/components/separator"
 )
 
 // Navbar is a single top bar. The Serial Console panel below acts as the
@@ -11,15 +12,28 @@ import (
 // Left cluster:  brand → Power ▾ → Virtual Media ▾ → divider → Server Overview
 // Right cluster: API Docs → Settings → Logout
 templ Navbar(onDocsPage bool) {
-	<header class="flex items-center justify-between border-b border-border bg-card px-3 gap-1 shrink-0" style="height:2.75rem">
-		// Left cluster
-		<div class="flex items-center gap-0.5">
-			<a href="/" class="flex items-center mr-2 shrink-0" title="NanoKVM BMC" aria-label="NanoKVM BMC">
-				<img src="/img/favicon.ico" alt="NanoKVM BMC" class="size-5"/>
+	// h-11 rather than an inline height: 2.75rem is exactly h-11, and this was
+	// the only inline style left in the app.
+	<header class="flex h-11 shrink-0 items-center justify-between gap-1 border-b border-border bg-card px-3">
+		// Left cluster: Brand + Power + Overview
+		<div class="flex items-center gap-1.5">
+			<a href="/" class="flex items-center gap-2 mr-2 shrink-0 group" title="NanoKVM BMC" aria-label="NanoKVM BMC">
+				<img src="/img/favicon.ico" alt="NanoKVM BMC" class="size-5 transition-transform group-hover:scale-105"/>
+				<span class="font-semibold text-sm tracking-tight hidden md:inline">NanoKVM <span class="text-xs text-muted-foreground font-normal">BMC</span></span>
 			</a>
 			@PowerMenu()
-			@VirtualMediaMenu()
-			<div class="w-px h-3.5 bg-border mx-1 shrink-0"></div>
+			// The vendored Separator rather than a hand-rolled hairline div, in
+			// the shape shadcn-templ's own site headers use it. It defaults to
+			// data-vertical:self-stretch (full header height), so the short rule
+			// needs data-vertical:self-auto to cancel it — and the variant prefix
+			// has to match for TwMerge to treat the two as one conflict group and
+			// drop the base class. A plain `self-auto` would survive alongside
+			// self-stretch and then lose: the generated self-stretch rule sorts
+			// after it, so cascade order alone does not save it.
+			@separator.Separator(separator.Props{
+				Orientation: separator.OrientationVertical,
+				Class:       "mx-1 h-3.5 data-vertical:self-auto",
+			})
 			@button.Button(button.Props{
 				Variant: button.VariantGhost,
 				Size:    button.SizeSm,
@@ -32,45 +46,8 @@ templ Navbar(onDocsPage bool) {
 				@icon.MonitorSpeaker()
 				<span class="hidden sm:inline">Server Overview</span>
 			}
-			if !onDocsPage {
-				// The virtual keyboard is a top-bar tool rather than a serial-console
-				// one: it types at whichever console pane is in front, over USB HID
-				// for HDMI and as xterm sequences for serial.
-				@button.Button(button.Props{
-					ID:      "btn-virtual-keyboard",
-					Variant: button.VariantGhost,
-					Size:    button.SizeSm,
-					Attributes: templ.Attributes{
-						"onclick":       "toggleVirtualKeyboard()",
-						"aria-label":    "Virtual Keyboard",
-						"aria-expanded": "false",
-						"title":         "Virtual keyboard",
-					},
-				}) {
-					@icon.Keyboard()
-					<span class="hidden sm:inline">Keyboard</span>
-				}
-				@MacroBar()
-				<div class="w-px h-3.5 bg-border mx-1 shrink-0"></div>
-				// Toggles the slide-up BMC shell drawer (BMCTerminalPanel).
-				// Docs pages don't render the drawer, so the button is omitted there.
-				@button.Button(button.Props{
-					ID:      "btn-bmc-terminal",
-					Variant: button.VariantGhost,
-					Size:    button.SizeSm,
-					Attributes: templ.Attributes{
-						"onclick":       "toggleBmcTerminal()",
-						"aria-label":    "BMC Terminal",
-						"aria-expanded": "false",
-						"title":         "Shell on the BMC",
-					},
-				}) {
-					@icon.SquareTerminal()
-					<span class="hidden sm:inline">BMC Terminal</span>
-				}
-			}
 		</div>
-		// Right cluster
+		// Right cluster: Global Tools + API Docs + Settings + Logout
 		<div class="flex items-center gap-0.5 shrink-0">
 			if onDocsPage {
 				@button.Button(button.Props{
@@ -86,6 +63,21 @@ templ Navbar(onDocsPage bool) {
 					<span class="hidden sm:inline">Dashboard</span>
 				}
 			} else {
+				// Slide-up BMC shell drawer toggle
+				@button.Button(button.Props{
+					ID:      "btn-bmc-terminal",
+					Variant: button.VariantGhost,
+					Size:    button.SizeSm,
+					Attributes: templ.Attributes{
+						"onclick":       "toggleBmcTerminal()",
+						"aria-label":    "BMC Terminal",
+						"aria-expanded": "false",
+						"title":         "Shell on the BMC",
+					},
+				}) {
+					@icon.SquareTerminal()
+					<span class="hidden sm:inline">BMC Terminal</span>
+				}
 				@button.Button(button.Props{
 					Variant: button.VariantGhost,
 					Size:    button.SizeSm,

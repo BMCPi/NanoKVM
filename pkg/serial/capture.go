@@ -175,3 +175,20 @@ func (w *captureWriter) Close() {
 		w.f = nil
 	}
 }
+
+// Restart re-opens the port with the current config.
+//
+// The broker snapshots config.Serial in startLocked(), so a settings write is
+// invisible to an already-open port. Close() drops every session and stops the
+// port; the next Connect() re-reads the config and opens with the new framing.
+//
+// This DOES disconnect live console sessions — there is no way to change a
+// port's baud rate under a reader without one. The capture is stopped first and
+// started last so it does not race the Close() by reconnecting to the port that
+// is about to go away, which would re-open it with the old settings still
+// snapshotted.
+func Restart() {
+	StopCapture()
+	GetBroker().Close()
+	StartCapture()
+}

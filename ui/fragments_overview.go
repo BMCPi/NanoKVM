@@ -19,6 +19,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/api/redfish"
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
+	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
 	"github.com/pi-bmc/nanokvm-app/ui/components"
 )
 
@@ -32,6 +33,13 @@ func overviewFragmentRoutes(g *gin.RouterGroup, d *deps.Deps) {
 		renderFragment(c, components.OverviewAppUpdateBody(overviewAppUpdateModel()))
 	})
 	o.POST("/app/update", postOverviewAppUpdate)
+
+	// Bound to the drawer's open event rather than page load; see
+	// overviewActivityCard for why. Reads the same registry and history the
+	// settings Metrics panel does, so the two can never disagree.
+	o.GET("/activity", func(c *gin.Context) {
+		renderFragment(c, components.MetricsOverviewBody(telemetry.Gather(), telemetry.History()))
+	})
 
 	o.GET("/firmware", func(c *gin.Context) {
 		renderFragment(c, components.OverviewHostFirmwareBody(overviewFirmwareModel(d)))

@@ -137,11 +137,17 @@ func hostBiosRegistry() map[string]any {
 	return copyAnyMap(host.BiosRegistry)
 }
 
+// setHostBiosRegistry stores the published registry and persists immediately.
+// The debounce the other host reports use exists to coalesce the burst of
+// POSTs a booting host makes; the registry is one document written once per
+// firmware change, so there is nothing to coalesce, and a 2s window in which a
+// reset drops it is a real way to lose a document nothing republishes until
+// the next boot.
 func setHostBiosRegistry(reg map[string]any) {
 	host.mu.Lock()
 	host.BiosRegistry = reg
 	host.mu.Unlock()
-	hostStateSave()
+	hostStateFlush()
 }
 
 func hostSecureBoot() map[string]any {

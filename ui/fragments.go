@@ -34,6 +34,7 @@ func fragmentRoutes(r *gin.RouterGroup, d *deps.Deps) {
 	powerFragmentRoutes(frag, d)
 	settingsFragmentRoutes(frag, d)
 	mediaFragmentRoutes(frag, d)
+	metricsFragmentRoutes(frag, d)
 }
 
 // requireAuthFragment answers an unauthenticated fragment request with the

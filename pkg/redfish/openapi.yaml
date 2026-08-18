@@ -577,25 +577,44 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "412": { description: If-Match did not match. }
 
-  /redfish/v1/Systems/1/Bios/AttributeRegistry:
+  /redfish/v1/Systems/1/Bios/{registry}:
+    parameters:
+      - name: registry
+        in: path
+        required: true
+        description: |
+          The registry name the client derived from the Bios resource's
+          AttributeRegistry property. EDK2 builds this URI as
+          <parent of Bios>/<AttributeRegistry>, so the canonical value is
+          BiosAttributeRegistry; versioned variants
+          (BiosAttributeRegistry.v1_0_0) and the legacy AttributeRegistry
+          spelling resolve to the same document.
+        schema: { type: string, default: BiosAttributeRegistry }
     get:
       tags: [Bios]
       summary: |
-        The attribute registry the host firmware published — the schema of
-        its Attributes map. 404 until the host PUTs one: "no attributes"
-        and "not reported yet" are different answers.
+        The attribute registry — the schema of the Bios Attributes map.
+        Before anything is published this serves a base skeleton rather
+        than a 404: EDK2's BiosAttributeRegistryDxe GETs the resource
+        before deciding to publish, and a 404 ends its walk instead of
+        triggering provisioning.
       responses:
         "200": { description: AttributeRegistry document. }
-        "404": { description: The host has not published a registry. }
+        "404": { description: Not a name the registry resolves under. }
     put:
       tags: [Bios]
       summary: |
-        (Host interface only) Publish the attribute registry. PUT, not
-        PATCH — the registry is a single document the host replaces
-        wholesale when its firmware changes.
+        Publish the attribute registry. PUT, not PATCH — the registry is a
+        single document replaced wholesale when the firmware's attribute
+        vocabulary changes. Accepted both from the host interface
+        (unauthenticated, per DSP0270) and from an authenticated operator
+        over the LAN; unlike the host's hardware reports the registry is a
+        vocabulary document, not a claim of fact about the machine. The
+        stored document is flushed to disk before the response returns.
       responses:
         "200": { description: Stored registry document. }
-        "403": { description: Not the host interface. }
+        "404": { description: Not a name the registry resolves under. }
+        "412": { description: If-Match did not match. }
 
   # --------------------------------------------------------------- Managers
 

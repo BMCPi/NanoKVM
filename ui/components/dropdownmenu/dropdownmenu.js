@@ -401,6 +401,13 @@
     }
   }
 
+  // selectPopupOpen reports whether a Select popup is currently showing. Its
+  // content is portaled to <body>, so it cannot be found by walking up from
+  // the menu.
+  function selectPopupOpen() {
+    return !!document.querySelector('[data-tui-select-content][data-state="open"]');
+  }
+
   document.addEventListener("pointerdown", (e) => {
     if (e.button !== 0 || !(e.target instanceof Element)) return;
     const trigger = e.target.closest("[data-tui-dropdownmenu-trigger]");
@@ -408,6 +415,12 @@
       if (!trigger.disabled) toggle(trigger, false);
       return;
     }
+    // A Select inside a menu portals its popup to <body>, so a press on one
+    // of its options lands outside this menu's content even though it belongs
+    // to a control within it. Without this the menu would close the instant
+    // the select is used, which is why these were plain <select> elements
+    // before.
+    if (e.target.closest("[data-tui-select-content]")) return;
     if (!e.target.closest("[data-tui-dropdownmenu-content]")) closeAll(false);
   });
 
@@ -491,6 +504,9 @@
     if (!content) return;
 
     if (e.key === "Escape") {
+      // An open Select popup owns Escape: the first press closes the select
+      // and leaves the menu up, which is what a nested layer should do.
+      if (selectPopupOpen()) return;
       closeAll(true);
       return;
     }

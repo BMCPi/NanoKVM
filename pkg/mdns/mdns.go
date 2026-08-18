@@ -302,3 +302,25 @@ func localNames(hostname string) []string {
 	}
 	return []string{h}
 }
+
+// Restart stops the running responder and starts a fresh one from the current
+// config. It is how a settings write applies without a process restart: the
+// responder's fields are snapshotted at construction, so a config change is
+// invisible to an already-running instance.
+//
+// Stopping first is what makes this safe to call repeatedly — Start() only
+// overwrites the singleton pointer, so without the Stop the previous
+// responder's watcher goroutine would keep running and keep answering on the
+// multicast group with the old name.
+func Restart() {
+	mu.Lock()
+	prev := current
+	current = nil
+	mu.Unlock()
+
+	prev.Stop() // nil-safe
+
+	if _, err := Start(); err != nil {
+		log.Warnf("mdns: restart: %v", err)
+	}
+}

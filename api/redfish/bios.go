@@ -10,7 +10,9 @@ package redfish
 //   - PATCH /Systems/1/Bios/Settings        operator stages attributes for
 //                                           the host to apply on next boot
 //   - GET  /Systems/1/Bios/AttributeRegistry  the registry the host PUT
-//   - PUT  /Systems/1/Bios/AttributeRegistry  host publishes its registry
+//   - PUT  /Systems/1/Bios/AttributeRegistry  publishes the registry (host
+//                                             interface, or an authenticated
+//                                             operator over the LAN)
 //
 // The BMC validates nothing against a key catalog: the host's firmware owns
 // the attribute vocabulary and publishes it via the registry. Attributes are
@@ -197,16 +199,25 @@ func (s *Service) GetBiosAttributeRegistry(c *gin.Context) {
 	writeHostResource(c, registryResource(reg, name))
 }
 
-// PutBiosAttributeRegistry stores the registry document the host publishes.
-// PUT (not PATCH): the registry is a single document the host replaces
-// wholesale when its firmware changes.
+// PutBiosAttributeRegistry stores the registry document. PUT (not PATCH): the
+// registry is a single document that is replaced wholesale when the firmware's
+// attribute vocabulary changes.
+//
+// Unlike the other host-owned resources this one is NOT gated on hostWritable.
+// That gate exists because a report ("this machine has 64 GB of RAM") is a
+// claim of fact the BMC would otherwise repeat back as truth, and only the host
+// can make it. The registry is not a claim about hardware — it is the schema
+// describing which attribute keys exist and what values they accept. Letting an
+// operator seed it is useful in its own right: EDK2's BiosAttributeRegistryDxe
+// GETs this resource before it decides to publish, so a registry loaded out of
+// band gives clients a vocabulary to work against on a host that has not booted
+// far enough to publish its own. CheckAuth still applies, so a LAN caller needs
+// operator credentials, while the host interface stays unauthenticated per
+// DSP0270.
 func (s *Service) PutBiosAttributeRegistry(c *gin.Context) {
 	name := c.Param("registry")
 	if !biosRegistryNameOK(name) {
 		redfishErrorResponse(c, http.StatusNotFound, "no such Bios sub-resource")
-		return
-	}
-	if !hostWritable(c) {
 		return
 	}
 	if current := hostBiosRegistry(); current != nil {

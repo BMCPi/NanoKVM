@@ -498,6 +498,55 @@ func TestBiosAttributeRegistryEDK2Flow(t *testing.T) {
 	}
 }
 
+// The attribute registry is the one Bios sub-resource an authenticated
+// operator may publish from the LAN: it is a vocabulary document, not a claim
+// about hardware, so hostWritable does not gate it. It must also reach the
+// disk on the PUT rather than on the debounce timer, and survive a restart.
+func TestBiosAttributeRegistryPutFromLANPersists(t *testing.T) {
+	resetHostState(t)
+	r := hostRouter()
+	svc := NewService(testDeps())
+	r.GET("/redfish/v1/Systems/1/Bios/:registry", svc.GetBiosAttributeRegistry)
+	r.PUT("/redfish/v1/Systems/1/Bios/:registry", svc.PutBiosAttributeRegistry)
+
+	doc := `{"RegistryVersion":"1.2.3","RegistryEntries":{"Attributes":[{"AttributeName":"SerialRedirect"}]}}`
+	w := do(r, http.MethodPut, "/redfish/v1/Systems/1/Bios/BiosAttributeRegistry", lanIP, doc, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("PUT from LAN = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+
+	// On disk already — no debounce window to lose it in.
+	data, err := os.ReadFile(hostStatePath)
+	if err != nil {
+		t.Fatalf("state file not written on PUT: %v", err)
+	}
+	var persisted struct {
+		BiosRegistry map[string]any `json:"bios_registry"`
+	}
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		t.Fatalf("state file unreadable: %v", err)
+	}
+	if persisted.BiosRegistry["RegistryVersion"] != "1.2.3" {
+		t.Fatalf("persisted registry = %v", persisted.BiosRegistry)
+	}
+
+	// Survives a restart: drop the in-memory copy and reload from disk.
+	host.mu.Lock()
+	host.BiosRegistry = nil
+	host.mu.Unlock()
+	LoadHostState()
+
+	w = do(r, http.MethodGet, "/redfish/v1/Systems/1/Bios/BiosAttributeRegistry", lanIP, "", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET after reload = %d", w.Code)
+	}
+	var got map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if got["RegistryVersion"] != "1.2.3" {
+		t.Errorf("registry not restored across restart: %v", got["RegistryVersion"])
+	}
+}
+
 // The host's thermal driver GETs then PATCHes Chassis/1/Thermal on every
 // boot; the GET must be a valid resource even before the first report, and
 // writes are host-interface-only like every other host-owned resource.

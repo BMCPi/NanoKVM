@@ -1,0 +1,393 @@
+package components
+
+import (
+	"fmt"
+
+	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
+	"github.com/pi-bmc/nanokvm-app/ui/components/badge"
+	"github.com/pi-bmc/nanokvm-app/ui/components/card"
+	"github.com/pi-bmc/nanokvm-app/ui/components/chart"
+	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
+)
+
+// MetricsPanel shows what the BMC has been doing: the live session/power
+// gauges as stat tiles, and the cumulative counters as bar charts.
+//
+// Why the split. A gauge is one number with no history behind it — charting
+// "1 active session" as a bar is a chart that says less than the number does.
+// The counters are the opposite: four or five named categories whose only
+// interesting property is how they compare, which is exactly a bar chart's job.
+//
+// Every chart here is single-series on purpose. The category name is on the
+// axis, so colour carries no meaning and one hue does for all of them. That
+// matters here specifically: this theme's --chart-1..5 are five steps of one
+// pink hue, and adjacent steps sit at ΔE 6.5 for normal vision — fine as a
+// magnitude ramp, unreadable as series identity. Nothing below asks the reader
+// to tell two of them apart.
+templ MetricsPanel(snap telemetry.Snapshot, trend []telemetry.Point) {
+	<div id="metrics-panel" class="flex flex-col gap-3">
+		if !snap.Collected {
+			@metricsDisabledNotice()
+		} else {
+			@metricsStatTiles(snap, "grid-cols-2 sm:grid-cols-4")
+			@metricsTrends(trend)
+			<div class="grid gap-3 sm:grid-cols-2">
+				@metricsBarCard("ipmi-packets", "IPMI Packets", "Cumulative since boot", "packets", snap.IPMIPackets)
+				@metricsBarCard("serial-bytes", "Serial Traffic", "Cumulative since boot", "bytes", snap.SerialBytes)
+				@metricsBarCard("power-ops", "Power Operations", "By operation", "operations", snap.PowerOperations)
+				@metricsBarCard("auth-failures", "IPMI Auth Failures", "By reason", "failures", snap.AuthFailures)
+				@metricsBarCard("fw-downloads", "Firmware Downloads", "By outcome", "downloads", snap.FirmwareDownloads)
+			</div>
+		}
+	</div>
+}
+
+// metricsTrends charts recent activity. The counters behind these are
+// cumulative, so what is plotted is the difference between consecutive samples
+// — what happened in each interval — not the running total. A cumulative line
+// only ever climbs and its height carries no information; the interesting
+// quantity is the slope, so the slope is what is drawn.
+//
+// Hidden entirely when nothing has happened. An hour of flat zero is not a
+// finding worth four charts, and the bar charts below already state the totals.
+templ metricsTrends(trend []telemetry.Point) {
+	if telemetry.HasActivity(trend) {
+		<div class="grid gap-3 sm:grid-cols-2">
+			@metricsTrendCard("trend-serial", "Serial Throughput", "Bytes per 15s interval, last hour", "bytes", "serialBytes", trend)
+			@metricsTrendCard("trend-ipmi", "IPMI Traffic", "Packets per 15s interval, last hour", "packets", "ipmiPackets", trend)
+		</div>
+	}
+}
+
+// metricsTrendCard draws one series over time in its own card.
+templ metricsTrendCard(id, title, subtitle, unit, key string, trend []telemetry.Point) {
+	@card.Card() {
+		@card.Header() {
+			@card.Title(card.TitleProps{Class: "text-sm"}) {
+				{ title }
+			}
+			@card.Description(card.DescriptionProps{Class: "text-xs"}) {
+				{ subtitle }
+			}
+		}
+		@card.Content() {
+			@metricsTrendChart(id, unit, key, 132, trend)
+		}
+	}
+}
+
+// metricsTrendChart is the plot itself, without the card around it, so the
+// overview drawer can stack these inside one card instead of nesting a card per
+// series. height is a parameter because the drawer gets less room than the
+// settings panel and a chart that keeps its desktop height there would push the
+// tiles above it off screen.
+templ metricsTrendChart(id, unit, key string, height int, trend []telemetry.Point) {
+	// Height as an inline style, not an arbitrary Tailwind class: the
+	// stylesheet in ui/assets/css is prebuilt, so a class nobody scanned at
+	// build time (h-[132px]) does not exist at runtime and the chart collapses
+	// to zero height.
+	@chart.Container(chart.ContainerProps{
+		ID:         id,
+		Config:     metricsChartConfig(unit),
+		Class:      "aspect-auto w-full",
+		Attributes: templ.Attributes{"style": fmt.Sprintf("height:%dpx", height)},
+	}) {
+		@chart.AreaChart(chart.AreaChartProps{
+			AccessibilityLayer: true,
+			Data:               metricsTrendData(key, trend),
+			Margin:             &chart.Margin{Left: 4, Right: 8, Top: 6, Bottom: 0},
+		}) {
+			@chart.CartesianGrid(chart.CartesianGridProps{Vertical: chart.Bool(false)})
+			@chart.XAxis(chart.XAxisProps{
+				DataKey:    "at",
+				TickLine:   false,
+				AxisLine:   false,
+				TickMargin: 6,
+				MinTickGap: 48,
+			})
+			@chart.Tooltip(chart.TooltipProps{
+				Content: chart.TooltipContentProps{HideLabel: false},
+			})
+			@chart.Area(chart.AreaProps{
+				DataKey: "value",
+				// Natural rather than a straight join: these are samples of a
+				// continuous quantity, and the curve says so without inventing
+				// detail between points.
+				Type:        chart.CurveNatural,
+				Fill:        "var(--color-value)",
+				Stroke:      "var(--color-value)",
+				FillOpacity: 0.25,
+			})
+		}
+	}
+}
+
+// MetricsOverviewBody is the drawer-width cut of the panel: the state tiles and
+// the two trends, without the counter bar charts.
+//
+// The bar charts are omitted rather than narrowed. Each reserves a 92px gutter
+// for word labels ("bad-password", "rpiboot"), which inside the drawer's 24rem
+// leaves under 250px of plot — and five of them would turn a glance panel into a
+// scrolling chart gallery. They stay in Settings, where the panel is 5xl and
+// lays them out two-up.
+templ MetricsOverviewBody(snap telemetry.Snapshot, trend []telemetry.Point) {
+	@card.Content(card.ContentProps{Class: "py-0 pb-2"}) {
+		if !snap.Collected {
+			// Deliberately terser than metricsDisabledNotice: that one explains
+			// the whole feature because it is the entire content of its panel,
+			// whereas here it is one card among four and only needs to say why
+			// it is empty and where the switch is.
+			<p class="text-xs text-muted-foreground">
+				Not being collected. Turn on Telemetry in Settings → Metrics.
+			</p>
+		} else {
+			<div class="flex flex-col gap-3">
+				@metricsStatTiles(snap, "grid-cols-2")
+				if telemetry.HasActivity(trend) {
+					// IDs are distinct from the settings panel's: both are in the
+					// DOM at once, and the chart runtime keys its instances by id.
+					@metricsOverviewTrend("ov-trend-serial", "Serial Throughput", "bytes", "serialBytes", trend)
+					@metricsOverviewTrend("ov-trend-ipmi", "IPMI Traffic", "packets", "ipmiPackets", trend)
+				}
+			</div>
+		}
+	}
+}
+
+// metricsOverviewTrend is one labelled plot in the drawer. The label is a plain
+// heading rather than a card header because the card is the Activity card
+// around all of this.
+templ metricsOverviewTrend(id, title, unit, key string, trend []telemetry.Point) {
+	<div class="flex flex-col gap-1">
+		<p class="text-xs font-medium">
+			{ title }
+			<span class="font-normal text-muted-foreground">— per 15s, last hour</span>
+		</p>
+		@metricsTrendChart(id, unit, key, 104, trend)
+	</div>
+}
+
+// metricsTrendData pulls one series out of the history into the chart's rows.
+func metricsTrendData(key string, trend []telemetry.Point) []chart.Datum {
+	data := make([]chart.Datum, 0, len(trend))
+	for _, p := range trend {
+		var v float64
+		switch key {
+		case "serialBytes":
+			v = p.SerialBytes
+		case "ipmiPackets":
+			v = p.IPMIPackets
+		case "powerOps":
+			v = p.PowerOps
+		case "authFailures":
+			v = p.AuthFailures
+		}
+		data = append(data, chart.Datum{"at": p.At, "value": v})
+	}
+	return data
+}
+
+// metricsDisabledNotice is what the panel says when telemetry is off, which is
+// the default. The instruments are never created in that case, so there is
+// genuinely nothing to draw — and an empty chart would read as "no activity"
+// rather than "not measuring".
+templ metricsDisabledNotice() {
+	@card.Card() {
+		@card.Content(card.ContentProps{Class: "flex items-start gap-3 py-6"}) {
+			@icon.ChartNoAxesColumn(icon.Props{Class: "size-5 shrink-0 text-muted-foreground"})
+			<div class="space-y-1">
+				<p class="text-sm font-medium">Metrics are not being collected</p>
+				<p class="text-xs text-muted-foreground">
+					Turn on Telemetry in Settings to record IPMI, serial, power and firmware
+					counters. Nothing is measured until then, so this panel would otherwise
+					show zeros that look like inactivity.
+				</p>
+			</div>
+		}
+	}
+}
+
+// metricsStatTiles is the current-state row: one number each, no plot. The
+// power and presentation states are conditions rather than quantities, so they
+// read as badges instead of digits.
+//
+// gridClass is the caller's because the tile count is fixed but the room is
+// not: four across suits the settings panel, two across is what fits the
+// overview drawer. Note the settings value keeps its `sm:` prefix while the
+// drawer's does not — Tailwind's breakpoints are viewport-based, so an
+// `sm:grid-cols-4` inside a 24rem drawer on a wide screen would still go four
+// across and give each tile 96px.
+templ metricsStatTiles(snap telemetry.Snapshot, gridClass string) {
+	<div class={ "grid gap-3", gridClass }>
+		@metricsStateTile("Host Power", snap.PowerOn, "On", "Off")
+		@metricsStateTile("Virtual Media", snap.ImagePresented, "Presented", "None")
+		@metricsCountTile("IPMI Sessions", snap.IPMISessions)
+		@metricsCountTile("Serial Sessions", snap.SerialSessions)
+	</div>
+}
+
+templ metricsStateTile(label string, on bool, onText, offText string) {
+	@card.Card(card.Props{Class: "gap-0 py-3"}) {
+		@card.Content(card.ContentProps{Class: "px-3"}) {
+			<p class="text-xs text-muted-foreground">{ label }</p>
+			<div class="mt-1.5">
+				if on {
+					@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "bg-green-500/15 text-green-500"}) {
+						{ onText }
+					}
+				} else {
+					@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+						{ offText }
+					}
+				}
+			</div>
+		}
+	}
+}
+
+templ metricsCountTile(label string, count int) {
+	@card.Card(card.Props{Class: "gap-0 py-3"}) {
+		@card.Content(card.ContentProps{Class: "px-3"}) {
+			<p class="text-xs text-muted-foreground">{ label }</p>
+			<p class="mt-0.5 text-2xl font-semibold tabular-nums">{ fmt.Sprint(count) }</p>
+		}
+	}
+}
+
+// metricsBarCard draws one counter family. Horizontal bars (Recharts calls the
+// layout "vertical") because the categories are words — "bad-password",
+// "rpiboot" — and a horizontal bar gives them a full-width label instead of a
+// rotated stub under an x-axis.
+//
+// A family with no data is omitted rather than drawn empty: see nonZero in
+// pkg/telemetry.
+templ metricsBarCard(id, title, subtitle, unit string, samples []telemetry.Sample) {
+	if len(samples) > 0 {
+		@card.Card() {
+			@card.Header() {
+				@card.Title(card.TitleProps{Class: "text-sm"}) {
+					{ title }
+				}
+				@card.Description(card.DescriptionProps{Class: "text-xs"}) {
+					{ subtitle }
+				}
+			}
+			@card.Content() {
+				@chart.Container(chart.ContainerProps{
+					ID:         id,
+					Config:     metricsChartConfig(unit),
+					Class:      "aspect-auto w-full",
+					Attributes: templ.Attributes{"style": metricsChartHeight(len(samples))},
+				}) {
+					@chart.BarChart(chart.BarChartProps{
+						AccessibilityLayer: true,
+						Data:               metricsData(samples),
+						Layout:             "vertical",
+						Margin:             &chart.Margin{Left: 4, Right: 44, Top: 4, Bottom: 4},
+					}) {
+						@chart.YAxis(chart.YAxisProps{
+							DataKey:    "label",
+							Type:       "category",
+							TickLine:   false,
+							AxisLine:   false,
+							TickMargin: 6,
+							Width:      92,
+						})
+						@chart.XAxis(chart.XAxisProps{DataKey: "value", Type: "number", Hide: true})
+						@chart.Tooltip(chart.TooltipProps{
+							Cursor:  chart.Bool(false),
+							Content: chart.TooltipContentProps{HideLabel: false},
+						})
+						@chart.Bar(chart.BarProps{
+							DataKey: "value",
+							Fill:    "var(--color-value)",
+							// Rounded on the data end only, so the bar still
+							// reads as anchored to its baseline.
+							Radius: []float64{0, 4, 4, 0},
+						}) {
+							// The value is on the bar, not only in the tooltip:
+							// a hover-only number is unreachable by keyboard and
+							// invisible in a screenshot.
+							@chart.LabelList(chart.LabelListProps{
+								DataKey:   "value",
+								Position:  "right",
+								Offset:    6,
+								FontSize:  11,
+								Class:     "fill-muted-foreground",
+								Formatter: metricsCompact,
+							})
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// metricsChartHeight sizes a chart to its number of categories instead of
+// giving every card the same box.
+//
+// The bar component derives its thickness from the band it sits in — plot
+// height divided by category count — so a fixed height makes a two-bar card
+// draw marks twice as thick as a four-bar one. On a dashboard that reads as
+// emphasis the data does not have: the eye takes the fatter bar for the more
+// important measure. Fixing the band instead keeps every bar on the page the
+// same weight, and the card grows with its content.
+func metricsChartHeight(categories int) string {
+	const (
+		band    = 30 // per category; the bar is ~80% of this
+		padding = 26 // the chart's own top and bottom margins
+		minimum = 86
+	)
+	h := categories*band + padding
+	if h < minimum {
+		h = minimum
+	}
+	return fmt.Sprintf("height:%dpx", h)
+}
+
+// metricsChartConfig names the single series. Light and dark get their own step
+// of the theme's pink ramp rather than one value reused: against the light card
+// --chart-3 measures 4.54:1 and against the dark card --chart-2 measures 4.95:1,
+// where the ramp's lighter end falls to 1.82:1 on white and its darker end to
+// 2.24:1 on the dark surface. Both chosen steps clear the 3:1 floor for a
+// non-text mark on their own surface.
+func metricsChartConfig(unit string) chart.Config {
+	return chart.Config{{
+		Key:   "value",
+		Label: unit,
+		Theme: &chart.SeriesTheme{
+			Light: "var(--chart-3)",
+			Dark:  "var(--chart-2)",
+		},
+	}}
+}
+
+// metricsData converts samples into the chart's row shape.
+func metricsData(samples []telemetry.Sample) []chart.Datum {
+	data := make([]chart.Datum, 0, len(samples))
+	for _, s := range samples {
+		data = append(data, chart.Datum{"label": s.Label, "value": s.Value})
+	}
+	return data
+}
+
+// metricsCompact shortens the on-bar values. A BMC that has been up for a week
+// reports serial byte counts in the millions, and eight digits beside a 150px
+// chart is a number nobody reads.
+func metricsCompact(v any) string {
+	f, ok := v.(float64)
+	if !ok {
+		return fmt.Sprint(v)
+	}
+	switch {
+	case f >= 1e9:
+		return fmt.Sprintf("%.1fG", f/1e9)
+	case f >= 1e6:
+		return fmt.Sprintf("%.1fM", f/1e6)
+	case f >= 1e3:
+		return fmt.Sprintf("%.1fk", f/1e3)
+	default:
+		return fmt.Sprintf("%.0f", f)
+	}
+}

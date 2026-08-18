@@ -11,6 +11,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/ui/components/input"
 	"github.com/pi-bmc/nanokvm-app/ui/components/item"
 	"github.com/pi-bmc/nanokvm-app/ui/components/progress"
+	selectcomp "github.com/pi-bmc/nanokvm-app/ui/components/select"
 	"github.com/pi-bmc/nanokvm-app/ui/components/spinner"
 	"github.com/pi-bmc/nanokvm-app/ui/components/tabs"
 	"github.com/pi-bmc/nanokvm-app/ui/utils"
@@ -192,10 +193,16 @@ templ VMAddBody(files []string) {
 					hx-target="#vm-menu-body"
 					hx-disabled-elt="find button"
 				>
-					@NativeSelect("vm-insert-name", "name", "flex-1 px-3") {
-						<option value="">— select ISO —</option>
-						for _, f := range files {
-							<option value={ f }>{ f }</option>
+					@selectcomp.Select(selectcomp.Props{ID: "vm-insert-name", Name: "name"}) {
+						@selectcomp.Trigger(selectcomp.TriggerProps{Class: "h-8 flex-1 min-w-0"}) {
+							@selectcomp.Value(selectcomp.ValueProps{Placeholder: "— select ISO —"})
+						}
+						@selectcomp.Content() {
+							for _, f := range files {
+								@selectcomp.Item(selectcomp.ItemProps{Value: f}) {
+									{ f }
+								}
+							}
 						}
 					}
 					@button.Button(button.Props{Size: button.SizeSm, Type: button.TypeSubmit}) {

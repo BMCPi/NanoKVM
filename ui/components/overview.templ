@@ -4,6 +4,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/sysinfo"
+	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
 	"github.com/pi-bmc/nanokvm-app/ui/components/badge"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/card"
@@ -62,6 +63,7 @@ templ OverviewSidebar() {
 			<div class="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 py-3 space-y-4">
 				@overviewServerCard()
 				@overviewBmcCard()
+				@overviewActivityCard()
 				@overviewHostFirmwareCard()
 				@overviewBootOverrideCard()
 			</div>
@@ -96,6 +98,31 @@ templ overviewSidebarStyles() {
 			flex-direction: column;
 		}
 	</style>
+}
+
+// overviewActivityCard is what the BMC has been doing, beside what it is.
+//
+// Unlike its siblings this one does NOT load on page load. The other cards read
+// cheap local state that is also stable, so fetching it once with the page is
+// free; this one gathers the whole Prometheus registry and its numbers move
+// constantly, so loading it with the page would both cost the SoC's single core
+// work for a drawer nobody has opened and show figures that were true when the
+// tab was opened an hour ago. Binding to the open event instead makes it lazy
+// and current at the same time — every open re-reads.
+templ overviewActivityCard() {
+	@card.Card() {
+		@card.Header() {
+			@card.Title(card.TitleProps{Class: "text-sm"}) {
+				Activity
+			}
+			@card.Description(card.DescriptionProps{Class: "text-xs"}) {
+				Sessions and traffic since boot.
+			}
+		}
+		<div class="contents" hx-get="/ui/overview/activity" hx-trigger="overview-opened from:body">
+			@MetricsOverviewBody(telemetry.Snapshot{}, nil)
+		</div>
+	}
 }
 
 // overviewServerCard is the server identity card. The body is a fragment:
@@ -359,13 +386,24 @@ templ overviewToggleScript() {
 	<script>
 		(function() {
 			const el = () => document.getElementById('overview-sidebar');
-			const setState = (s) => { const a = el(); if (a) a.dataset.state = s; };
+			// Every state change goes through here so the open event fires
+			// however the drawer was opened — navbar button, toggle, or a
+			// direct openOverview() call. The Activity card's hx-trigger
+			// listens for it; the other cards load with the page.
+			const setState = (s) => {
+				const a = el();
+				if (!a || a.dataset.state === s) return;
+				a.dataset.state = s;
+				if (s === 'open') {
+					document.body.dispatchEvent(new CustomEvent('overview-opened'));
+				}
+			};
 			window.openOverview  = () => setState('open');
 			window.closeOverview = () => setState('closed');
 			window.toggleOverview = () => {
 				const a = el();
 				if (!a) return;
-				a.dataset.state = a.dataset.state === 'open' ? 'closed' : 'open';
+				setState(a.dataset.state === 'open' ? 'closed' : 'open');
 			};
 			document.addEventListener('keydown', (e) => {
 				if (e.key === 'Escape') {

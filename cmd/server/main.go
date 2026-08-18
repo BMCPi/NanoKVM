@@ -130,6 +130,9 @@ func initialize(ctx context.Context) {
 	if err := telemetry.Init(ctx); err != nil {
 		log.Printf("telemetry init: %v", err)
 	}
+	// Record a rolling hour of counter samples for the metrics panel's trend
+	// charts. No-op when telemetry is off, since there is nothing to sample.
+	telemetry.StartSampler(ctx)
 
 	// Build the composition-root controllers. These replace the old lazy
 	// singletons: constructed once here, shared by every subsystem that needs
@@ -304,6 +307,10 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 	// force-kills instead of being swallowed while we drain.
 	stop()
 	log.Printf("shutdown: signal received, draining requests (max %s)", shutdownTimeout)
+
+	// Persist before draining: host reports save on a debounce, and the
+	// in-flight timer dies with the process.
+	redfish.FlushHostState()
 
 	drainCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
