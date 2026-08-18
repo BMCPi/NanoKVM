@@ -25,10 +25,18 @@ type Processor struct {
 	Status                *Status                       `json:"Status,omitempty"`
 }
 
+// processorODataType is the schema version every Processor response declares,
+// whether it is the built-in description or one the host published.
+const processorODataType = "#Processor.v1_16_0.Processor"
+
+// processorResource is the BMC's own description of the managed host's CPU,
+// served when the host has not published anything. The board is an aarch64
+// Raspberry Pi by design, so this much is always true; a host that enumerates
+// its own processors overrides it (see GetProcessor).
 func processorResource() Processor {
 	return Processor{
 		Resource: Resource{
-			ODataType:    "#Processor.v1_16_0.Processor",
+			ODataType:    processorODataType,
 			ODataID:      processorPath,
 			ODataContext: context("Processor.Processor"),
 			ID:           processorID,
@@ -43,16 +51,50 @@ func processorResource() Processor {
 	}
 }
 
+// GetProcessorCollection lists what the host reported. Until it reports
+// anything the collection holds the BMC's own placeholder, CPU1: this board is
+// an aarch64 Pi by construction, so a read before the host has ever booted can
+// still answer something true rather than an empty list.
+//
+// The first host report replaces that placeholder outright. It is the host's
+// enumeration that is authoritative once it exists — leaving CPU1 alongside it
+// would report a socket the host did not find.
 func (s *Service) GetProcessorCollection(c *gin.Context) {
-	c.JSON(http.StatusOK, newCollection(
-		"ProcessorCollection", "Processor Collection", processorsPath,
-		Link(processorPath)))
-}
-
-func (s *Service) GetProcessor(c *gin.Context) {
-	if c.Param("processor") != processorID {
-		redfishErrorResponse(c, http.StatusNotFound, "processor not found")
+	ids := hostCollectionIDs(processorsOf)
+	if len(ids) == 0 {
+		writeHostResource(c, hostView(newCollection(
+			"ProcessorCollection", "Processor Collection", processorsPath,
+			Link(processorPath))))
 		return
 	}
-	c.JSON(http.StatusOK, processorResource())
+
+	links := make([]Link, 0, len(ids))
+	for _, id := range ids {
+		links = append(links, Link(processorsPath+"/"+id))
+	}
+	writeHostResource(c, hostView(newCollection(
+		"ProcessorCollection", "Processor Collection", processorsPath, links...)))
+}
+
+// GetProcessor serves a host-reported member, or the built-in placeholder while
+// the host has reported none.
+func (s *Service) GetProcessor(c *gin.Context) {
+	id := c.Param("processor")
+
+	if stored, ok := hostCollectionGet(processorsOf, id); ok {
+		writeHostResource(c, renderHostMember(stored, processorsPath+"/"+id, id,
+			processorODataType, "Processor.Processor", "Processor"))
+		return
+	}
+
+	// The placeholder answers for its own id only while the collection is
+	// empty. Once the host has enumerated, an id it did not report is a real
+	// 404 — otherwise a CPU the host does not have would keep being served
+	// from a constant.
+	if id == processorID && len(hostCollectionIDs(processorsOf)) == 0 {
+		c.JSON(http.StatusOK, processorResource())
+		return
+	}
+
+	redfishErrorResponse(c, http.StatusNotFound, "processor not found: "+id)
 }

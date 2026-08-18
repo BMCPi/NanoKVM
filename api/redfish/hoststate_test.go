@@ -40,6 +40,7 @@ func resetHostState(t *testing.T) {
 		host.Host = HostReport{}
 		host.BootOptions = map[string]map[string]any{}
 		host.Memory = map[string]map[string]any{}
+		host.Processors = map[string]map[string]any{}
 		host.Drives = map[string]map[string]any{}
 		host.BiosAttributes = map[string]any{}
 		host.BiosPending = map[string]any{}
@@ -78,6 +79,11 @@ func hostRouter() *gin.Engine {
 	r.GET("/redfish/v1/Systems/1/Memory", svc.GetMemoryCollection)
 	r.POST("/redfish/v1/Systems/1/Memory", svc.PostMemoryModule)
 	r.GET("/redfish/v1/Systems/1/Memory/:module", svc.GetMemoryModule)
+	r.GET("/redfish/v1/Systems/1/Processors", svc.GetProcessorCollection)
+	r.POST("/redfish/v1/Systems/1/Processors", svc.PostProcessor)
+	r.GET("/redfish/v1/Systems/1/Processors/:processor", svc.GetProcessor)
+	r.PATCH("/redfish/v1/Systems/1/Processors/:processor", svc.PatchProcessor)
+	r.DELETE("/redfish/v1/Systems/1/Processors/:processor", svc.DeleteProcessor)
 	r.GET("/redfish/v1/Systems/1/Storage/:storage", svc.GetStorage)
 	r.POST("/redfish/v1/Systems/1/Storage/:storage/Drives", svc.PostHostDrive)
 	r.GET("/redfish/v1/Systems/1/Storage/:storage/Drives/:drive", svc.GetDrive)
@@ -119,6 +125,9 @@ func TestHostWritesRejectedFromLAN(t *testing.T) {
 	for _, tc := range []struct{ method, path string }{
 		{http.MethodPost, "/redfish/v1/Systems/1/BootOptions"},
 		{http.MethodPost, "/redfish/v1/Systems/1/Memory"},
+		{http.MethodPost, "/redfish/v1/Systems/1/Processors"},
+		{http.MethodPatch, "/redfish/v1/Systems/1/Processors/CPU1"},
+		{http.MethodDelete, "/redfish/v1/Systems/1/Processors/CPU1"},
 		{http.MethodPost, "/redfish/v1/Systems/1/Storage/1/Drives"},
 		{http.MethodPatch, "/redfish/v1/Systems/1/Bios"},
 		{http.MethodPatch, "/redfish/v1/Systems/1/SecureBoot"},
@@ -635,5 +644,146 @@ func TestLoadCollapsesPersistedDuplicates(t *testing.T) {
 	}
 	if _, ok := host.Memory["DIMM0"]; !ok {
 		t.Error("lowest id did not survive the collapse")
+	}
+}
+
+// --- Processors --------------------------------------------------------------
+
+// TestProcessorPlaceholderBeforeHostReports: the BMC knows this board is an
+// aarch64 part without being told, so a read before the host has ever booted
+// answers with that rather than an empty collection.
+func TestProcessorPlaceholderBeforeHostReports(t *testing.T) {
+	resetHostState(t)
+	r := hostRouter()
+
+	w := do(r, http.MethodGet, "/redfish/v1/Systems/1/Processors", lanIP, "", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("collection = %d, want 200", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "/redfish/v1/Systems/1/Processors/CPU1") {
+		t.Errorf("collection does not list the placeholder: %s", w.Body.String())
+	}
+
+	w = do(r, http.MethodGet, "/redfish/v1/Systems/1/Processors/CPU1", lanIP, "", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("CPU1 = %d, want 200", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "ARM") {
+		t.Errorf("placeholder lost its architecture: %s", w.Body.String())
+	}
+}
+
+// TestProcessorCollectionLifecycle is the host-owned path: POST creates members,
+// GET returns them as sent, PATCH merges, DELETE removes.
+func TestProcessorCollectionLifecycle(t *testing.T) {
+	resetHostState(t)
+	r := hostRouter()
+	from := hostIP(t)
+
+	body := `{"Id":"CPU0","Model":"Cortex-A76","Manufacturer":"Broadcom","TotalCores":4}`
+	w := do(r, http.MethodPost, "/redfish/v1/Systems/1/Processors", from, body, nil)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("POST = %d, want 201: %s", w.Code, w.Body.String())
+	}
+	if loc := w.Header().Get("Location"); loc != "/redfish/v1/Systems/1/Processors/CPU0" {
+		t.Errorf("Location = %q", loc)
+	}
+
+	w = do(r, http.MethodGet, "/redfish/v1/Systems/1/Processors/CPU0", lanIP, "", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET = %d, want 200", w.Code)
+	}
+	for _, want := range []string{"Cortex-A76", "Broadcom"} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("stored processor is missing %q: %s", want, w.Body.String())
+		}
+	}
+
+	w = do(r, http.MethodPatch, "/redfish/v1/Systems/1/Processors/CPU0", from,
+		`{"MaxSpeedMHz":2400}`, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("PATCH = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	if b := w.Body.String(); !strings.Contains(b, "2400") || !strings.Contains(b, "Cortex-A76") {
+		t.Errorf("PATCH did not merge onto the stored member: %s", b)
+	}
+
+	if w := do(r, http.MethodDelete, "/redfish/v1/Systems/1/Processors/CPU0", from, "", nil); w.Code != http.StatusNoContent {
+		t.Errorf("DELETE = %d, want 204", w.Code)
+	}
+	if w := do(r, http.MethodGet, "/redfish/v1/Systems/1/Processors/CPU0", lanIP, "", nil); w.Code != http.StatusNotFound {
+		t.Errorf("GET after DELETE = %d, want 404", w.Code)
+	}
+}
+
+// TestProcessorCollectionHoldsEveryReport is what makes this a collection
+// rather than one node: a multi-socket host gets one member per socket.
+func TestProcessorCollectionHoldsEveryReport(t *testing.T) {
+	resetHostState(t)
+	r := hostRouter()
+	from := hostIP(t)
+
+	for _, id := range []string{"CPU0", "CPU1", "CPU2"} {
+		if w := do(r, http.MethodPost, "/redfish/v1/Systems/1/Processors", from,
+			`{"Id":"`+id+`","Model":"Cortex-A76"}`, nil); w.Code != http.StatusCreated {
+			t.Fatalf("POST %s = %d", id, w.Code)
+		}
+	}
+
+	got := do(r, http.MethodGet, "/redfish/v1/Systems/1/Processors", lanIP, "", nil).Body.String()
+	for _, id := range []string{"CPU0", "CPU1", "CPU2"} {
+		if !strings.Contains(got, "/redfish/v1/Systems/1/Processors/"+id) {
+			t.Errorf("collection is missing %s: %s", id, got)
+		}
+	}
+}
+
+// TestProcessorReportReplacesPlaceholder covers the handover: once the host has
+// enumerated, its list is the collection, and the BMC's placeholder is gone —
+// keeping it would report a socket the host did not find.
+func TestProcessorReportReplacesPlaceholder(t *testing.T) {
+	resetHostState(t)
+	r := hostRouter()
+
+	if w := do(r, http.MethodPost, "/redfish/v1/Systems/1/Processors", hostIP(t),
+		`{"Id":"CPU0","Model":"Cortex-A76"}`, nil); w.Code != http.StatusCreated {
+		t.Fatalf("POST = %d, want 201", w.Code)
+	}
+
+	got := do(r, http.MethodGet, "/redfish/v1/Systems/1/Processors", lanIP, "", nil).Body.String()
+	if strings.Contains(got, "Processors/CPU1") {
+		t.Errorf("placeholder still listed after a host report: %s", got)
+	}
+	if w := do(r, http.MethodGet, "/redfish/v1/Systems/1/Processors/CPU1", lanIP, "", nil); w.Code != http.StatusNotFound {
+		t.Errorf("placeholder CPU1 = %d after a host report, want 404", w.Code)
+	}
+}
+
+// TestProcessorHostMayReportCPU1Itself: nothing stops the host from using the
+// placeholder's id, and when it does its data is what gets served.
+func TestProcessorHostMayReportCPU1Itself(t *testing.T) {
+	resetHostState(t)
+	r := hostRouter()
+
+	if w := do(r, http.MethodPost, "/redfish/v1/Systems/1/Processors", hostIP(t),
+		`{"Id":"CPU1","Model":"Cortex-A76"}`, nil); w.Code != http.StatusCreated {
+		t.Fatalf("POST = %d, want 201", w.Code)
+	}
+
+	got := do(r, http.MethodGet, "/redfish/v1/Systems/1/Processors/CPU1", lanIP, "", nil).Body.String()
+	if !strings.Contains(got, "Cortex-A76") {
+		t.Errorf("host report did not replace the placeholder at its own id: %s", got)
+	}
+}
+
+// TestProcessorPatchUnknownIs404 guards the merge path against creating a
+// member that was never POSTed.
+func TestProcessorPatchUnknownIs404(t *testing.T) {
+	resetHostState(t)
+	r := hostRouter()
+
+	if w := do(r, http.MethodPatch, "/redfish/v1/Systems/1/Processors/NoSuch", hostIP(t),
+		`{"Model":"x"}`, nil); w.Code != http.StatusNotFound {
+		t.Errorf("PATCH unknown = %d, want 404", w.Code)
 	}
 }

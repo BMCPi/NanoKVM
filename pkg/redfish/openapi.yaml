@@ -409,19 +409,50 @@ paths:
   /redfish/v1/Systems/1/Processors:
     get:
       tags: [Systems]
-      summary: Processor collection (the host's single-socket CPU).
+      summary: |
+        Processor collection. Lists what the host reported over the host
+        interface; until it reports anything, the BMC's own placeholder for
+        the board's aarch64 part (CPU1). The first host report replaces that
+        placeholder.
       responses:
         "200": { description: ProcessorCollection resource. }
+    post:
+      tags: [Systems]
+      summary: |
+        (Host interface only) Report one processor. Keyed by the body's Id
+        (else a generated CPUn); the raw body is stored and served back.
+      responses:
+        "201": { description: Stored; Location names the member. }
+        "403": { description: Not the host interface. }
   /redfish/v1/Systems/1/Processors/{processor}:
     get:
       tags: [Systems]
       summary: |
-        The host CPU. A minimal static resource: the platform is by design
-        a single-socket aarch64 part, and that is all the BMC claims.
+        One processor: what the host reported for this id, or the BMC's
+        placeholder for CPU1 while the host has reported none.
       parameters:
         - { name: processor, in: path, required: true, schema: { type: string } }
       responses:
         "200": { description: Processor resource. }
+        "404": { description: No such processor. }
+    patch:
+      tags: [Systems]
+      summary: (Host interface only) Merge changes into a reported processor.
+      parameters:
+        - { name: processor, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Updated Processor resource. }
+        "403": { description: Not the host interface. }
+        "404": { description: No such processor. }
+        "412": { description: If-Match did not match. }
+    delete:
+      tags: [Systems]
+      summary: (Host interface only) Drop a reported processor.
+      parameters:
+        - { name: processor, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Removed. }
+        "403": { description: Not the host interface. }
         "404": { description: No such processor. }
   /redfish/v1/Systems/1/EthernetInterfaces:
     get:

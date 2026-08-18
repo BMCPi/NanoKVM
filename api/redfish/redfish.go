@@ -82,7 +82,10 @@ func Register(r *gin.Engine, d *deps.Deps) {
 		api.GET("/Systems/1/Memory/:module", service.GetMemoryModule)
 		api.PATCH("/Systems/1/Memory/:module", service.PatchMemoryModule)
 		api.GET("/Systems/1/Processors", service.GetProcessorCollection)
+		api.POST("/Systems/1/Processors", service.PostProcessor)
 		api.GET("/Systems/1/Processors/:processor", service.GetProcessor)
+		api.PATCH("/Systems/1/Processors/:processor", service.PatchProcessor)
+		api.DELETE("/Systems/1/Processors/:processor", service.DeleteProcessor)
 		api.GET("/Systems/1/EthernetInterfaces", service.GetEthernetInterfaceCollection)
 		api.GET("/Systems/1/EthernetInterfaces/:nic", service.GetEthernetInterface)
 

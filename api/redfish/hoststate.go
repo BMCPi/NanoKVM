@@ -68,6 +68,7 @@ type hostState struct {
 	// its BDS re-enumerates; an operator only reads.
 	BootOptions map[string]map[string]any `json:"boot_options"`
 	Memory      map[string]map[string]any `json:"memory"`
+	Processors  map[string]map[string]any `json:"processors"`
 	Drives      map[string]map[string]any `json:"drives"`
 
 	// BiosAttributes is what is in effect now (host-reported); BiosPending
@@ -89,6 +90,7 @@ var host = &hostState{
 	Boot:           HostBootOverride{Target: "None", Enabled: "Disabled"},
 	BootOptions:    map[string]map[string]any{},
 	Memory:         map[string]map[string]any{},
+	Processors:     map[string]map[string]any{},
 	Drives:         map[string]map[string]any{},
 	BiosAttributes: map[string]any{},
 	BiosPending:    map[string]any{},
@@ -279,6 +281,7 @@ func LoadHostState() {
 	for dst, src := range map[*map[string]map[string]any]map[string]map[string]any{
 		&host.BootOptions: restored.BootOptions,
 		&host.Memory:      restored.Memory,
+		&host.Processors:  restored.Processors,
 		&host.Drives:      restored.Drives,
 	} {
 		if src != nil {

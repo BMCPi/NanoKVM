@@ -34,6 +34,7 @@ type hostCollectionKind func(*hostState) map[string]map[string]any
 var (
 	bootOptionsOf = func(h *hostState) map[string]map[string]any { return h.BootOptions }
 	memoryOf      = func(h *hostState) map[string]map[string]any { return h.Memory }
+	processorsOf  = func(h *hostState) map[string]map[string]any { return h.Processors }
 	drivesOf      = func(h *hostState) map[string]map[string]any { return h.Drives }
 )
 
@@ -413,6 +414,62 @@ func (s *Service) PatchMemoryModule(c *gin.Context) {
 	merged := hostCollectionMerge(memoryOf, id, patch)
 	writeHostResource(c, renderHostMember(merged, memoryPath+"/"+id, id,
 		"#Memory.v1_16_0.Memory", "Memory.Memory", "Memory Module"))
+}
+
+// --- Processors --------------------------------------------------------------
+
+func (s *Service) PostProcessor(c *gin.Context) {
+	if !hostWritable(c) {
+		return
+	}
+	body, ok := bindHostBody(c)
+	if !ok {
+		return
+	}
+	// "CPU" as the fallback stem keeps generated ids in the same shape as the
+	// built-in CPU1 the BMC serves before the host has reported anything.
+	id := hostMemberID(processorsOf, body, "CPU", "Id", "Socket", "ProcessorId")
+	hostCollectionPut(processorsOf, id, body)
+
+	path := processorsPath + "/" + id
+	c.Header("Location", path)
+	writeHostJSON(c, http.StatusCreated,
+		renderHostMember(body, path, id, processorODataType, "Processor.Processor", "Processor"))
+}
+
+func (s *Service) PatchProcessor(c *gin.Context) {
+	if !hostWritable(c) {
+		return
+	}
+	id := c.Param("processor")
+	current, ok := hostCollectionGet(processorsOf, id)
+	if !ok {
+		redfishErrorResponse(c, http.StatusNotFound, "processor not found: "+id)
+		return
+	}
+	if !hostCheckIfMatch(c, renderHostMember(current, processorsPath+"/"+id, id,
+		processorODataType, "Processor.Processor", "Processor")) {
+		return
+	}
+	patch, ok := bindHostBody(c)
+	if !ok {
+		return
+	}
+	merged := hostCollectionMerge(processorsOf, id, patch)
+	writeHostResource(c, renderHostMember(merged, processorsPath+"/"+id, id,
+		processorODataType, "Processor.Processor", "Processor"))
+}
+
+func (s *Service) DeleteProcessor(c *gin.Context) {
+	if !hostWritable(c) {
+		return
+	}
+	id := c.Param("processor")
+	if !hostCollectionDelete(processorsOf, id) {
+		redfishErrorResponse(c, http.StatusNotFound, "processor not found: "+id)
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 // --- Drives (host storage subsystem "1") -------------------------------------
