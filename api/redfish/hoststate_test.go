@@ -2,6 +2,7 @@ package redfish
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -435,5 +436,155 @@ func TestHostStateRoundTrip(t *testing.T) {
 	}
 	if reported.ReportedAt.IsZero() || time.Since(reported.ReportedAt) > time.Minute {
 		t.Errorf("ReportedAt not preserved: %v", reported.ReportedAt)
+	}
+}
+
+// The EDK2 RedfishClient derives the registry URI from the Bios resource's
+// AttributeRegistry property and PUTs its generated document there. The name
+// must be advertised before anything is published, the wildcard must accept
+// the derived name (and versioned variants), and /Registries must point at
+// the same document.
+func TestBiosAttributeRegistryEDK2Flow(t *testing.T) {
+	resetHostState(t)
+	r := hostRouter()
+	r.GET("/redfish/v1/Systems/1/Bios/:registry", NewService(testDeps()).GetBiosAttributeRegistry)
+	r.PUT("/redfish/v1/Systems/1/Bios/:registry", NewService(testDeps()).PutBiosAttributeRegistry)
+	from := hostIP(t)
+
+	// Advertised before publication, so the client can build the PUT URI.
+	w := do(r, http.MethodGet, "/redfish/v1/Systems/1/Bios", lanIP, "", nil)
+	var bios struct {
+		AttributeRegistry string `json:"AttributeRegistry"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &bios)
+	if bios.AttributeRegistry != "BiosAttributeRegistry" {
+		t.Fatalf("AttributeRegistry = %q before publication", bios.AttributeRegistry)
+	}
+
+	// Unpublished GET serves the base skeleton (the client GETs before it
+	// PUTs and a 404 would end its walk); a bogus sibling name is 404.
+	w = do(r, http.MethodGet, "/redfish/v1/Systems/1/Bios/BiosAttributeRegistry", lanIP, "", nil)
+	if w.Code != http.StatusOK {
+		t.Errorf("GET unpublished = %d, want 200 base resource", w.Code)
+	}
+	var base map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &base)
+	if _, ok := base["RegistryEntries"]; !ok {
+		t.Errorf("base registry lacks RegistryEntries: %s", w.Body.String())
+	}
+	if w = do(r, http.MethodPut, "/redfish/v1/Systems/1/Bios/NotARegistry", from, `{}`, nil); w.Code != http.StatusNotFound {
+		t.Errorf("PUT bogus name = %d, want 404", w.Code)
+	}
+
+	// Host publishes; a versioned name must resolve to the same document.
+	doc := `{"Id":"BiosAttributeRegistry.v1_0_0","RegistryEntries":{"Attributes":[{"AttributeName":"BootOrder"}]}}`
+	if w = do(r, http.MethodPut, "/redfish/v1/Systems/1/Bios/BiosAttributeRegistry.v1_0_0", from, doc, nil); w.Code != http.StatusOK {
+		t.Fatalf("PUT = %d, body %s", w.Code, w.Body.String())
+	}
+	w = do(r, http.MethodGet, "/redfish/v1/Systems/1/Bios/BiosAttributeRegistry", lanIP, "", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET after PUT = %d", w.Code)
+	}
+	var got map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if got["Id"] != "BiosAttributeRegistry" || got["@odata.id"] != "/redfish/v1/Systems/1/Bios/BiosAttributeRegistry" {
+		t.Errorf("registry identity does not track the requested URI: %v %v", got["Id"], got["@odata.id"])
+	}
+	// The Bios resource now advertises the published document's Id.
+	w = do(r, http.MethodGet, "/redfish/v1/Systems/1/Bios", lanIP, "", nil)
+	_ = json.Unmarshal(w.Body.Bytes(), &bios)
+	if bios.AttributeRegistry != "BiosAttributeRegistry.v1_0_0" {
+		t.Errorf("AttributeRegistry after publication = %q", bios.AttributeRegistry)
+	}
+}
+
+// The host's thermal driver GETs then PATCHes Chassis/1/Thermal on every
+// boot; the GET must be a valid resource even before the first report, and
+// writes are host-interface-only like every other host-owned resource.
+func TestChassisThermalHostReport(t *testing.T) {
+	resetHostState(t)
+	r := hostRouter()
+	svc := NewService(testDeps())
+	r.GET("/redfish/v1/Chassis/1/Thermal", svc.GetChassisThermal)
+	r.PATCH("/redfish/v1/Chassis/1/Thermal", svc.PatchChassisThermal)
+	from := hostIP(t)
+
+	w := do(r, http.MethodGet, "/redfish/v1/Chassis/1/Thermal", lanIP, "", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET before report = %d, want 200 (a 404 ends the driver's walk)", w.Code)
+	}
+
+	if w = do(r, http.MethodPatch, "/redfish/v1/Chassis/1/Thermal", lanIP, `{"Temperatures":[]}`, nil); w.Code != http.StatusForbidden {
+		t.Errorf("PATCH from LAN = %d, want 403", w.Code)
+	}
+
+	body := `{"Temperatures":[{"Name":"SoC","ReadingCelsius":48}]}`
+	if w = do(r, http.MethodPatch, "/redfish/v1/Chassis/1/Thermal", from, body, nil); w.Code != http.StatusOK {
+		t.Fatalf("PATCH from host = %d, body %s", w.Code, w.Body.String())
+	}
+
+	w = do(r, http.MethodGet, "/redfish/v1/Chassis/1/Thermal", lanIP, "", nil)
+	var got struct {
+		Temperatures []map[string]any `json:"Temperatures"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if len(got.Temperatures) != 1 || got.Temperatures[0]["Name"] != "SoC" {
+		t.Errorf("thermal report not served back: %s", w.Body.String())
+	}
+}
+
+// A keyless report re-POSTed every boot must update, not accumulate — the
+// bug observed on hardware as Memory/DIMM0..DIMM42, all the same module.
+func TestKeylessReportsDoNotAccumulate(t *testing.T) {
+	resetHostState(t)
+	r := hostRouter()
+	from := hostIP(t)
+
+	body := `{"CapacityMiB":4096,"Manufacturer":"Micron","DeviceLocator":"SDRAM"}`
+	for range 3 {
+		if w := do(r, http.MethodPost, "/redfish/v1/Systems/1/Memory", from, body, nil); w.Code != http.StatusCreated {
+			t.Fatalf("POST = %d", w.Code)
+		}
+	}
+	w := do(r, http.MethodGet, "/redfish/v1/Systems/1/Memory", lanIP, "", nil)
+	var coll struct {
+		Count   int `json:"Members@odata.count"`
+		Members []struct {
+			ID string `json:"@odata.id"`
+		} `json:"Members"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &coll)
+	if coll.Count != 1 {
+		t.Fatalf("3 identical reports produced %d members: %+v", coll.Count, coll.Members)
+	}
+	// DeviceLocator is the natural key, so the id is meaningful too.
+	if coll.Members[0].ID != "/redfish/v1/Systems/1/Memory/SDRAM" {
+		t.Errorf("member id = %q, want the DeviceLocator key", coll.Members[0].ID)
+	}
+}
+
+// Ghosts persisted by earlier builds collapse on load.
+func TestLoadCollapsesPersistedDuplicates(t *testing.T) {
+	resetHostState(t)
+	host.mu.Lock()
+	for i := range 5 {
+		host.Memory[fmt.Sprintf("DIMM%d", i)] = map[string]any{"CapacityMiB": float64(4096)}
+	}
+	host.Memory["Other"] = map[string]any{"CapacityMiB": float64(8192)}
+	host.mu.Unlock()
+	hostStateFlush()
+
+	host.mu.Lock()
+	host.Memory = map[string]map[string]any{}
+	host.mu.Unlock()
+	LoadHostState()
+
+	host.mu.RLock()
+	defer host.mu.RUnlock()
+	if len(host.Memory) != 2 {
+		t.Fatalf("restored %d members, want 2 (DIMM0 + Other): %v", len(host.Memory), host.Memory)
+	}
+	if _, ok := host.Memory["DIMM0"]; !ok {
+		t.Error("lowest id did not survive the collapse")
 	}
 }

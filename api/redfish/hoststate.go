@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -77,6 +79,10 @@ type hostState struct {
 	BiosRegistry   map[string]any `json:"bios_registry,omitempty"`
 
 	SecureBoot map[string]any `json:"secure_boot"`
+
+	// Thermal is the chassis thermal report (fans, temperatures) the host's
+	// firmware PATCHes during boot; nil until it has.
+	Thermal map[string]any `json:"thermal,omitempty"`
 }
 
 var host = &hostState{
@@ -283,6 +289,14 @@ func LoadHostState() {
 	if restored.SecureBoot != nil {
 		host.SecureBoot = restored.SecureBoot
 	}
+	host.Thermal = restored.Thermal
+
+	// Collapse duplicate members accumulated by earlier builds that minted a
+	// fresh id for every keyless re-POST (one ghost per host boot). Lowest
+	// id wins so references stay as stable as they can be.
+	for _, m := range []map[string]map[string]any{host.BootOptions, host.Memory, host.Drives} {
+		dedupeHostCollection(m)
+	}
 	captured := restored.CapturedAt
 	host.mu.Unlock()
 
@@ -291,6 +305,24 @@ func LoadHostState() {
 		age = time.Since(captured).Round(time.Second).String()
 	}
 	log.Infof("restored BMC host state captured %s ago; the host overwrites it on its next boot", age)
+}
+
+// dedupeHostCollection removes members whose content is identical to another
+// member with a lexicographically smaller id.
+func dedupeHostCollection(m map[string]map[string]any) {
+	ids := make([]string, 0, len(m))
+	for id := range m {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for i, id := range ids {
+		for _, keep := range ids[:i] {
+			if _, kept := m[keep]; kept && reflect.DeepEqual(m[keep], m[id]) {
+				delete(m, id)
+				break
+			}
+		}
+	}
 }
 
 // --- ETag helpers ------------------------------------------------------------

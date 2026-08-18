@@ -17,7 +17,10 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"reflect"
 	"slices"
+	"sort"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -240,8 +243,17 @@ func bindHostBody(c *gin.Context) (map[string]any, bool) {
 func hostMemberID(kind hostCollectionKind, body map[string]any, prefix string, preferred ...string) string {
 	for _, field := range preferred {
 		if v, ok := body[field].(string); ok && v != "" {
-			return v
+			// Natural keys become URL path segments; keep them one token.
+			return strings.ReplaceAll(strings.TrimSpace(v), " ", "-")
 		}
+	}
+	// No natural key in the report. Before minting a fresh id, look for an
+	// existing member with identical content: the host re-POSTs its whole
+	// inventory every boot, and without this a keyless report accumulates
+	// one ghost member per boot (observed on hardware as Memory/DIMM0..42,
+	// all copies of the same module).
+	if id := hostFindIdentical(kind, body); id != "" {
+		return id
 	}
 	existing := hostCollectionIDs(kind)
 	for i := 0; ; i++ {
@@ -250,6 +262,24 @@ func hostMemberID(kind hostCollectionKind, body map[string]any, prefix string, p
 			return id
 		}
 	}
+}
+
+// hostFindIdentical returns the id of a member whose stored content equals
+// the report, or "".
+func hostFindIdentical(kind hostCollectionKind, body map[string]any) string {
+	host.mu.RLock()
+	defer host.mu.RUnlock()
+	ids := make([]string, 0, len(kind(host)))
+	for id := range kind(host) {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		if reflect.DeepEqual(kind(host)[id], body) {
+			return id
+		}
+	}
+	return ""
 }
 
 // --- BootOptions -------------------------------------------------------------
@@ -347,7 +377,7 @@ func (s *Service) PostMemoryModule(c *gin.Context) {
 	if !ok {
 		return
 	}
-	id := hostMemberID(memoryOf, body, "DIMM", "Id")
+	id := hostMemberID(memoryOf, body, "DIMM", "Id", "DeviceLocator", "SocketLocator")
 	hostCollectionPut(memoryOf, id, body)
 
 	path := memoryPath + "/" + id
@@ -393,7 +423,7 @@ func (s *Service) PostHostDrive(c *gin.Context) {
 	if !ok {
 		return
 	}
-	id := hostMemberID(drivesOf, body, "Drive", "Id")
+	id := hostMemberID(drivesOf, body, "Drive", "Id", "SerialNumber")
 	hostCollectionPut(drivesOf, id, body)
 
 	path := drivesPath + "/" + id

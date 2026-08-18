@@ -113,10 +113,17 @@ const (
 
 	ethernetInterfacesPath = systemPath + "/EthernetInterfaces"
 
-	chassisItemPath = chassisPath + "/1"
+	chassisItemPath    = chassisPath + "/1"
+	chassisThermalPath = chassisItemPath + "/Thermal"
 
 	biosSettingsPath = biosPath + "/Settings"
-	biosRegistryPath = biosPath + "/AttributeRegistry"
+	// The registry lives under the Bios resource because EDK2's
+	// BiosAttributeRegistryDxe builds its URI as
+	// <parent of Bios>/<AttributeRegistry property value>.
+	biosRegistryPath = biosPath + "/" + biosRegistryName
+
+	registriesPath   = schemas.DefaultServiceRoot + "Registries"
+	registryFilePath = registriesPath + "/" + biosRegistryName
 
 	managersPath = schemas.DefaultServiceRoot + "Managers"
 	managerPath  = managersPath + "/1"

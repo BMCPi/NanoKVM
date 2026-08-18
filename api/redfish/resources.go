@@ -66,14 +66,17 @@ type Status struct {
 
 type ServiceRoot struct {
 	Resource
-	RedfishVersion string           `json:"RedfishVersion"`
-	UUID           string           `json:"UUID,omitempty"`
-	Systems        Link             `json:"Systems"`
-	Managers       Link             `json:"Managers"`
-	Chassis        Link             `json:"Chassis"`
-	SessionService Link             `json:"SessionService"`
-	UpdateService  Link             `json:"UpdateService"`
-	Links          ServiceRootLinks `json:"Links"`
+	RedfishVersion string `json:"RedfishVersion"`
+	UUID           string `json:"UUID,omitempty"`
+	Systems        Link   `json:"Systems"`
+	Managers       Link   `json:"Managers"`
+	Chassis        Link   `json:"Chassis"`
+	SessionService Link   `json:"SessionService"`
+	UpdateService  Link   `json:"UpdateService"`
+	// Registries is where EDK2's BiosAttributeRegistryDxe starts its walk;
+	// without it the driver gives up before ever asking for the registry.
+	Registries Link             `json:"Registries,omitempty"`
+	Links      ServiceRootLinks `json:"Links"`
 }
 
 // ServiceRootLinks carries Links.Sessions, which is what gofish and other

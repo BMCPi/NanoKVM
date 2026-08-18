@@ -15,6 +15,8 @@ import (
 )
 
 // Chassis is the Redfish Chassis resource (DSP2046 §6.13).
+// ChassisThermal is emitted as a link so the host's thermal feature driver
+// can find its branch; the resource itself is host-reported.
 type Chassis struct {
 	Resource
 	ChassisType  schemas.ChassisType `json:"ChassisType"`
@@ -30,6 +32,14 @@ type ChassisLinks struct {
 	ManagedBy       Links `json:"ManagedBy"`
 }
 
+// chassisWithThermal decorates the Chassis JSON with the Thermal link. The
+// struct route would force Thermal into every Links consumer; a top-level
+// property is what the schema wants anyway.
+type chassisWithThermal struct {
+	Chassis
+	Thermal Link `json:"Thermal"`
+}
+
 func (s *Service) GetChassisCollection(c *gin.Context) {
 	c.JSON(http.StatusOK, newCollection(
 		"ChassisCollection", "Chassis Collection", chassisPath,
@@ -37,7 +47,7 @@ func (s *Service) GetChassisCollection(c *gin.Context) {
 }
 
 func (s *Service) GetChassis(c *gin.Context) {
-	c.JSON(http.StatusOK, Chassis{
+	c.JSON(http.StatusOK, chassisWithThermal{Thermal: Link(chassisThermalPath), Chassis: Chassis{
 		Resource: Resource{
 			ODataType:    "#Chassis.v1_21_0.Chassis",
 			ODataID:      chassisItemPath,
@@ -53,5 +63,47 @@ func (s *Service) GetChassis(c *gin.Context) {
 			ComputerSystems: Links{Link(systemPath)},
 			ManagedBy:       Links{Link(managerPath)},
 		},
-	})
+	}})
+}
+
+// GetChassisThermal serves the thermal report the host published. Before the
+// first report it answers with an empty-but-valid resource rather than 404:
+// the host's own driver GETs before it PATCHes, and a 404 ends its walk.
+func (s *Service) GetChassisThermal(c *gin.Context) {
+	host.mu.RLock()
+	stored := copyAnyMap(host.Thermal)
+	host.mu.RUnlock()
+	writeHostResource(c, renderHostMember(stored, chassisThermalPath, "Thermal",
+		"#Thermal.v1_7_1.Thermal", "Thermal.Thermal", "Thermal"))
+}
+
+// PatchChassisThermal stores the host's thermal report (shallow merge, like
+// the other host-owned resources).
+func (s *Service) PatchChassisThermal(c *gin.Context) {
+	if !hostWritable(c) {
+		return
+	}
+	host.mu.RLock()
+	current := copyAnyMap(host.Thermal)
+	host.mu.RUnlock()
+	if !hostCheckIfMatch(c, renderHostMember(current, chassisThermalPath, "Thermal",
+		"#Thermal.v1_7_1.Thermal", "Thermal.Thermal", "Thermal")) {
+		return
+	}
+	patch, ok := bindHostBody(c)
+	if !ok {
+		return
+	}
+	host.mu.Lock()
+	if host.Thermal == nil {
+		host.Thermal = map[string]any{}
+	}
+	for k, v := range patch {
+		host.Thermal[k] = v
+	}
+	merged := copyAnyMap(host.Thermal)
+	host.mu.Unlock()
+	hostStateSave()
+	writeHostResource(c, renderHostMember(merged, chassisThermalPath, "Thermal",
+		"#Thermal.v1_7_1.Thermal", "Thermal.Thermal", "Thermal"))
 }

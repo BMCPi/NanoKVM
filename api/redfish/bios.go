@@ -19,6 +19,7 @@ package redfish
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -47,11 +48,13 @@ func biosResource() Bios {
 			SupportedApplyTimes: []string{"OnReset"},
 		},
 	}
+	// Always advertised, even before the host publishes: the EDK2 client
+	// derives the registry's URI from this property, so an absent value
+	// leaves it with nowhere to PUT the document in the first place.
+	res.AttributeRegistry = biosRegistryName
 	if reg := hostBiosRegistry(); reg != nil {
 		if id, ok := reg["Id"].(string); ok && id != "" {
 			res.AttributeRegistry = id
-		} else {
-			res.AttributeRegistry = "HostBiosRegistry"
 		}
 	}
 	return res
@@ -145,31 +148,69 @@ func (s *Service) PatchBiosSettings(c *gin.Context) {
 	writeHostResource(c, hostView(res))
 }
 
-// GetBiosAttributeRegistry serves the registry the host published. "Not
-// reported yet" is a real state, distinct from an empty registry.
+// biosRegistryName is the default AttributeRegistry name. EDK2's client
+// derives the registry URI as <parent of Bios>/<this value>, and names its
+// own generated documents BiosAttributeRegistry[.vX_Y_Z].
+const biosRegistryName = "BiosAttributeRegistry"
+
+// biosRegistryNameOK accepts the names a client legitimately resolves the
+// registry under: the advertised default (with or without a version suffix)
+// and the pre-pivot "AttributeRegistry" spelling.
+func biosRegistryNameOK(name string) bool {
+	return name == "AttributeRegistry" || strings.HasPrefix(name, biosRegistryName)
+}
+
+// registryResource renders the stored registry at the URI it was asked for —
+// the client treats the path it derived as canonical, so the @odata.id must
+// agree with it.
+func registryResource(reg map[string]any, name string) map[string]any {
+	return renderHostMember(reg, biosPath+"/"+name, name,
+		"#AttributeRegistry.v1_3_8.AttributeRegistry", "AttributeRegistry.AttributeRegistry",
+		"BIOS Attribute Registry")
+}
+
+// baseBiosRegistry is the skeleton served before the host publishes. Per the
+// RedfishClientPkg contract the BMC provides the *base* registry resource —
+// the feature driver GETs it before deciding to PUT its generated document,
+// and a 404 here ends its walk instead of triggering provisioning.
+func baseBiosRegistry() map[string]any {
+	return map[string]any{
+		"Language":        "en",
+		"RegistryVersion": "1.0.0",
+		"OwningEntity":    "NanoKVM",
+		"RegistryEntries": map[string]any{"Attributes": []any{}},
+	}
+}
+
+// GetBiosAttributeRegistry serves the registry the host published, or the
+// base skeleton before it has.
 func (s *Service) GetBiosAttributeRegistry(c *gin.Context) {
-	reg := hostBiosRegistry()
-	if reg == nil {
-		redfishErrorResponse(c, http.StatusNotFound,
-			"the managed host has not published an attribute registry yet")
+	name := c.Param("registry")
+	if !biosRegistryNameOK(name) {
+		redfishErrorResponse(c, http.StatusNotFound, "no such Bios sub-resource")
 		return
 	}
-	writeHostResource(c, renderHostMember(reg, biosRegistryPath, "BiosAttributeRegistry",
-		"#AttributeRegistry.v1_3_8.AttributeRegistry", "AttributeRegistry.AttributeRegistry",
-		"BIOS Attribute Registry"))
+	reg := hostBiosRegistry()
+	if reg == nil {
+		reg = baseBiosRegistry()
+	}
+	writeHostResource(c, registryResource(reg, name))
 }
 
 // PutBiosAttributeRegistry stores the registry document the host publishes.
 // PUT (not PATCH): the registry is a single document the host replaces
 // wholesale when its firmware changes.
 func (s *Service) PutBiosAttributeRegistry(c *gin.Context) {
+	name := c.Param("registry")
+	if !biosRegistryNameOK(name) {
+		redfishErrorResponse(c, http.StatusNotFound, "no such Bios sub-resource")
+		return
+	}
 	if !hostWritable(c) {
 		return
 	}
 	if current := hostBiosRegistry(); current != nil {
-		if !hostCheckIfMatch(c, renderHostMember(current, biosRegistryPath, "BiosAttributeRegistry",
-			"#AttributeRegistry.v1_3_8.AttributeRegistry", "AttributeRegistry.AttributeRegistry",
-			"BIOS Attribute Registry")) {
+		if !hostCheckIfMatch(c, registryResource(current, name)) {
 			return
 		}
 	}
@@ -178,7 +219,38 @@ func (s *Service) PutBiosAttributeRegistry(c *gin.Context) {
 		return
 	}
 	setHostBiosRegistry(body)
-	writeHostResource(c, renderHostMember(body, biosRegistryPath, "BiosAttributeRegistry",
-		"#AttributeRegistry.v1_3_8.AttributeRegistry", "AttributeRegistry.AttributeRegistry",
-		"BIOS Attribute Registry"))
+	writeHostResource(c, registryResource(body, name))
+}
+
+// GetRegistries serves the registry-file collection BiosAttributeRegistryDxe
+// walks from the service root.
+func (s *Service) GetRegistries(c *gin.Context) {
+	writeHostResource(c, map[string]any{
+		"@odata.type":         "#MessageRegistryFileCollection.MessageRegistryFileCollection",
+		"@odata.id":           registriesPath,
+		"Name":                "Registry File Collection",
+		"Members@odata.count": 1,
+		"Members":             []map[string]any{{"@odata.id": registryFilePath}},
+	})
+}
+
+// GetRegistryFile points at where the registry document actually lives: the
+// host PUTs it under the Bios resource, so a /Registries-relative URI here
+// would name something nothing serves.
+func (s *Service) GetRegistryFile(c *gin.Context) {
+	if c.Param("id") != biosRegistryName {
+		redfishErrorResponse(c, http.StatusNotFound, "registry not found")
+		return
+	}
+	writeHostResource(c, map[string]any{
+		"@odata.type": "#MessageRegistryFile.v1_1_0.MessageRegistryFile",
+		"@odata.id":   registryFilePath,
+		"Id":          biosRegistryName,
+		"Name":        "BIOS Attribute Registry",
+		"Registry":    biosRegistryName,
+		"Languages":   []string{"en"},
+		"Location": []map[string]any{
+			{"Language": "en", "Uri": biosRegistryPath},
+		},
+	})
 }

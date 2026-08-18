@@ -51,8 +51,18 @@ func Register(r *gin.Engine, d *deps.Deps) {
 		api.PATCH("/Systems/1/Bios", service.PatchBios)
 		api.GET("/Systems/1/Bios/Settings", service.GetBiosSettings)
 		api.PATCH("/Systems/1/Bios/Settings", service.PatchBiosSettings)
-		api.GET("/Systems/1/Bios/AttributeRegistry", service.GetBiosAttributeRegistry)
-		api.PUT("/Systems/1/Bios/AttributeRegistry", service.PutBiosAttributeRegistry)
+		// The attribute registry hangs off Bios rather than /Registries:
+		// EDK2's client builds the URI as <parent of Bios>/<AttributeRegistry
+		// property>, so the wildcard catches whatever name it derived
+		// (BiosAttributeRegistry, a versioned variant, or the legacy
+		// spelling). gin matches the static Settings siblings above first.
+		api.GET("/Systems/1/Bios/:registry", service.GetBiosAttributeRegistry)
+		api.PUT("/Systems/1/Bios/:registry", service.PutBiosAttributeRegistry)
+
+		// Registry-file collection: BiosAttributeRegistryDxe starts here and
+		// gives up if the branch is missing from the service root.
+		api.GET("/Registries", service.GetRegistries)
+		api.GET("/Registries/:id", service.GetRegistryFile)
 
 		// BootOptions — one member per Boot#### variable, POSTed by the
 		// host's boot manager whenever it re-enumerates.
@@ -88,6 +98,10 @@ func Register(r *gin.Engine, d *deps.Deps) {
 		// advertised this collection.
 		api.GET("/Chassis", service.GetChassisCollection)
 		api.GET("/Chassis/1", service.GetChassis)
+		// The host's thermal feature driver GETs then PATCHes this on every
+		// boot; a 404 here ends its walk.
+		api.GET("/Chassis/1/Thermal", service.GetChassisThermal)
+		api.PATCH("/Chassis/1/Thermal", service.PatchChassisThermal)
 
 		// Managers
 		api.GET("/Managers", service.GetManagerCollection)
