@@ -8,6 +8,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/card"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
+	"github.com/pi-bmc/nanokvm-app/ui/components/item"
 	selectcomp "github.com/pi-bmc/nanokvm-app/ui/components/select"
 )
 
@@ -35,23 +36,29 @@ templ OverviewSidebar() {
 		aria-label="Server Overview"
 	>
 		<div class="ov-sidebar-inner">
-			<div class="flex items-center justify-between border-b border-border px-4 py-3">
-				<div>
-					<h2 class="text-sm font-semibold">Server Overview</h2>
-					<p class="text-xs text-muted-foreground">Identity, network, and firmware state.</p>
-				</div>
-				@button.Button(button.Props{
-					Variant: button.VariantGhost,
-					Size:    button.SizeIcon,
-					Attributes: templ.Attributes{
-						"onclick":    "toggleOverview()",
-						"title":      "Close",
-						"aria-label": "Close Server Overview",
-					},
-				}) {
-					@icon.X()
+			@item.Item(item.Props{Class: "rounded-none border-0 border-b border-border px-4 py-3"}) {
+				@item.Content(item.ContentProps{Class: "gap-0"}) {
+					@item.Title(item.TitleProps{Class: "font-semibold"}) {
+						Server Overview
+					}
+					@item.Description(item.DescriptionProps{Class: "text-xs"}) {
+						Identity, network, and firmware state.
+					}
 				}
-			</div>
+				@item.Actions() {
+					@button.Button(button.Props{
+						Variant: button.VariantGhost,
+						Size:    button.SizeIcon,
+						Attributes: templ.Attributes{
+							"onclick":    "toggleOverview()",
+							"title":      "Close",
+							"aria-label": "Close Server Overview",
+						},
+					}) {
+						@icon.X()
+					}
+				}
+			}
 			<div class="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 py-3 space-y-4">
 				@overviewServerCard()
 				@overviewBmcCard()
@@ -88,13 +95,6 @@ templ overviewSidebarStyles() {
 			display: flex;
 			flex-direction: column;
 		}
-		/* Same row shape as the settings dialog's network-status rows
-		   (settingsStatusRow: py-1, border-border/50) so label/value readouts
-		   share one rhythm everywhere. */
-		.ov-row { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .25rem 0; border-bottom: 1px solid color-mix(in oklab, var(--border) 50%, transparent); }
-		.ov-row:last-child { border-bottom: none; }
-		.ov-label { font-size: .75rem; color: var(--muted-foreground); flex-shrink: 0; }
-		.ov-value { font-size: .75rem; font-family: var(--font-mono); text-align: right; word-break: break-all; min-width: 0; }
 	</style>
 }
 
@@ -123,12 +123,16 @@ templ overviewServerCard() {
 // placeholders for first paint.
 templ OverviewServerBody(m OverviewServer) {
 	@card.Content(card.ContentProps{Class: "py-0 pb-2"}) {
-		@ovRow("Board", m.Board)
-		@ovRow("Vendor", m.Vendor)
-		@ovRow("CPU / SoC", m.CPU)
-		@ovRow("Memory", m.Memory)
-		@ovRow("Serial", m.Serial)
-		@ovRow("Revision", m.Revision)
+		// has-data-[size=xs]:gap-0 counters the Group's own xs gap — the
+		// rows' hairline borders are the separation here.
+		@item.Group(item.GroupProps{Class: "has-data-[size=xs]:gap-0"}) {
+			@statusRow("Board", m.Board)
+			@statusRow("Vendor", m.Vendor)
+			@statusRow("CPU / SoC", m.CPU)
+			@statusRow("Memory", m.Memory)
+			@statusRow("Serial", m.Serial)
+			@statusRow("Revision", m.Revision)
+		}
 	}
 	// The service reports the winning inventory source in
 	// Oem.NanoKVM.InventorySource, so the footer names the actual source.
@@ -160,22 +164,23 @@ templ overviewBmcCard() {
 			}
 		}
 		@card.Content(card.ContentProps{Class: "py-0 pb-2"}) {
-			<div class="ov-row">
-				<span class="ov-label">Application</span>
-				<span class="ov-value flex items-center gap-1.5 justify-end">
-					<span>
-						if v := versionDisplay(application.CurrentVersion()); v != "" {
-							{ v }
-						} else {
-							—
-						}
-					</span>
-					<span class="contents" hx-get="/ui/overview/app-update" hx-trigger="load"></span>
-				</span>
-			</div>
-			@ovRow("Image", sysinfo.ImageVersion())
-			@ovRow("Hardware", config.GetInstance().Hardware.Version.String())
-			@ovRow("IP Address", sysinfo.PrimaryIP())
+			@item.Group(item.GroupProps{Class: "has-data-[size=xs]:gap-0"}) {
+				// statusRow with a trailing slot: the release check loads into
+				// the value cluster, so the Content is laid out as a row
+				// instead of the helper's single value cell.
+				@item.Item(item.Props{Size: item.SizeXs, Class: statusRowClasses}) {
+					@item.Title(item.TitleProps{Class: "shrink-0 font-normal text-muted-foreground"}) {
+						Application
+					}
+					@item.Content(item.ContentProps{Class: "flex-row items-center justify-end gap-1.5"}) {
+						@statusValue(versionDisplay(application.CurrentVersion()))
+						<span class="contents" hx-get="/ui/overview/app-update" hx-trigger="load"></span>
+					}
+				}
+				@statusRow("Image", sysinfo.ImageVersion())
+				@statusRow("Hardware", config.GetInstance().Hardware.Version.String())
+				@statusRow("IP Address", sysinfo.PrimaryIP())
+			}
 		}
 		@card.Footer(card.FooterProps{Class: "pt-2 text-xs text-muted-foreground"}) {
 			Interfaces: IPMI :623 · <a href="/redfish/v1" target="_blank" rel="noopener noreferrer" class="ml-1 underline underline-offset-4 hover:text-foreground">Redfish</a>
@@ -241,10 +246,12 @@ templ overviewHostFirmwareCard() {
 // rather than showing a placeholder that suggests missing data.
 templ OverviewHostFirmwareBody(m OverviewHostFirmware) {
 	@card.Content(card.ContentProps{Class: "py-0 pb-2"}) {
-		@ovRow("BIOS Version", m.BiosVersion)
-		@ovRow("Boot Override", m.BootOverride)
-		if m.BootProgress != "" {
-			@ovRow("Boot Progress", m.BootProgress)
+		@item.Group(item.GroupProps{Class: "has-data-[size=xs]:gap-0"}) {
+			@statusRow("BIOS Version", m.BiosVersion)
+			@statusRow("Boot Override", m.BootOverride)
+			if m.BootProgress != "" {
+				@statusRow("Boot Progress", m.BootProgress)
+			}
 		}
 	}
 	@card.Footer(card.FooterProps{Class: "pt-2 text-xs text-muted-foreground"}) {
@@ -281,10 +288,7 @@ templ OverviewBootOverrideBody(m OverviewBootOverride) {
 	<form class="contents" hx-post="/ui/overview/boot-override" hx-swap="none">
 		@card.Content(card.ContentProps{Class: "py-2 space-y-1.5"}) {
 			@bootOverrideSelect(m.SelectValue())
-			<div class="ov-row">
-				<span class="ov-label">Staged</span>
-				<span class="ov-value">{ m.StagedLabel() }</span>
-			</div>
+			@statusRow("Staged", m.StagedLabel())
 		}
 		@card.Footer(card.FooterProps{Class: "pt-2 flex items-center gap-2 flex-wrap"}) {
 			@button.Button(button.Props{
@@ -346,21 +350,6 @@ templ bootOverrideSelect(value string) {
 			}
 		}
 	}
-}
-
-// ovRow renders one label / value row; the em-dash placeholder shows while
-// a fragment has not yet supplied the value.
-templ ovRow(label, value string) {
-	<div class="ov-row">
-		<span class="ov-label">{ label }</span>
-		<span class="ov-value">
-			if value != "" {
-				{ value }
-			} else {
-				—
-			}
-		</span>
-	</div>
 }
 
 // overviewToggleScript exposes openOverview / closeOverview / toggleOverview

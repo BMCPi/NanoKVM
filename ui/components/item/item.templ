@@ -1,0 +1,322 @@
+package item
+
+import "github.com/pi-bmc/nanokvm-app/ui/utils"
+
+type Variant string
+
+const (
+	VariantDefault Variant = "default"
+	VariantOutline Variant = "outline"
+	VariantMuted   Variant = "muted"
+)
+
+type Size string
+
+const (
+	SizeDefault Size = "default"
+	SizeSm      Size = "sm"
+	SizeXs      Size = "xs"
+)
+
+type MediaVariant string
+
+const (
+	MediaVariantDefault MediaVariant = "default"
+	MediaVariantIcon    MediaVariant = "icon"
+	MediaVariantImage   MediaVariant = "image"
+)
+
+type GroupProps struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+}
+
+type Props struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+	Variant    Variant
+	Size       Size
+	Href       string
+	Target     string
+}
+
+type SeparatorProps struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+}
+
+type MediaProps struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+	Variant    MediaVariant
+}
+
+type ContentProps struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+}
+
+type TitleProps struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+}
+
+type DescriptionProps struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+}
+
+type ActionsProps struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+}
+
+type HeaderProps struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+}
+
+type FooterProps struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+}
+
+templ Group(props ...GroupProps) {
+	{{ var p GroupProps }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	<div
+		if p.ID != "" {
+			id={ p.ID }
+		}
+		role="list"
+		data-slot="item-group"
+		class={ utils.CN("has-data-[size=sm]:gap-2.5 has-data-[size=xs]:gap-2 group/item-group flex w-full flex-col", p.Class) }
+		{ p.Attributes... }
+	>
+		{ children... }
+	</div>
+}
+
+templ Item(props ...Props) {
+	{{ var p Props }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	if p.Variant == "" {
+		{{ p.Variant = VariantDefault }}
+	}
+	if p.Size == "" {
+		{{ p.Size = SizeDefault }}
+	}
+	if p.Href != "" {
+		<a
+			if p.ID != "" {
+				id={ p.ID }
+			}
+			href={ templ.SafeURL(p.Href) }
+			if p.Target != "" {
+				target={ p.Target }
+			}
+			data-slot="item"
+			data-variant={ string(p.Variant) }
+			data-size={ string(p.Size) }
+			class={ itemClasses(p) }
+			{ p.Attributes... }
+		>
+			{ children... }
+		</a>
+	} else {
+		<div
+			if p.ID != "" {
+				id={ p.ID }
+			}
+			data-slot="item"
+			data-variant={ string(p.Variant) }
+			data-size={ string(p.Size) }
+			class={ itemClasses(p) }
+			{ p.Attributes... }
+		>
+			{ children... }
+		</div>
+	}
+}
+
+func itemClasses(p Props) string {
+	base := "[a]:hover:bg-muted rounded-lg border text-sm gap-2.5 group/item flex w-full flex-wrap items-center transition-colors duration-100 outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 [a]:transition-colors"
+	var variantClass string
+	switch p.Variant {
+	case VariantOutline:
+		variantClass = "border-border"
+	case VariantMuted:
+		variantClass = "bg-muted/50 border-transparent"
+	default:
+		variantClass = "border-transparent"
+	}
+
+	var sizeClass string
+	switch p.Size {
+	case SizeSm:
+		sizeClass = "px-3 py-2 text-xs"
+	case SizeXs:
+		sizeClass = "gap-2 px-2 py-1.5 in-data-[slot=dropdown-menu-content]:p-0 text-xs"
+	default:
+		sizeClass = "px-3 py-2.5"
+	}
+
+	return utils.CN(base, variantClass, sizeClass, p.Class)
+}
+
+templ Separator(props ...SeparatorProps) {
+	{{ var p SeparatorProps }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	<div
+		if p.ID != "" {
+			id={ p.ID }
+		}
+		data-slot="item-separator"
+		class={ utils.CN("bg-border/60 -mx-1 my-1 h-px", p.Class) }
+		{ p.Attributes... }
+	></div>
+}
+
+templ Media(props ...MediaProps) {
+	{{ var p MediaProps }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	if p.Variant == "" {
+		{{ p.Variant = MediaVariantDefault }}
+	}
+	<div
+		if p.ID != "" {
+			id={ p.ID }
+		}
+		data-slot="item-media"
+		data-variant={ string(p.Variant) }
+		class={
+			utils.CN(
+				"gap-2 group-has-data-[slot=item-description]/item:translate-y-0.5 group-has-data-[slot=item-description]/item:self-start bg-transparent flex shrink-0 items-center justify-center [&_svg]:pointer-events-none data-[variant=icon]:[&_svg:not([class*='size-'])]:size-4",
+				p.Class,
+			),
+		}
+		{ p.Attributes... }
+	>
+		{ children... }
+	</div>
+}
+
+templ Content(props ...ContentProps) {
+	{{ var p ContentProps }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	<div
+		if p.ID != "" {
+			id={ p.ID }
+		}
+		data-slot="item-content"
+		class={ utils.CN("group-data-[size=xs]/item:gap-0 flex flex-1 flex-col [&+[data-slot=item-content]]:flex-none gap-1 min-w-0", p.Class) }
+		{ p.Attributes... }
+	>
+		{ children... }
+	</div>
+}
+
+templ Title(props ...TitleProps) {
+	{{ var p TitleProps }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	<div
+		if p.ID != "" {
+			id={ p.ID }
+		}
+		data-slot="item-title"
+		class={ utils.CN("gap-2 text-sm group-data-[size=xs]/item:text-xs leading-snug font-medium underline-offset-4 line-clamp-1 flex w-fit items-center", p.Class) }
+		{ p.Attributes... }
+	>
+		{ children... }
+	</div>
+}
+
+templ Description(props ...DescriptionProps) {
+	{{ var p DescriptionProps }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	<p
+		if p.ID != "" {
+			id={ p.ID }
+		}
+		data-slot="item-description"
+		class={ utils.CN("text-muted-foreground text-left text-sm leading-normal group-data-[size=xs]/item:text-xs line-clamp-2 font-normal [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary", p.Class) }
+		{ p.Attributes... }
+	>
+		{ children... }
+	</p>
+}
+
+templ Actions(props ...ActionsProps) {
+	{{ var p ActionsProps }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	<div
+		if p.ID != "" {
+			id={ p.ID }
+		}
+		data-slot="item-actions"
+		class={ utils.CN("gap-2 flex items-center shrink-0", p.Class) }
+		{ p.Attributes... }
+	>
+		{ children... }
+	</div>
+}
+
+templ Header(props ...HeaderProps) {
+	{{ var p HeaderProps }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	<div
+		if p.ID != "" {
+			id={ p.ID }
+		}
+		data-slot="item-header"
+		class={ utils.CN("gap-2 flex basis-full items-center justify-between", p.Class) }
+		{ p.Attributes... }
+	>
+		{ children... }
+	</div>
+}
+
+templ Footer(props ...FooterProps) {
+	{{ var p FooterProps }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	<div
+		if p.ID != "" {
+			id={ p.ID }
+		}
+		data-slot="item-footer"
+		class={ utils.CN("gap-2 flex basis-full items-center justify-between text-xs text-muted-foreground", p.Class) }
+		{ p.Attributes... }
+	>
+		{ children... }
+	</div>
+}

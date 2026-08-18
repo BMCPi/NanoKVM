@@ -7,6 +7,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/ui/components/field"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
 	"github.com/pi-bmc/nanokvm-app/ui/components/input"
+	"github.com/pi-bmc/nanokvm-app/ui/components/item"
 	selectcomp "github.com/pi-bmc/nanokvm-app/ui/components/select"
 	switchcomp "github.com/pi-bmc/nanokvm-app/ui/components/switch"
 	"github.com/pi-bmc/nanokvm-app/ui/components/textarea"
@@ -118,29 +119,38 @@ templ settingsNav() {
 			<span>Back to KVM</span>
 		}
 		@card.Card(card.Props{Class: "gap-0.5 p-1"}) {
-			for i, s := range settingsSections {
-				@settingsNavItem(s, i == 0)
+			@item.Group(item.GroupProps{Class: "gap-0.5"}) {
+				for i, s := range settingsSections {
+					@settingsNavItem(s, i == 0)
+				}
 			}
 		}
 	</nav>
 }
 
 // settingsNavItem is one section link. The active state rides on data-active
-// rather than a class swap: the attribute selector outranks the variant's own
-// background, so the highlight survives hover without an !important.
+// rather than a class swap: the attribute selector outranks the hover
+// background, so the highlight survives hover without an !important. The
+// role/tabindex/keydown trio keeps the row keyboard-operable like the button
+// it replaced.
 templ settingsNavItem(s settingsSection, active bool) {
-	@button.Button(button.Props{
-		Variant: button.VariantGhost,
-		Size:    button.SizeSm,
-		Class:   "w-full justify-start gap-2 font-normal text-muted-foreground data-[active=true]:bg-muted data-[active=true]:font-medium data-[active=true]:text-foreground",
+	@item.Item(item.Props{
+		Class: "cursor-pointer select-none gap-2 rounded-md px-2 py-1.5 text-xs uppercase tracking-widest text-muted-foreground hover:bg-accent data-[active=true]:bg-muted data-[active=true]:text-foreground",
 		Attributes: templ.Attributes{
 			"data-settings-nav": s.ID,
 			"data-active":       utils.IfElse(active, "true", "false"),
+			"role":              "button",
+			"tabindex":          "0",
 			"onclick":           "showSettingsSection('" + s.ID + "')",
+			"onkeydown":         "if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); this.click(); }",
 		},
 	}) {
-		@s.Icon(icon.Props{Class: "size-4"})
-		<span>{ s.Label }</span>
+		@item.Media(item.MediaProps{Variant: item.MediaVariantIcon}) {
+			@s.Icon(icon.Props{Class: "size-4"})
+		}
+		@item.Title(item.TitleProps{Class: "text-xs font-normal uppercase tracking-widest group-data-[active=true]/item:font-medium"}) {
+			{ s.Label }
+		}
 	}
 }
 
@@ -411,13 +421,15 @@ templ settingsNetworkStatusCard(s SettingsNetworkStatus) {
 }
 
 // SettingsNetworkStatusRows is swapped on its own by the Refresh button.
+// statusRow (status_row.templ) is the same row the overview sidebar cards
+// use, so the label/value readouts share one rhythm everywhere.
 templ SettingsNetworkStatusRows(s SettingsNetworkStatus) {
-	@settingsStatusRow("IP Address", s.IP)
-	@settingsStatusRow("Interface", s.Interface)
-	@settingsStatusRow("IPv4 Mode", s.Mode)
-	@settingsStatusRow("MAC Address", s.MAC)
-	@settingsStatusRow("mDNS Name", s.MDNS)
-	@settingsStatusRow("USB Host Link", s.RHI)
+	@statusRow("IP Address", s.IP)
+	@statusRow("Interface", s.Interface)
+	@statusRow("IPv4 Mode", s.Mode)
+	@statusRow("MAC Address", s.MAC)
+	@statusRow("mDNS Name", s.MDNS)
+	@statusRow("USB Host Link", s.RHI)
 }
 
 templ settingsHardwarePanel() {
@@ -527,7 +539,7 @@ templ SettingsAccessBody(m SettingsAccess) {
 				@settingsSwitchRow("tls-switch", "enabled", "TLS / HTTPS",
 					"Serve the web UI and the APIs over HTTPS.", m.TLSEnabled)
 			</form>
-			@settingsRow("", "Password", "Change the password of the BMC web account.") {
+			@settingsActionRow("Password", "Change the password of the BMC web account.") {
 				@button.Button(button.Props{
 					Variant: button.VariantOutline,
 					Size:    button.SizeSm,
@@ -551,7 +563,7 @@ templ settingsAdvancedPanel() {
 
 templ SettingsAdvancedBody(m SettingsAdvanced) {
 	@field.Group() {
-		@settingsRow("", "Reboot BMC",
+		@settingsActionRow("Reboot BMC",
 			"Restart the management controller. The managed host keeps running.") {
 			@button.Button(button.Props{
 				Variant: button.VariantDestructive,
@@ -569,19 +581,28 @@ templ SettingsAdvancedBody(m SettingsAdvanced) {
 				<span>Reboot BMC</span>
 			}
 		}
-		@settingsRow("", "API documentation",
-			"Rendered reference for the Redfish and NanoKVM APIs served by this device.") {
-			@button.Button(button.Props{
-				Variant: button.VariantOutline,
-				Size:    button.SizeSm,
-				Href:    "/docs",
-				Target:  "_blank",
-				Attributes: templ.Attributes{
-					"rel": "noopener noreferrer",
-				},
-			}) {
+		// The whole row is the link (item.Item renders an <a> when Href is
+		// set); the trailing icon signals it opens outside the dialog.
+		@item.Item(item.Props{
+			Href:       "/docs",
+			Target:     "_blank",
+			Variant:    item.VariantOutline,
+			Class:      "hover:bg-muted",
+			Attributes: templ.Attributes{"rel": "noopener noreferrer"},
+		}) {
+			@item.Media(item.MediaProps{Variant: item.MediaVariantIcon}) {
 				@icon.BookOpen()
-				<span>Open Docs</span>
+			}
+			@item.Content() {
+				@item.Title(item.TitleProps{Class: "text-xs font-semibold uppercase"}) {
+					API documentation
+				}
+				@item.Description(item.DescriptionProps{Class: "line-clamp-none"}) {
+					Rendered reference for the Redfish and NanoKVM APIs served by this device.
+				}
+			}
+			@item.Actions() {
+				@icon.ExternalLink(icon.Props{Class: "size-4 text-muted-foreground"})
 			}
 		}
 		@settingsValueRow("Device key", "Per-device identifier baked into the image.", m.DeviceKey)
@@ -682,9 +703,30 @@ templ settingsSubmitButton(formID, label string) {
 	}
 }
 
+// settingsActionRow is settingsRow's item-based sibling for rows whose
+// trailing element is an action or readout rather than a form control —
+// field.Field is strictly for form controls, item.Item for content
+// presentation. The overrides keep the field rhythm (gap, top alignment,
+// uppercase title) so both row kinds interleave in one field.Group.
+templ settingsActionRow(title, description string) {
+	@item.Item(item.Props{Class: "items-start gap-3 p-0"}) {
+		@item.Content() {
+			@item.Title(item.TitleProps{Class: "text-xs font-semibold uppercase"}) {
+				{ title }
+			}
+			@item.Description(item.DescriptionProps{Class: "line-clamp-none"}) {
+				{ description }
+			}
+		}
+		@item.Actions() {
+			{ children... }
+		}
+	}
+}
+
 // settingsValueRow is a read-only row.
 templ settingsValueRow(title, description, value string) {
-	@settingsRow("", title, description) {
+	@settingsActionRow(title, description) {
 		<span class="font-mono text-xs">
 			if value != "" {
 				{ value }
@@ -693,21 +735,6 @@ templ settingsValueRow(title, description, value string) {
 			}
 		</span>
 	}
-}
-
-// settingsStatusRow is one entry of the network status grid: muted label on
-// the left, value on the right, hairline between rows.
-templ settingsStatusRow(label, value string) {
-	<div class="flex items-center justify-between gap-2 border-b border-border/50 py-1 last:border-0">
-		<span class="text-muted-foreground">{ label }</span>
-		<span class="truncate font-mono">
-			if value != "" {
-				{ value }
-			} else {
-				—
-			}
-		</span>
-	</div>
 }
 
 // settingsDialogScript is what is left after the migration: local view state

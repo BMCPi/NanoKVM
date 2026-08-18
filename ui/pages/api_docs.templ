@@ -6,6 +6,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/ui/components/badge"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
+	"github.com/pi-bmc/nanokvm-app/ui/components/item"
 	"github.com/pi-bmc/nanokvm-app/ui/layouts"
 )
 
@@ -133,19 +134,19 @@ templ apiDocsSidebarTag(tag APIDocsTag, ops []APIDocsOperation) {
 		</summary>
 		<div class="ml-1 mt-0.5 mb-1 space-y-0.5 border-l border-border/60 pl-2">
 			for _, op := range ops {
-				<a
-					href={ templ.URL("#" + op.Anchor) }
-					class="flex items-center gap-2 rounded-md px-2 py-1 text-xs hover:bg-accent transition-colors"
-				>
+				// Href makes item.Item render an <a>.
+				@item.Item(item.Props{Size: item.SizeXs, Href: "#" + op.Anchor, Class: "rounded-md py-1 hover:bg-accent"}) {
 					@apiDocsSidebarMethodTag(op.Method)
-					<span class="truncate flex-1">
-						if op.Summary != "" {
-							{ op.Summary }
-						} else {
-							{ op.Path }
+					@item.Content() {
+						@item.Title(item.TitleProps{Class: "max-w-full font-normal"}) {
+							if op.Summary != "" {
+								{ op.Summary }
+							} else {
+								{ op.Path }
+							}
 						}
-					</span>
-				</a>
+					}
+				}
 			}
 		</div>
 	</details>
@@ -263,10 +264,10 @@ templ apiDocsOperation(op APIDocsOperation) {
 // column that mirrors the operation's method + path. Acts as a visual
 // anchor when long operations push the heading off-screen.
 templ apiDocsEndpointBar(op APIDocsOperation) {
-	<div class="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
+	@item.Item(item.Props{Variant: item.VariantMuted, Size: item.SizeSm, Class: "gap-2 rounded-md border-border bg-muted/30"}) {
 		@apiDocsMethodBadge(op.Method)
 		<code class="font-mono text-xs break-all flex-1 min-w-0">{ op.Path }</code>
-	</div>
+	}
 }
 
 // apiDocsResponseSamples renders the "Response samples" panel: heading,
@@ -307,26 +308,34 @@ templ apiDocsParamGroup(label string, params []APIDocsParam) {
 	</div>
 }
 
-// apiDocsParameters is a small three-column grid: name + meta / description.
+// apiDocsParameters lists one item per parameter: name + meta cell at a
+// fixed minimum width (matching the old grid's minmax(8rem,auto) column),
+// description filling the rest of the row.
 templ apiDocsParameters(params []APIDocsParam) {
-	<div class="space-y-1.5 text-sm">
+	@item.Group() {
 		for _, p := range params {
-			<div class="grid grid-cols-[minmax(8rem,auto)_1fr] items-baseline gap-x-4 gap-y-1 border-b border-border/40 pb-2 last:border-b-0">
-				<div class="space-y-0.5">
-					<code class="font-mono text-xs font-semibold">{ p.Name }</code>
-					<div class="text-xs text-muted-foreground">
-						if p.Type != "" {
-							<span>{ p.Type }</span>
-						}
-						if p.Required {
-							<span class="ml-1 text-destructive">· required</span>
-						}
-					</div>
-				</div>
-				<span class="text-xs text-muted-foreground">{ p.Description }</span>
-			</div>
+			@item.Item(item.Props{Class: "items-baseline gap-x-4 rounded-none border-0 border-b border-border/40 px-0 py-1.5 last:border-b-0"}) {
+				@item.Content(item.ContentProps{Class: "min-w-32 flex-none gap-0.5"}) {
+					@item.Title() {
+						<code class="font-mono text-xs font-semibold">{ p.Name }</code>
+					}
+					if p.Type != "" || p.Required {
+						<div class="text-xs text-muted-foreground">
+							if p.Type != "" {
+								<span>{ p.Type }</span>
+							}
+							if p.Required {
+								<span class="ml-1 text-destructive">· required</span>
+							}
+						</div>
+					}
+				}
+				@item.Description(item.DescriptionProps{Class: "flex-1 line-clamp-none text-xs"}) {
+					{ p.Description }
+				}
+			}
 		}
-	</div>
+	}
 }
 
 // apiDocsRequestBody renders content type + schema + example.
@@ -365,14 +374,15 @@ templ apiDocsResponses(rs []APIDocsResponse) {
 templ apiDocsResponseRow(r APIDocsResponse, open bool) {
 	if r.Schema != nil || r.Example != "" {
 		<details class="rounded-md border border-border bg-muted/20" open?={ open }>
-			<summary class="flex items-baseline gap-2 cursor-pointer px-3 py-2 text-sm hover:bg-accent/40 transition-colors">
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5 text-muted-foreground transition-transform [details[open]>summary>&]:rotate-90 shrink-0 mt-0.5">
-					<polyline points="9 18 15 12 9 6"></polyline>
-				</svg>
-				@badge.Badge(badge.Props{Class: StatusColorClass(r.Status) + " font-mono text-xs px-2"}) {
-					{ r.Status }
+			<summary class="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+				@item.Item(item.Props{Class: "rounded-md items-baseline gap-2 py-2 hover:bg-accent/40"}) {
+					// The chevron rides one level deeper than a bare summary
+					// child, so the open-state selector is a descendant match.
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5 text-muted-foreground transition-transform [details[open]>summary_&]:rotate-90 shrink-0 mt-0.5">
+						<polyline points="9 18 15 12 9 6"></polyline>
+					</svg>
+					@apiDocsResponseItemBody(r)
 				}
-				<span class="text-sm text-muted-foreground flex-1">{ r.Description }</span>
 			</summary>
 			<div class="border-t border-border px-3 py-3 space-y-3">
 				if r.ContentType != "" {
@@ -384,12 +394,22 @@ templ apiDocsResponseRow(r APIDocsResponse, open bool) {
 			</div>
 		</details>
 	} else {
-		<div class="flex items-baseline gap-2 text-sm rounded-md border border-border/40 bg-muted/10 px-3 py-2">
-			@badge.Badge(badge.Props{Class: StatusColorClass(r.Status) + " font-mono text-xs px-2"}) {
-				{ r.Status }
-			}
-			<span class="text-sm text-muted-foreground flex-1">{ r.Description }</span>
-		</div>
+		@item.Item(item.Props{Variant: item.VariantOutline, Class: "rounded-md items-baseline gap-2 border-border/40 bg-muted/10 py-2"}) {
+			@apiDocsResponseItemBody(r)
+		}
+	}
+}
+
+// apiDocsResponseItemBody is the status badge + description shared by the
+// collapsible and flat response rows.
+templ apiDocsResponseItemBody(r APIDocsResponse) {
+	@badge.Badge(badge.Props{Class: StatusColorClass(r.Status) + " font-mono text-xs px-2"}) {
+		{ r.Status }
+	}
+	@item.Content() {
+		@item.Description(item.DescriptionProps{Class: "line-clamp-none"}) {
+			{ r.Description }
+		}
 	}
 }
 

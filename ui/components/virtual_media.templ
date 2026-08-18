@@ -9,6 +9,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/ui/components/dropdownmenu"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
 	"github.com/pi-bmc/nanokvm-app/ui/components/input"
+	"github.com/pi-bmc/nanokvm-app/ui/components/item"
 	"github.com/pi-bmc/nanokvm-app/ui/components/progress"
 	"github.com/pi-bmc/nanokvm-app/ui/components/spinner"
 	"github.com/pi-bmc/nanokvm-app/ui/components/tabs"
@@ -71,50 +72,64 @@ templ VirtualMediaMenu() {
 // VMMenuBody is the "current mount" view: mount state + entry to add view.
 templ VMMenuBody(files []string, inserted string) {
 	<div class="p-3 space-y-3">
-		<div class="flex items-start justify-between gap-2">
-			<div>
-				<div class="text-sm font-semibold">Virtual Media</div>
-				<div class="text-xs text-muted-foreground">Mount an image to boot from or install an OS.</div>
-			</div>
+		@item.Item(item.Props{Class: "p-0"}) {
+			@item.Content() {
+				@item.Title() {
+					Virtual Media
+				}
+				@item.Description(item.DescriptionProps{Class: "text-xs"}) {
+					Mount an image to boot from or install an OS.
+				}
+			}
 			// data-tui-dropdownmenu-item is the component's close-on-click
 			// contract: dropdownmenu.js closes the containing menu when a
 			// carrier of it is clicked.
 			// Default size IS h-7 — no Size + height override needed.
-			@button.Button(button.Props{
-				Variant:    button.VariantGhost,
-				Class:      "shrink-0",
-				Attributes: templ.Attributes{"data-tui-dropdownmenu-item": true},
-			}) {
-				Close
-			}
-		</div>
-		<div class="flex items-center gap-3 rounded-md border border-dashed border-border px-3 py-3">
-			<div class="flex size-8 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground">
-				@icon.Disc()
-			</div>
-			<div class="min-w-0 flex-1">
-				if inserted != "" {
-					<div class="text-sm font-semibold truncate text-green-500">{ inserted }</div>
-					<div class="text-xs text-muted-foreground">Mounted as virtual media</div>
-				} else {
-					<div class="text-sm font-semibold truncate">No mounted media</div>
-					<div class="text-xs text-muted-foreground">Add a file to get started</div>
-				}
-			</div>
-			if inserted != "" {
+			@item.Actions() {
 				@button.Button(button.Props{
-					Variant: button.VariantDestructive,
-					Class:   "shrink-0",
-					Attributes: templ.Attributes{
-						"hx-post":         "/ui/media/eject",
-						"hx-target":       "#vm-menu-body",
-						"hx-disabled-elt": "this",
-					},
+					Variant:    button.VariantGhost,
+					Attributes: templ.Attributes{"data-tui-dropdownmenu-item": true},
 				}) {
-					Eject
+					Close
 				}
 			}
-		</div>
+		}
+		@item.Item(item.Props{Variant: item.VariantOutline, Class: "rounded-md border-dashed"}) {
+			@item.Media(item.MediaProps{Variant: item.MediaVariantIcon, Class: "size-8 rounded-full border border-border text-muted-foreground"}) {
+				@icon.Disc()
+			}
+			@item.Content() {
+				if inserted != "" {
+					@item.Title(item.TitleProps{Class: "max-w-full text-green-500"}) {
+						{ inserted }
+					}
+					@item.Description(item.DescriptionProps{Class: "text-xs"}) {
+						Mounted as virtual media
+					}
+				} else {
+					@item.Title() {
+						No mounted media
+					}
+					@item.Description(item.DescriptionProps{Class: "text-xs"}) {
+						Add a file to get started
+					}
+				}
+			}
+			if inserted != "" {
+				@item.Actions() {
+					@button.Button(button.Props{
+						Variant: button.VariantDestructive,
+						Attributes: templ.Attributes{
+							"hx-post":         "/ui/media/eject",
+							"hx-target":       "#vm-menu-body",
+							"hx-disabled-elt": "this",
+						},
+					}) {
+						Eject
+					}
+				}
+			}
+		}
 		<div class="flex justify-end">
 			@button.Button(button.Props{
 				Size: button.SizeSm,
@@ -137,21 +152,27 @@ templ VMMenuBody(files []string, inserted string) {
 // a successful mount answers with VMMenuBody instead.
 templ VMAddBody(files []string) {
 	<div class="p-3 space-y-3">
-		<div class="flex items-center justify-between gap-2">
-			<div class="text-sm font-semibold">Add New Media</div>
-			@button.Button(button.Props{
-				Variant: button.VariantGhost,
-				Attributes: templ.Attributes{
-					"hx-get":    "/ui/media",
-					"hx-target": "#vm-menu-body",
-				},
-			}) {
-				<span class="flex items-center gap-1">
-					@icon.ChevronLeft()
-					Back
-				</span>
+		@item.Item(item.Props{Class: "p-0"}) {
+			@item.Content() {
+				@item.Title() {
+					Add New Media
+				}
 			}
-		</div>
+			@item.Actions() {
+				@button.Button(button.Props{
+					Variant: button.VariantGhost,
+					Attributes: templ.Attributes{
+						"hx-get":    "/ui/media",
+						"hx-target": "#vm-menu-body",
+					},
+				}) {
+					<span class="flex items-center gap-1">
+						@icon.ChevronLeft()
+						Back
+					</span>
+				}
+			}
+		}
 		@tabs.Tabs(tabs.Props{DefaultValue: "existing"}) {
 			@tabs.List(tabs.ListProps{Class: "w-full"}) {
 				@tabs.Trigger(tabs.TriggerProps{Value: "existing"}) {
