@@ -276,7 +276,7 @@ func TestHostReportedMemoryAndDrives(t *testing.T) {
 	}
 }
 
-// The Bios split: the host reports live attributes (replace), the operator
+// The Bios split: the host reports live attributes (merge), the operator
 // stages pending ones, and the host clears the stage after applying.
 func TestBiosReportAndStaging(t *testing.T) {
 	resetHostState(t)
@@ -290,7 +290,8 @@ func TestBiosReportAndStaging(t *testing.T) {
 		t.Fatalf("host PATCH Bios = %d, body %s", w.Code, w.Body.String())
 	}
 
-	// A later report replaces wholesale — the dropped key must vanish.
+	// A later report from another feature driver carries only its own key:
+	// it updates that one and leaves the rest of the set standing.
 	w = do(r, http.MethodPatch, "/redfish/v1/Systems/1/Bios", from,
 		`{"Attributes":{"BootTimeout":3}}`, nil)
 	if w.Code != http.StatusOK {
@@ -303,8 +304,24 @@ func TestBiosReportAndStaging(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &bios); err != nil {
 		t.Fatalf("bios unmarshal: %v", err)
 	}
+	sdBoot, _ := bios.Attributes["SdBoot"].(bool)
+	if !sdBoot || bios.Attributes["BootTimeout"] != float64(3) {
+		t.Errorf("Attributes = %v, want merge (SdBoot kept, BootTimeout updated)", bios.Attributes)
+	}
+
+	// An explicit null retires a key the host no longer has.
+	w = do(r, http.MethodPatch, "/redfish/v1/Systems/1/Bios", from,
+		`{"Attributes":{"SdBoot":null}}`, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("null-delete PATCH Bios = %d", w.Code)
+	}
+	w = do(r, http.MethodGet, "/redfish/v1/Systems/1/Bios", lanIP, "", nil)
+	bios.Attributes = nil
+	if err := json.Unmarshal(w.Body.Bytes(), &bios); err != nil {
+		t.Fatalf("bios unmarshal: %v", err)
+	}
 	if _, stale := bios.Attributes["SdBoot"]; stale || bios.Attributes["BootTimeout"] != float64(3) {
-		t.Errorf("Attributes = %v, want replace-not-merge", bios.Attributes)
+		t.Errorf("Attributes = %v, want SdBoot deleted by null", bios.Attributes)
 	}
 
 	// Operator stages from the LAN — the settings object is not host-owned.

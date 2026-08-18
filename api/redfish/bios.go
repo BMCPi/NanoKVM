@@ -5,7 +5,7 @@ package redfish
 //
 //   - GET  /Systems/1/Bios                  the attributes the host reported
 //   - PATCH /Systems/1/Bios                 host reports its live attributes
-//                                           (host interface only, replace)
+//                                           (host interface only, merge)
 //   - GET  /Systems/1/Bios/Settings         the operator-staged pending set
 //   - PATCH /Systems/1/Bios/Settings        operator stages attributes for
 //                                           the host to apply on next boot
@@ -90,9 +90,11 @@ func (s *Service) GetBios(c *gin.Context) {
 	writeHostResource(c, hostView(biosResource()))
 }
 
-// PatchBios is the host's report of its live attributes. Replace, not merge:
-// the host reports the complete set it booted with, so a key it no longer
-// has must not linger.
+// PatchBios is the host's report of its live attributes. Merge, not replace:
+// the reporting host is several independent feature drivers, each PATCHing
+// only the attributes it owns, so replacing the set would let whichever one
+// reported last wipe every key the others published. Omitted keys keep their
+// stored value; an explicit null deletes one (see mergeHostBiosAttributes).
 func (s *Service) PatchBios(c *gin.Context) {
 	if !hostWritable(c) {
 		return
@@ -111,7 +113,7 @@ func (s *Service) PatchBios(c *gin.Context) {
 		redfishErrorResponse(c, http.StatusBadRequest, "missing Attributes object")
 		return
 	}
-	setHostBiosAttributes(req.Attributes)
+	mergeHostBiosAttributes(req.Attributes)
 	writeHostResource(c, hostView(biosResource()))
 }
 

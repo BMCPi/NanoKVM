@@ -103,11 +103,27 @@ func hostBiosAttributes() map[string]any {
 	return copyAnyMap(host.BiosAttributes)
 }
 
-// setHostBiosAttributes replaces (not merges) the live attribute set: the
-// host reports the complete set it booted with, so a stale key must vanish.
-func setHostBiosAttributes(attrs map[string]any) {
+// mergeHostBiosAttributes merges a reported attribute set into the live one,
+// which is what HTTP PATCH means (DSP0266: a PATCH modifies the properties it
+// carries and leaves the rest alone). The host's feature drivers each report
+// only the attributes they own, so a wholesale replace let whichever driver
+// PATCHed last erase every key the others had published.
+//
+// A JSON null value deletes its key, per the Redfish convention for clearing
+// a property — that is how a host retires an attribute it no longer has, the
+// case replace semantics used to cover.
+func mergeHostBiosAttributes(attrs map[string]any) {
 	host.mu.Lock()
-	host.BiosAttributes = attrs
+	if host.BiosAttributes == nil {
+		host.BiosAttributes = map[string]any{}
+	}
+	for k, v := range attrs {
+		if v == nil {
+			delete(host.BiosAttributes, k)
+			continue
+		}
+		host.BiosAttributes[k] = v
+	}
 	host.mu.Unlock()
 	hostStateSave()
 }
