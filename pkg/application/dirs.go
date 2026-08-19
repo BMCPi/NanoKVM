@@ -20,7 +20,11 @@ const (
 	// vanishes on reboot) and the baked-in copy is read-only. The init script
 	// launches the first runnable of AppDir, BackupDir, BuiltinAppDir, so a
 	// half-written update degrades to the previous (or factory) version
-	// instead of bricking the service.
+	// instead of bricking the service. When neither AppDir nor BackupDir is
+	// populated (fresh flash, wiped data partition) the launcher seeds AppDir
+	// from BuiltinAppDir before starting, so the supervised process is the
+	// copy here even before the first self-update — the one install path that
+	// is writable, signal-able and replaceable.
 	AppDir = "/var/lib/nanokvm/app"
 
 	// BackupDir holds the previous install for rollback; see AppDir.

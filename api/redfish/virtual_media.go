@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -16,7 +17,13 @@ import (
 	"github.com/stmcginnis/gofish/schemas"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
+	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 )
+
+// maxMediaUploadBytes caps a multipart image push. The image is streamed
+// straight to the media directory on the data partition (constant memory), so
+// this bounds what a client can force onto that partition, not RAM.
+const maxMediaUploadBytes = 8 << 30 // 8 GiB
 
 // insertMediaRequest is the JSON body for VirtualMedia.InsertMedia.
 // Accepted both as the application/json body for TransferMethod=Stream
@@ -113,20 +120,17 @@ func (s *Service) insertMediaStream(c *gin.Context) {
 		name = "vm.iso"
 	}
 
-	// Download the ISO into the media staging directory.
-	// #nosec G107 — scheme already validated above.
-	resp, err := http.Get(req.Image) //nolint:noctx
+	// Download the ISO into the media staging directory. utils.FetchURL caps
+	// the transfer and bounds the connection: the remote, not the operator,
+	// decides how many bytes this BMC is asked to store.
+	remote, err := utils.FetchURL(req.Image, maxMediaUploadBytes)
 	if err != nil {
 		redfishErrorResponse(c, http.StatusBadGateway, "fetch failed: "+err.Error())
 		return
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		redfishErrorResponse(c, http.StatusBadGateway, fmt.Sprintf("remote returned %d", resp.StatusCode))
-		return
-	}
+	defer remote.Close()
 
-	if err := stageAndInsert(s.Firmware, name, resp.Body); err != nil {
+	if err := stageAndInsert(s.Firmware, name, remote); err != nil {
 		redfishErrorResponse(c, err.status, err.msg)
 		return
 	}
@@ -140,52 +144,108 @@ func (s *Service) insertMediaStream(c *gin.Context) {
 // insertMediaUpload handles TransferMethod=Upload: the client pushes the
 // image body as a multipart file part. An optional "InsertMediaRequestBody"
 // JSON part may override the filename used when staging.
+//
+// The body is walked part-by-part and the image is streamed straight to the
+// media directory. ParseMultipartForm/FormFile would spool the whole image
+// into os.TempDir() first, which on this device is the RAM-backed overlay —
+// a large ISO took the server down mid-upload. See
+// pkg/utils/multipart_stream.go.
 func (s *Service) insertMediaUpload(c *gin.Context) {
-	// 8 GiB max upload — large enough for any installer ISO, small enough
-	// that a runaway client can't exhaust the BMC's tmpfs.
-	if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
-		redfishErrorResponse(c, http.StatusBadRequest, "parse multipart: "+err.Error())
-		return
-	}
-
-	var meta insertMediaRequest
-	if v := c.Request.FormValue("InsertMediaRequestBody"); v != "" {
-		if err := json.Unmarshal([]byte(v), &meta); err != nil {
-			redfishErrorResponse(c, http.StatusBadRequest, "InsertMediaRequestBody: "+err.Error())
-			return
-		}
-		if meta.TransferMethod != "" && !strings.EqualFold(meta.TransferMethod, "Upload") {
-			redfishErrorResponse(c, http.StatusBadRequest,
-				"TransferMethod="+meta.TransferMethod+" not valid for multipart upload")
-			return
-		}
-	}
-
-	// Accept the file under any of the conventional Redfish part names.
-	file, header, err := firstFormFile(c, "Image", "file", "VirtualMediaImage")
+	// Accept the file under any of the conventional Redfish part names:
+	// Image is the spec'd name, redfishtool uses "file", and some tools use
+	// the resource name VirtualMediaImage.
+	upload, err := utils.StreamMultipartFile(c.Request, maxMediaUploadBytes,
+		"Image", "file", "VirtualMediaImage")
 	if err != nil {
 		redfishErrorResponse(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	defer file.Close()
+	defer upload.Close()
 
-	name := meta.Image
-	if name == "" {
-		name = header.Filename
-	}
-	name = filepath.Base(name)
-	if name == "" || name == "." || name == "/" {
-		name = "vm.iso"
+	// InsertMediaRequestBody may precede or follow the image part. Only the
+	// leading one can be honoured before the file lands, so parse what we
+	// have now and reconcile a trailing copy once the image is staged.
+	meta, rerr := parseInsertMediaMeta(upload.Values)
+	if rerr != nil {
+		redfishErrorResponse(c, rerr.status, rerr.msg)
+		return
 	}
 
-	if err := stageAndInsert(s.Firmware, name, file); err != nil {
-		redfishErrorResponse(c, err.status, err.msg)
+	name := mediaFilename(meta.Image, upload.Filename)
+
+	n, err := s.Firmware.SaveMediaFile(name, upload)
+	if err != nil {
+		redfishErrorResponse(c, http.StatusInternalServerError, "save media failed: "+err.Error())
+		return
+	}
+
+	// Now that the wire is drained, a trailing InsertMediaRequestBody can
+	// still rename what we staged — but never re-validate TransferMethod
+	// into a failure here: the bytes are already on disk.
+	if trailing, err := parseInsertMediaMeta(upload.Rest()); err == nil && trailing.Image != "" {
+		if want := mediaFilename(trailing.Image, upload.Filename); want != name {
+			if renamed, err := renameStagedMedia(s.Firmware, name, want); err != nil {
+				log.Warnf("redfish: keeping staged name %q: %v", name, err)
+			} else {
+				name = renamed
+			}
+		}
+	}
+
+	if err := s.Firmware.InsertVirtualMedia(name); err != nil {
+		redfishErrorResponse(c, http.StatusConflict, "insert media failed: "+err.Error())
 		return
 	}
 
 	recordTransfer("Upload", "", name)
-	log.Infof("redfish: virtual media inserted (upload): %s (%d bytes)", name, header.Size)
+	log.Infof("redfish: virtual media inserted (upload): %s (%d bytes)", name, n)
 	c.JSON(http.StatusOK, buildVirtualMediaResource(s.Firmware))
+}
+
+// parseInsertMediaMeta decodes the optional InsertMediaRequestBody part and
+// rejects a TransferMethod that contradicts the multipart push.
+func parseInsertMediaMeta(values map[string]string) (insertMediaRequest, *InsertError) {
+	var meta insertMediaRequest
+	v := values["InsertMediaRequestBody"]
+	if v == "" {
+		return meta, nil
+	}
+	if err := json.Unmarshal([]byte(v), &meta); err != nil {
+		return meta, &InsertError{http.StatusBadRequest, "InsertMediaRequestBody: " + err.Error()}
+	}
+	if meta.TransferMethod != "" && !strings.EqualFold(meta.TransferMethod, "Upload") {
+		msg := "TransferMethod=" + meta.TransferMethod + " not valid for multipart upload"
+		return meta, &InsertError{http.StatusBadRequest, msg}
+	}
+	return meta, nil
+}
+
+// mediaFilename picks the staging name: the client's explicit Image wins over
+// the part's filename, and a name that is only path separators falls back to
+// vm.iso rather than escaping the media directory.
+func mediaFilename(preferred, fallback string) string {
+	name := preferred
+	if name == "" {
+		name = fallback
+	}
+	name = filepath.Base(name)
+	if name == "" || name == "." || name == "/" {
+		return "vm.iso"
+	}
+	return name
+}
+
+// renameStagedMedia moves an already-staged file to the name a trailing
+// InsertMediaRequestBody asked for, returning the name actually in effect.
+func renameStagedMedia(fwCtrl *firmware.Controller, from, to string) (string, error) {
+	dir := fwCtrl.GetMediaDir()
+	if dir == "" {
+		return from, fmt.Errorf("mediaDir not configured")
+	}
+	if err := os.Rename(filepath.Join(dir, from), filepath.Join(dir, to)); err != nil {
+		return from, err
+	}
+	return to, nil
 }
 
 type InsertError struct {
@@ -205,25 +265,6 @@ func stageAndInsert(fwCtrl *firmware.Controller, name string, r io.Reader) *Inse
 		return &InsertError{http.StatusConflict, "insert media failed: " + err.Error()}
 	}
 	return nil
-}
-
-// firstFormFile returns the first multipart file part that matches any of
-// the supplied field names. Redfish clients vary on which name they use
-// (Image is the spec'd name; redfishtool uses "file"; some tools use the
-// resource name VirtualMediaImage).
-func firstFormFile(c *gin.Context, names ...string) (io.ReadCloser, *multipartHeader, error) {
-	for _, n := range names {
-		f, h, err := c.Request.FormFile(n)
-		if err == nil {
-			return f, &multipartHeader{Filename: h.Filename, Size: h.Size}, nil
-		}
-	}
-	return nil, nil, fmt.Errorf("no file part found; expected one of: %s", strings.Join(names, ", "))
-}
-
-type multipartHeader struct {
-	Filename string
-	Size     int64
 }
 
 // EjectMedia handles POST …/VirtualMedia/1/Actions/VirtualMedia.EjectMedia.

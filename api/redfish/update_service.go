@@ -23,6 +23,8 @@ import (
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
 	"github.com/stmcginnis/gofish/schemas"
+
+	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 )
 
 // maxCapsulePushBytes caps an HttpPushUri body. Capsules are firmware-sized;
@@ -137,21 +139,18 @@ func (s *Service) PushCapsule(c *gin.Context) {
 		name string
 	)
 	if strings.HasPrefix(c.ContentType(), "multipart/") {
-		fh, err := c.FormFile("UpdateFile")
+		// Streamed part-by-part: c.FormFile spools the whole body into
+		// os.TempDir() before returning, and on this device that is the
+		// RAM-backed root overlay — far smaller than a capsule is allowed to
+		// be, so the server died mid-push. See pkg/utils/multipart_stream.go.
+		upload, err := utils.StreamMultipartFile(c.Request, maxCapsulePushBytes, "UpdateFile", "file")
 		if err != nil {
-			if fh, err = c.FormFile("file"); err != nil {
-				redfishErrorResponse(c, http.StatusBadRequest, "multipart field 'UpdateFile' required")
-				return
-			}
-		}
-		f, err := fh.Open()
-		if err != nil {
-			redfishErrorResponse(c, http.StatusInternalServerError, err.Error())
+			redfishErrorResponse(c, http.StatusBadRequest, "multipart field 'UpdateFile' required")
 			return
 		}
-		defer f.Close()
-		src = io.LimitReader(f, maxCapsulePushBytes)
-		name = path.Base(fh.Filename)
+		defer upload.Close()
+		src = upload
+		name = path.Base(upload.Filename)
 	} else {
 		src = http.MaxBytesReader(c.Writer, c.Request.Body, maxCapsulePushBytes)
 		// No filename in a raw push; let the caller name it with ?name= and

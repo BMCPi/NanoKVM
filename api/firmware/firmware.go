@@ -11,7 +11,6 @@
 package firmware
 
 import (
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -23,12 +22,17 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
+	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 )
 
 // maxCapsuleUploadBytes caps a capsule upload. Capsules are firmware-sized;
 // uploads are streamed into the capsule volume (constant memory), so this
 // bounds what a client can force onto the volume rather than RAM.
 const maxCapsuleUploadBytes = 128 << 20 // 128 MiB
+
+// maxMediaUploadBytes caps an ISO upload. Like capsules, media uploads stream
+// straight to the data partition, so this bounds disk rather than RAM.
+const maxMediaUploadBytes = 8 << 30 // 8 GiB
 
 // Register mounts the firmware routes on the shared authenticated group.
 func Register(api *gin.RouterGroup, d *deps.Deps) {
@@ -71,19 +75,17 @@ func registerCapsules(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 			name string
 		)
 		if strings.HasPrefix(c.ContentType(), "multipart/") {
-			fh, err := c.FormFile("file")
+			// Streamed part-by-part; c.FormFile would spool the whole body
+			// into the RAM-backed os.TempDir() first. See
+			// pkg/utils/multipart_stream.go.
+			upload, err := utils.StreamMultipartFile(c.Request, maxCapsuleUploadBytes, "file")
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "multipart field 'file' required"})
 				return
 			}
-			f, err := fh.Open()
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
-			defer f.Close()
-			src = io.LimitReader(f, maxCapsuleUploadBytes)
-			name = filepath.Base(fh.Filename)
+			defer upload.Close()
+			src = upload
+			name = filepath.Base(upload.Filename)
 		} else {
 			src = http.MaxBytesReader(c.Writer, c.Request.Body, maxCapsuleUploadBytes)
 			name = filepath.Base(c.Query("name"))
@@ -171,20 +173,20 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 
 	// POST /api/firmware/media/upload — save an ISO to the staging directory
 	// (multipart form field "file"). Does not insert; call /insert after.
+	//
+	// Streamed part-by-part rather than via c.FormFile: FormFile spools the
+	// whole body into os.TempDir(), which is the RAM-backed overlay on this
+	// device. See pkg/utils/multipart_stream.go.
 	fw.POST("/media/upload", func(c *gin.Context) {
-		fh, err := c.FormFile("file")
+		upload, err := utils.StreamMultipartFile(c.Request, maxMediaUploadBytes, "file")
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "multipart field 'file' required"})
 			return
 		}
-		name := filepath.Base(fh.Filename)
-		f, err := fh.Open()
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		defer f.Close()
-		n, err := ctrl.SaveMediaFile(name, f)
+		defer upload.Close()
+
+		name := filepath.Base(upload.Filename)
+		n, err := ctrl.SaveMediaFile(name, upload)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -217,18 +219,15 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid filename derived from URL"})
 			return
 		}
-		// #nosec G107 — URL already validated above to http/https only.
-		resp, err := http.Get(req.URL) //nolint:noctx
+		// Bounded and timeout-guarded; the body streams straight to the media
+		// directory on the data partition.
+		remote, err := utils.FetchURL(req.URL, maxMediaUploadBytes)
 		if err != nil {
 			c.JSON(http.StatusBadGateway, gin.H{"error": "fetch failed: " + err.Error()})
 			return
 		}
-		defer resp.Body.Close()
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("remote returned %d", resp.StatusCode)})
-			return
-		}
-		n, err := ctrl.SaveMediaFile(name, resp.Body)
+		defer remote.Close()
+		n, err := ctrl.SaveMediaFile(name, remote)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

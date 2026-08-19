@@ -7,7 +7,6 @@ package ui
 // the menu always shows what was actually persisted.
 
 import (
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -18,8 +17,14 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
+	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 	"github.com/pi-bmc/nanokvm-app/ui/components"
 )
+
+// maxMediaUploadBytes caps a single ISO push. Uploads stream straight to the
+// media directory on the data partition (constant memory), so this exists to
+// keep a runaway client from filling that partition, not to bound RAM.
+const maxMediaUploadBytes = 8 << 30 // 8 GiB
 
 func mediaFragmentRoutes(g *gin.RouterGroup, d *deps.Deps) {
 	m := g.Group("/media")
@@ -154,23 +159,30 @@ func postMediaInsert(d *deps.Deps) gin.HandlerFunc {
 	}
 }
 
+// postMediaUpload streams the uploaded ISO straight into the media directory.
+//
+// It uses utils.StreamMultipartFile rather than c.Request.FormFile on
+// purpose: FormFile spools the whole upload into os.TempDir() first, which on
+// this device is the RAM-backed tmpfs overlay, so an ISO larger than the
+// overlay killed the server partway through the upload. See
+// pkg/utils/multipart_stream.go.
 func postMediaUpload(d *deps.Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		file, header, err := c.Request.FormFile("file")
+		upload, err := utils.StreamMultipartFile(c.Request, maxMediaUploadBytes, "file")
 		if err != nil {
 			hxToast(c, "error", "Upload failed", "no file selected")
 			mediaRenderAdd(c, d)
 			return
 		}
-		defer file.Close()
+		defer upload.Close()
 
-		name := filepath.Base(header.Filename)
+		name := filepath.Base(upload.Filename)
 		if name == "" || name == "." || name == "/" {
 			hxToast(c, "error", "Upload failed", "invalid filename")
 			mediaRenderAdd(c, d)
 			return
 		}
-		if _, err := d.Firmware.SaveMediaFile(name, file); err != nil {
+		if _, err := d.Firmware.SaveMediaFile(name, upload); err != nil {
 			log.Errorf("ui: save media file %q failed: %v", name, err)
 			hxToast(c, "error", "Upload failed", err.Error())
 			mediaRenderAdd(c, d)
@@ -215,21 +227,22 @@ func postMediaFetch(d *deps.Deps) gin.HandlerFunc {
 
 		// DELIBERATELY DETACHED: the download runs past the request; the
 		// poller at GET /media/fetch/progress reports on it until done.
+		//
+		// utils.FetchURL bounds it. The cap matters because the remote, not
+		// the operator, decides how many bytes arrive; the transport timeouts
+		// matter more, because mediaFetchBusy latches on this goroutine —
+		// a peer that connects and then goes silent would otherwise wedge the
+		// fetch feature until the BMC reboots.
 		go func() {
-			// #nosec G107 — scheme validated above.
-			resp, err := http.Get(rawURL) //nolint:noctx
+			remote, err := utils.FetchURL(rawURL, maxMediaUploadBytes)
 			if err != nil {
 				mediaFetchFinish(err)
 				return
 			}
-			defer resp.Body.Close()
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				mediaFetchFinish(fmt.Errorf("remote returned %d", resp.StatusCode))
-				return
-			}
-			mediaFetchSetTotal(resp.ContentLength)
+			defer remote.Close()
+			mediaFetchSetTotal(remote.ContentLength)
 
-			reader := &countingReader{r: resp.Body, onRead: mediaFetchAddProgress}
+			reader := &countingReader{r: remote, onRead: mediaFetchAddProgress}
 			if _, err := d.Firmware.SaveMediaFile(name, reader); err != nil {
 				log.Errorf("ui: save fetched media %q failed: %v", name, err)
 				mediaFetchFinish(err)

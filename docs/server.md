@@ -68,7 +68,7 @@ Note: Use Linux operating system (x86-64), or any platform with Go cross-compila
        the SFTP subsystem is served in-process, so `scp NanoKVM-Server root@<bmc>:/var/lib/nanokvm/app/server/`
        works even though the image ships no `sftp-server` or `scp` binary. Legacy `scp -O`
        does not — it needs an `scp` binary on the device — so drop the flag if a script sets it.
-    2. Place the newly compiled `NanoKVM-Server` at `/var/lib/nanokvm/app/server/NanoKVM-Server` (the factory copy under the read-only `/kvmapp` is left untouched; the launcher prefers the writable install).
+    2. Place the newly compiled `NanoKVM-Server` at `/var/lib/nanokvm/app/server/NanoKVM-Server`, overwriting what is there (the launcher seeds that path from the read-only factory copy under `/kvmapp` on first boot, and prefers it on every start thereafter). Keep it executable — `chmod 0755` after the copy if your transfer drops the mode, or the launcher will skip it and fall back to the factory build.
     3. Restart the service by running `killall NanoKVM-Server` — busybox init supervises the server and respawns it immediately.
 
 ## Manually Update
@@ -78,5 +78,5 @@ Note: Use Linux operating system (x86-64), or any platform with Go cross-compila
 
 1. Download the latest application from [GitHub](https://github.com/sipeed/NanoKVM/releases);
 2. Unzip the downloaded file and rename the unzipped folder to `kvmapp`;
-3. Place it at `/var/lib/nanokvm/app` on your NanoKVM (`/kvmapp` itself is the read-only factory copy inside the squashfs; the launcher runs `/var/lib/nanokvm/app` first when present);
+3. Place it at `/var/lib/nanokvm/app` on your NanoKVM (`/kvmapp` itself is the read-only factory copy inside the squashfs, which the launcher seeds `/var/lib/nanokvm/app` from and then runs in preference to it);
 4. Run `killall NanoKVM-Server` to restart the service — busybox init respawns it from the new install.

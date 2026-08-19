@@ -7,25 +7,33 @@ package firmware
 // straight into the FAT would hold lun.0 unpresented — the host staring at an
 // empty drive — for the whole transfer, and a truncated transfer would leave a
 // half-written capsule for firmware to trip over.
+//
+// That temporary file MUST live on the data partition. os.CreateTemp("") puts
+// it in os.TempDir(), which on this device is the tmpfs overlay over the
+// squashfs root — a few tens of megabytes of RAM. Downloading a capsule there
+// filled the overlay and took the server down partway through the transfer,
+// the same failure mode multipart uploads used to have (pkg/utils/fetch.go).
 
 import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
+	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 )
 
-// fetchTimeout bounds a single capsule download. Capsules are firmware-sized
-// (single-digit MB), so a slow link still finishes well inside this.
-const fetchTimeout = 15 * time.Minute
+// maxCapsuleFetchBytes bounds a capsule download. It matches the caps on the
+// capsule upload/push paths, and — unlike them — also protects the data
+// partition the download is staged on, since the remote picks the size.
+const maxCapsuleFetchBytes = 128 << 20 // 128 MiB
 
 // IsStaging reports whether a capsule fetch is currently running. Callers use
 // it to reject a second concurrent update rather than queue one.
@@ -65,7 +73,12 @@ func (c *Controller) StageCapsuleFromURL(rawURL, name string) (retErr error) {
 		telemetry.FirmwareDownload(context.Background(), outcome, time.Since(started).Seconds())
 	}()
 
-	tmp, err := os.CreateTemp("", "capsule-*.bin")
+	// Beside the capsule volume on the data partition, never os.TempDir().
+	stageDir, err := c.stagingDir()
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(stageDir, "capsule-*.bin")
 	if err != nil {
 		return fmt.Errorf("create staging file: %w", err)
 	}
@@ -76,7 +89,7 @@ func (c *Controller) StageCapsuleFromURL(rawURL, name string) (retErr error) {
 	}()
 
 	log.Infof("firmware: downloading capsule %s from %s", fileName, rawURL)
-	if err := downloadTo(rawURL, tmp); err != nil {
+	if err := downloadTo(rawURL, tmp, maxCapsuleFetchBytes); err != nil {
 		return err
 	}
 	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
@@ -91,25 +104,31 @@ func (c *Controller) StageCapsuleFromURL(rawURL, name string) (retErr error) {
 	return nil
 }
 
-// downloadTo copies the body at rawURL into w.
-func downloadTo(rawURL string, w io.Writer) error {
-	ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
-	defer cancel()
+// stagingDir returns the directory a capsule download is staged in: the
+// directory holding the capsule volume, which is on the data partition. It is
+// created if missing so a fetch works on a freshly flashed card.
+func (c *Controller) stagingDir() (string, error) {
+	if c.capsulePath == "" {
+		return "", fmt.Errorf("capsulePath not configured")
+	}
+	dir := filepath.Dir(c.capsulePath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("create staging dir: %w", err)
+	}
+	return dir, nil
+}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+// downloadTo copies the body at rawURL into w, refusing anything larger than
+// maxBytes. utils.FetchURL owns the scheme check, the transport timeouts and
+// the cap; everything here is a straight stream to disk.
+func downloadTo(rawURL string, w io.Writer, maxBytes int64) error {
+	remote, err := utils.FetchURL(rawURL, maxBytes)
 	if err != nil {
-		return fmt.Errorf("build request: %w", err)
+		return err
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("HTTP GET: %w", err)
-	}
-	defer resp.Body.Close()
+	defer remote.Close()
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
-	}
-	written, err := io.Copy(w, resp.Body)
+	written, err := io.Copy(w, remote)
 	if err != nil {
 		return fmt.Errorf("download: %w", err)
 	}
