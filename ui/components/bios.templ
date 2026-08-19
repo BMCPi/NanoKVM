@@ -7,6 +7,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/ui/components/badge"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/card"
+	"github.com/pi-bmc/nanokvm-app/ui/components/dialog"
 	"github.com/pi-bmc/nanokvm-app/ui/components/field"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
 	"github.com/pi-bmc/nanokvm-app/ui/components/input"
@@ -40,17 +41,84 @@ import (
 // cannot tell "turned off" from "not on this form", and an off switch would
 // never stage.
 
-// BIOS page element ids. Fixed because the out-of-band swaps address them.
+// BIOS element ids. Fixed because the out-of-band swaps address them.
 const (
-	biosRailID    = "bios-rail"
-	biosContentID = "bios-content"
-	biosStagedID  = "bios-staged"
-	biosFormID    = "bios-form"
+	biosRailID     = "bios-rail"
+	biosContentID  = "bios-content"
+	biosStagedID   = "bios-staged"
+	biosFormID     = "bios-form"
+	biosDialogID   = "bios-dialog"
+	biosTriggerID  = "bios-open-trigger"
+	biosPanelBodyID = "bios-panel-body"
 )
 
-// BiosPage is the whole page body: rail on the left, attribute form in the
-// middle, staged-changes bar pinned underneath it.
-templ BiosPage(m BiosModel) {
+// BiosDialogTrigger is the navbar button that opens the BIOS dialog. Lives
+// separately from the dialog itself so the dialog's state survives navbar
+// re-renders, exactly like SettingsDialogTrigger.
+templ BiosDialogTrigger() {
+	@button.Button(button.Props{
+		ID:      biosTriggerID,
+		Variant: button.VariantGhost,
+		Size:    button.SizeSm,
+		Attributes: utils.MergeAttributes(
+			dialog.TriggerFor(biosDialogID),
+			templ.Attributes{
+				"title":      "Host BIOS attributes",
+				"aria-label": "BIOS Configuration",
+			},
+		),
+	}) {
+		@icon.Microchip()
+		<span class="hidden sm:inline">BIOS</span>
+	}
+}
+
+// BiosDialog is the modal the BIOS configuration lives in.
+//
+// Sized like the settings dialog and mounted next to it at the layout root, so
+// the two read as the same kind of surface — the operator is configuring a
+// machine in both cases, just a different one.
+//
+// The body is empty until the trigger is clicked (hx-trigger="click from:…",
+// the same lazy-load the settings panels use): a dialog nobody opens costs no
+// requests, and every open re-reads live host state rather than showing
+// whatever was true when the page was served.
+templ BiosDialog() {
+	@dialog.Dialog(dialog.Props{ID: biosDialogID}) {
+		@dialog.Content(dialog.ContentProps{
+			HideCloseButton: true,
+			Class:           "bg-transparent shadow-none ring-0 flex flex-col gap-0 p-3 sm:max-w-4xl lg:max-w-6xl h-[min(46rem,calc(100svh-3rem))]",
+		}) {
+			// The visible heading is in the panel below, so the dialog's own
+			// title/description are screen-reader only.
+			@dialog.Header(dialog.HeaderProps{Class: "sr-only"}) {
+				@dialog.Title() {
+					BIOS Configuration
+				}
+				@dialog.Description() {
+					Stage host firmware attributes for the managed host to apply at its next boot.
+				}
+			}
+			@card.Card(card.Props{Class: "min-h-0 flex-1 gap-0 overflow-hidden p-0"}) {
+				<div
+					id={ biosPanelBodyID }
+					class="flex min-h-0 flex-1 flex-col"
+					hx-get="/ui/bios"
+					hx-trigger={ "click from:#" + biosTriggerID }
+					hx-swap="innerHTML"
+				>
+					@BiosPanel(BiosModel{})
+				</div>
+			}
+		}
+	}
+}
+
+// BiosPanel is the dialog's whole inner layout: rail on the left, attribute
+// form in the middle, staged-changes bar pinned underneath. Served as one
+// fragment by GET /ui/bios when the dialog opens; the regions inside it are
+// swapped individually thereafter.
+templ BiosPanel(m BiosModel) {
 	<div class="flex h-full min-h-0 w-full">
 		@BiosRail(m, false)
 		<div class="flex min-w-0 flex-1 flex-col">
@@ -71,10 +139,10 @@ templ BiosPage(m BiosModel) {
 templ biosHeader(m BiosModel) {
 	<header class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border bg-card/60 px-4 py-2.5 backdrop-blur-xs">
 		<div class="min-w-0">
-			<h1 class="flex items-center gap-2 text-sm font-semibold">
+			<h2 class="flex items-center gap-2 text-sm font-semibold">
 				@icon.Microchip(icon.Props{Class: "size-4"})
 				BIOS Configuration
-			</h1>
+			</h2>
 			<p class="mt-0.5 truncate text-xs text-muted-foreground">
 				if m.BiosVersion != "" {
 					{ "Host firmware " + m.BiosVersion + " · " }
@@ -112,6 +180,13 @@ templ biosHeader(m BiosModel) {
 				})
 			</div>
 		</form>
+		@button.Button(button.Props{
+			Variant:    button.VariantGhost,
+			Size:       button.SizeIcon,
+			Attributes: utils.MergeAttributes(dialog.Close(ctx), templ.Attributes{"aria-label": "Close BIOS configuration"}),
+		}) {
+			@icon.X()
+		}
 	</header>
 }
 

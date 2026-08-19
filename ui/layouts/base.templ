@@ -54,6 +54,7 @@ templ Base(title string, showNav bool, onDocsPage bool) {
 				// through the page share its DOM scope. The dialogs have no
 				// on-page footprint when their triggers aren't clicked.
 				@components.SettingsDialog()
+				@components.BiosDialog()
 				@components.ConfirmDialog()
 			}
 			// Toast viewport for tui.toast.add() — mounted on every page so

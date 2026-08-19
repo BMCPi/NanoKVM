@@ -310,3 +310,61 @@ func TestBiosUnregisteredAttributesAreMarked(t *testing.T) {
 		t.Error("an unregistered attribute should still be editable")
 	}
 }
+
+// The dialog must not fetch anything until it is opened, and must re-fetch on
+// every open — host state changes underneath it, so a body rendered once at
+// page load would go stale the moment the host reported anything.
+func TestBiosDialogLoadsLazilyOnTrigger(t *testing.T) {
+	html := renderToString(t, func(w *strings.Builder) error {
+		return BiosDialog().Render(context.Background(), w)
+	})
+
+	if !strings.Contains(html, `hx-get="/ui/bios"`) {
+		t.Error("dialog body does not load the panel")
+	}
+	if !strings.Contains(html, `hx-trigger="click from:#bios-open-trigger"`) {
+		t.Errorf("dialog body should load on the trigger, not on page load:\n%s", html)
+	}
+	// Nothing may be bound to "load": that would cost a request on every page
+	// view whether or not anyone opens the dialog.
+	if strings.Contains(html, `hx-trigger="load`) {
+		t.Error("dialog body must not fetch on page load")
+	}
+	if !strings.Contains(html, `id="bios-dialog"`) {
+		t.Error("dialog is missing the id its trigger addresses")
+	}
+}
+
+func TestBiosDialogTriggerAddressesTheDialog(t *testing.T) {
+	html := renderToString(t, func(w *strings.Builder) error {
+		return BiosDialogTrigger().Render(context.Background(), w)
+	})
+
+	if !strings.Contains(html, `id="bios-open-trigger"`) {
+		t.Error("trigger is missing the id the dialog body listens to")
+	}
+	if !strings.Contains(html, "bios-dialog") {
+		t.Errorf("trigger does not address the dialog:\n%s", html)
+	}
+}
+
+// The panel is one fragment carrying all three regions, so opening the dialog
+// paints a complete surface in a single request.
+func TestBiosPanelCarriesEveryRegion(t *testing.T) {
+	html := renderToString(t, func(w *strings.Builder) error {
+		return BiosPanel(sampleModel()).Render(context.Background(), w)
+	})
+
+	for _, id := range []string{`id="bios-rail"`, `id="bios-content"`, `id="bios-staged"`} {
+		if !strings.Contains(html, id) {
+			t.Errorf("panel is missing %s", id)
+		}
+	}
+	// Nothing in the initial panel is out-of-band: it is swapped wholesale.
+	if strings.Contains(html, "hx-swap-oob") {
+		t.Error("the initial panel must not mark regions out-of-band")
+	}
+	if !strings.Contains(html, "BIOS Configuration") {
+		t.Error("panel heading missing")
+	}
+}

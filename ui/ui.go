@@ -103,13 +103,9 @@ func pageRoutes(r *gin.Engine, d *deps.Deps) {
 	protected.GET("/settings", func(c *gin.Context) {
 		c.Redirect(http.StatusFound, "/dashboard")
 	})
-
-	// Host BIOS configuration. A page rather than a settings panel: these
-	// attributes belong to the managed host, not the BMC, and a real
-	// attribute registry is far too large for a modal.
+	// BIOS configuration is a dialog on the dashboard, not its own page.
 	protected.GET("/bios", func(c *gin.Context) {
-		render := newRender(c.Request.Context(), http.StatusOK, pages.Bios(biosPageModel()))
-		c.Render(http.StatusOK, render)
+		c.Redirect(http.StatusFound, "/dashboard")
 	})
 
 	// API docs — custom templ-rendered view of the embedded OpenAPI

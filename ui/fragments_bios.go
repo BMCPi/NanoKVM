@@ -25,10 +25,18 @@ import (
 func biosFragmentRoutes(g *gin.RouterGroup, _ *deps.Deps) {
 	b := g.Group("/bios")
 
+	b.GET("", getBiosPanel)
 	b.GET("/menu", getBiosMenu)
 	b.GET("/search", getBiosSearch)
 	b.POST("/stage", postBiosStage)
 	b.POST("/discard", postBiosDiscard)
+}
+
+// getBiosPanel serves the dialog's whole inner layout. Requested once each
+// time the dialog is opened, so an operator always sees live host state rather
+// than whatever was true when the page was served.
+func getBiosPanel(c *gin.Context) {
+	renderFragment(c, components.BiosPanel(biosModel("", "", nil)))
 }
 
 // getBiosMenu switches the content region to one menu's attributes.
@@ -277,7 +285,3 @@ func biosBound(p *int64) string {
 	}
 	return strconv.FormatInt(*p, 10)
 }
-
-// biosPageModel is the full-page model, used by the /bios route rather than a
-// fragment. Separate only so the page handler reads clearly.
-func biosPageModel() components.BiosModel { return biosModel("", "", nil) }
