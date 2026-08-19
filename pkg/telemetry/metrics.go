@@ -77,12 +77,15 @@ func initMetrics() {
 	ipmiAuthFailures = mustCounter("nanokvm_ipmi_auth_failures_total",
 		"IPMI authentication failures (RAKP/openSession rejects)", "{failure}")
 
+	// Metric names predate FMP capsule delivery and are kept stable for
+	// existing scrapers; they now count capsule fetches and the capsule
+	// volume's presentation on the gadget.
 	firmwareDownloadsTotal = mustCounter("nanokvm_firmware_downloads_total",
-		"Firmware image download attempts, labelled by outcome", "{download}")
+		"Firmware capsule download attempts, labelled by outcome", "{download}")
 	firmwareDownloadDuration = mustHist("nanokvm_firmware_download_duration_seconds",
-		"Time to download and extract the firmware image", "s")
+		"Time to download a firmware capsule", "s")
 	firmwareImagePresented = mustUpDown("nanokvm_firmware_image_presented",
-		"1 when the USB gadget is presenting the image, 0 otherwise")
+		"1 when the USB gadget is presenting the capsule volume, 0 otherwise")
 
 	powerOperationsTotal = mustCounter("nanokvm_power_operations_total",
 		"Power control operations issued, labelled by op and outcome", "{op}")

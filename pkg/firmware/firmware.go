@@ -1,28 +1,32 @@
 package firmware
 
-// firmware.go contains the lifecycle Controller for the host boot image.
+// firmware.go contains the lifecycle Controller for host firmware delivery.
 //
 // Architecture:
-//   - The image at c.imagePath is the canonical, bootable artefact. It is
-//     downloaded as-is from c.imageURL (xz-compressed) on first run.
-//   - The image is presented unchanged to the USB mass-storage gadget via
-//     /sys/kernel/config/usb_gadget/g0/.../lun.0/file.
-//   - All read/write access to the image's filesystem goes through a
-//     mount cycle inside withMount(): unpresent → mount (offset-based loop) →
-//     fn → sync → umount → drop_caches → present. No persistent loop device
-//     is maintained; the kernel handles loop attachment internally as part of
-//     `mount -o loop,offset=...`.
-//   - c.firmwareDir is a host-side staging area mirroring files we want
-//     to push into the image. SyncFirmwareDirToImage copies its contents
-//     over the mounted image.
+//   - The BMC does NOT serve a bootable host image over the USB gadget. That
+//     transport is retired: the host owns its own boot firmware.
+//   - Updates are delivered as UEFI FMP capsules using the specification's
+//     standard mechanism, "Delivering Capsules Across a System Reset"
+//     (UEFI 2.10 §8.5.5). The BMC keeps a small GPT disk image at
+//     c.capsulePath holding one EFI System Partition formatted FAT32, stages
+//     capsules into \EFI\UpdateCapsule\ on it (see capsule.go), and presents
+//     the image on the mass-storage gadget's lun.0. At the host's next boot
+//     its firmware scans the attached FAT volumes, finds the capsules and
+//     applies them via FMP.
+//   - The whole volume is manipulated in userspace with go-diskfs. There is no
+//     loop device, no kernel mount and no drop_caches cycle; the only kernel
+//     interaction is clearing and re-setting lun.0's backing file so the host
+//     sees a media change (see gadget.go).
+//   - lun.0 stays writable (ro=0): host firmware deletes each capsule from
+//     \EFI\UpdateCapsule\ once it has been applied, which is how the BMC can
+//     tell an applied capsule from a pending one.
 //
-// The Controller is transport only: it moves images and media onto the USB
-// gadget for the host to consume. Boot overrides and host inventory are BMC
-// state served over Redfish (api/redfish), which the host's firmware reads
-// and applies itself — the BMC never edits a boot environment for it.
+// The Controller is transport only: it moves capsules and virtual media onto
+// the USB gadget for the host to consume, and never flashes the host itself.
+// Boot overrides and host inventory are BMC state served over Redfish
+// (api/redfish), which the host's firmware reads and applies itself.
 
 import (
-	"os"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
@@ -32,29 +36,32 @@ import (
 
 // Status describes the current state of the firmware controller.
 type Status struct {
-	Downloaded    bool   `json:"downloaded"`
-	Downloading   bool   `json:"downloading"`
-	Presented     bool   `json:"presented"`
-	ImagePath     string `json:"imagePath"`
-	MountPoint    string `json:"mountPoint"`
-	FirmwareDir   string `json:"firmwareDir"`
-	FirmwareCount int    `json:"firmwareCount"`
+	// VolumeReady reports whether the capsule volume exists on disk.
+	VolumeReady bool `json:"volumeReady"`
+	// Presented reports whether the capsule volume is on the gadget's lun.0.
+	Presented bool `json:"presented"`
+	// Staging reports whether a capsule fetch is currently running.
+	Staging bool `json:"staging"`
+	// CapsulePath is the on-BMC path of the capsule volume image.
+	CapsulePath string `json:"capsulePath"`
+	// CapsuleDir is the directory inside the volume the host firmware scans.
+	CapsuleDir string `json:"capsuleDir"`
+	// VolumeSize is the capsule volume's size in bytes (0 when not created).
+	VolumeSize int64 `json:"volumeSize"`
+	// Capsules are the capsules currently staged for the host.
+	Capsules []Capsule `json:"capsules"`
 }
 
-// Controller manages the firmware image lifecycle.
+// Controller manages capsule delivery and virtual media.
 type Controller struct {
 	mu sync.Mutex
 
-	imageURL    string
-	imagePath   string
-	seedPath    string // baked-in .xz seed tried before any download
-	mountPoint  string
-	firmwareDir string
+	capsulePath string // GPT image presented on lun.0
+	capsuleSize int64  // size used when the image is first created
 	mediaDir    string // staging area for ISO files the user has uploaded
 
 	presented bool
 
-	reader  *readerCache      // cached read-only diskfs handle; nil = not open
 	vmState VirtualMediaState // current virtual media insertion state
 }
 
@@ -63,60 +70,28 @@ type Controller struct {
 // consumer via pkg/deps instead of a package-level singleton.
 func NewController(cfg *config.Config) *Controller {
 	return &Controller{
-		imageURL:    cfg.Firmware.ImageURL,
-		imagePath:   cfg.Firmware.ImagePath,
-		seedPath:    cfg.Firmware.SeedPath,
-		mountPoint:  cfg.Firmware.MountPoint,
-		firmwareDir: cfg.Firmware.FirmwareDir,
+		capsulePath: cfg.Firmware.CapsulePath,
+		capsuleSize: capsuleVolumeBytes(cfg.Firmware.CapsuleSizeMB),
 		mediaDir:    cfg.Firmware.MediaDir,
 	}
 }
 
-// Init presents the boot image via the USB gadget when it exists; when it
-// does not (factory-fresh data partition), the image is produced in the
-// background — seeded from the baked-in copy, else downloaded — and
-// presented on completion. Startup must not block on this: the seed is a
-// ~513 MB decompress to SD that takes minutes, and the HTTP listeners only
-// open after initialization, which is exactly the window that makes a
-// first-boot BMC look dead. Call once at server startup.
+// Init creates the capsule volume if it does not exist yet and presents it on
+// the gadget's lun.0. Creating a 64 MiB FAT32 volume is fast (it writes a GPT,
+// two FATs and a root directory, not the whole file), so unlike the retired
+// boot-image seed this does not need to run in the background. Call once at
+// server startup, after usbgadget.Get().Init has built the gadget.
 func (c *Controller) Init() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if !c.imageExists() {
-		log.Infof("firmware: image not found at %s; producing it in the background", c.imagePath)
-		go c.ensureImageAndPresent()
-	} else {
-		// The gadget itself (g0, all functions incl. lun.1) is built by the
-		// usbgadget package at server startup, before this runs. Here we only
-		// fill lun.0's backing file with the boot image.
-		log.Info("firmware: image found, presenting via USB gadget")
-		if err := c.presentImage(); err != nil {
-			log.Warnf("firmware: USB gadget present failed (may not be available in this environment): %v", err)
-		}
+	if err := c.ensureVolumeLocked(); err != nil {
+		return err
 	}
-	return nil
-}
-
-// ensureImageAndPresent seeds (else downloads) the boot image and presents
-// it via the gadget. Runs in the background at startup; mirrors
-// DownloadAndInit's locking.
-func (c *Controller) ensureImageAndPresent() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if !c.imageExists() {
-		if err := c.seedImageLocked(); err != nil {
-			log.Infof("firmware: no usable seed (%v); downloading", err)
-			if err := c.downloadImageLocked(); err != nil {
-				log.Errorf("firmware: ensure image: %v", err)
-				return
-			}
-		}
-	}
-	if err := c.presentImage(); err != nil {
+	if err := c.presentVolume(); err != nil {
 		log.Warnf("firmware: USB gadget present failed (may not be available in this environment): %v", err)
 	}
+	return nil
 }
 
 // GetStatus returns the current lifecycle state.
@@ -124,27 +99,21 @@ func (c *Controller) GetStatus() Status {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	count := 0
-	if entries, err := os.ReadDir(c.firmwareDir); err == nil {
-		for _, e := range entries {
-			if !e.IsDir() {
-				count++
-			}
-		}
+	st := Status{
+		Presented:   c.presented,
+		Staging:     isStaging(),
+		CapsulePath: c.capsulePath,
+		CapsuleDir:  capsuleDir,
+		Capsules:    []Capsule{},
 	}
-
-	return Status{
-		Downloaded:    c.imageExists(),
-		Downloading:   c.IsDownloading(),
-		Presented:     c.presented,
-		ImagePath:     c.imagePath,
-		MountPoint:    c.mountPoint,
-		FirmwareDir:   c.firmwareDir,
-		FirmwareCount: count,
+	if size, ok := c.volumeSize(); ok {
+		st.VolumeReady = true
+		st.VolumeSize = size
 	}
-}
-
-func (c *Controller) imageExists() bool {
-	info, err := os.Stat(c.imagePath)
-	return err == nil && info.Size() > 0
+	if caps, err := c.listCapsulesLocked(); err == nil {
+		st.Capsules = caps
+	} else if st.VolumeReady {
+		log.Warnf("firmware: list capsules for status: %v", err)
+	}
+	return st
 }

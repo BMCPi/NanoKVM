@@ -61,7 +61,7 @@ tags:
   - name: Managers
     description: BMC itself + serial interfaces + virtual media.
   - name: UpdateService
-    description: Host boot-image delivery over the USB gadget.
+    description: UEFI FMP capsule staging over the USB mass-storage gadget.
 
 security:
   - XAuthToken: []
@@ -485,7 +485,7 @@ paths:
       summary: |
         One subsystem. "1": a Drive per device the host reported, readable
         even while the host is off. "BMC": a Drive per backed gadget LUN
-        (host boot image, plus the virtual-media ISO while inserted).
+        (the FMP capsule volume, plus the virtual-media ISO while inserted).
       parameters:
         - { name: storage, in: path, required: true, schema: { type: string } }
       responses:
@@ -843,10 +843,11 @@ paths:
     post:
       tags: [UpdateService]
       summary: |
-        Download the boot image at ImageURI and present it to the host on
-        the USB gadget. The BMC flashes nothing — the host consumes the
-        image at its own boot. ImageURI is required; there is no implicit
-        "latest".
+        Download the UEFI FMP capsule at ImageURI and stage it into
+        \EFI\UpdateCapsule\ on the capsule volume the BMC presents over USB
+        mass storage. The BMC flashes nothing — the host's own firmware finds
+        and applies the capsule at its next boot (UEFI 2.10 §8.5.5).
+        ImageURI is required; there is no implicit "latest".
       requestBody:
         required: true
         content:
@@ -862,12 +863,44 @@ paths:
                   type: string
                   enum: [HTTP, HTTPS]
               example:
-                ImageURI: https://example.com/releases/host-boot-image.img.xz
+                ImageURI: https://example.com/releases/host-firmware.cap
                 TransferProtocol: HTTPS
       responses:
-        "202": { description: Update accepted; runs in background. }
+        "202": { description: Staging accepted; the download runs in background. }
         "400": { $ref: "#/components/responses/BadRequest" }
-        "409": { description: A download is already in progress. }
+        "409": { description: A capsule is already being staged. }
+
+  /redfish/v1/UpdateService/update:
+    post:
+      tags: [UpdateService]
+      summary: |
+        HttpPushUri: upload capsule bytes directly instead of handing the BMC
+        a URL to fetch. Accepts a raw body (application/octet-stream, name it
+        with ?name=) or a multipart form whose field is "UpdateFile". The
+        capsule is staged into \EFI\UpdateCapsule\ and applied by the host's
+        firmware at its next boot.
+      parameters:
+        - name: name
+          in: query
+          required: false
+          schema: { type: string }
+          description: |
+            Filename to stage a raw body under. Ignored for multipart uploads,
+            which use the part's own filename. Defaults to "update.cap".
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                UpdateFile: { type: string, format: binary }
+      responses:
+        "202": { description: Capsule staged for the host's next boot. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { description: A capsule is already being staged. }
 
 components:
   securitySchemes:

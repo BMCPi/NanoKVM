@@ -88,14 +88,8 @@ var defaultConfig = &Config{
 	// mounted at /var/lib/nanokvm by the initramfs (the old /data mount is
 	// gone with the squashfs+overlay root).
 	Firmware: Firmware{
-		ImageURL:      "https://github.com/tinkerbell-community/uboot-raspberrypi/releases/download/v2026.04-rc4.1/uboot-raspberrypi-2026.04-rc4.1.img.xz",
-		ImagePath:     "/var/lib/nanokvm/firmware/uboot-rpi.img",
-		SeedPath:      "/usr/share/rpi/uboot-rpi.img.xz",
-		FirmwareDir:   "/var/lib/nanokvm/firmware/files",
-		MountPoint:    "/var/lib/nanokvm/firmware/mnt",
-		MachineEnv:    "/var/lib/nanokvm/firmware/files/machine.env",
-		PersistentEnv: "/var/lib/nanokvm/firmware/files/persistent.env",
-		OnceEnv:       "/var/lib/nanokvm/firmware/files/once.env",
+		CapsulePath:   "/var/lib/nanokvm/firmware/capsules.img",
+		CapsuleSizeMB: 64,
 		MediaDir:      "/var/lib/nanokvm/media",
 	},
 	UsbGadget: UsbGadget{
@@ -159,7 +153,6 @@ var defaultConfig = &Config{
 		Enabled:         false,
 		IntervalMinutes: 360, // 6 hours
 		Application:     true,
-		BIOS:            false,
 	},
 }
 
@@ -255,27 +248,15 @@ func checkDefaultValue() {
 		}
 	}
 
-	// Apply firmware defaults when not present in the config file.
-	if instance.Firmware.ImageURL == "" {
-		instance.Firmware.ImageURL = defaultConfig.Firmware.ImageURL
+	// Apply firmware defaults when not present in the config file. Configs
+	// written before the boot-image transport was retired carry imagePath,
+	// firmwareDir, mountPoint and the env-file keys; they no longer bind to
+	// any field and are dropped on the next Save().
+	if instance.Firmware.CapsulePath == "" {
+		instance.Firmware.CapsulePath = defaultConfig.Firmware.CapsulePath
 	}
-	if instance.Firmware.ImagePath == "" {
-		instance.Firmware.ImagePath = defaultConfig.Firmware.ImagePath
-	}
-	if instance.Firmware.FirmwareDir == "" {
-		instance.Firmware.FirmwareDir = defaultConfig.Firmware.FirmwareDir
-	}
-	if instance.Firmware.MountPoint == "" {
-		instance.Firmware.MountPoint = defaultConfig.Firmware.MountPoint
-	}
-	if instance.Firmware.MachineEnv == "" {
-		instance.Firmware.MachineEnv = defaultConfig.Firmware.MachineEnv
-	}
-	if instance.Firmware.PersistentEnv == "" {
-		instance.Firmware.PersistentEnv = defaultConfig.Firmware.PersistentEnv
-	}
-	if instance.Firmware.OnceEnv == "" {
-		instance.Firmware.OnceEnv = defaultConfig.Firmware.OnceEnv
+	if instance.Firmware.CapsuleSizeMB <= 0 {
+		instance.Firmware.CapsuleSizeMB = defaultConfig.Firmware.CapsuleSizeMB
 	}
 	if instance.Firmware.MediaDir == "" {
 		instance.Firmware.MediaDir = defaultConfig.Firmware.MediaDir
@@ -284,17 +265,12 @@ func checkDefaultValue() {
 	// Migrate pre-squashfs-layout paths. The /data partition no longer exists
 	// — every persistent path lives under /var/lib/nanokvm (the data
 	// partition the initramfs mounts) — so a config carried over from an old
-	// image or a restored backup would otherwise point the firmware image,
+	// image or a restored backup would otherwise point the capsule volume,
 	// media dir and EEPROM snapshots at a dead mount. Rewritten in place and
 	// persisted so the migration runs once.
 	migratedDataPath := false
 	for _, p := range []*string{
-		&instance.Firmware.ImagePath,
-		&instance.Firmware.FirmwareDir,
-		&instance.Firmware.MountPoint,
-		&instance.Firmware.MachineEnv,
-		&instance.Firmware.PersistentEnv,
-		&instance.Firmware.OnceEnv,
+		&instance.Firmware.CapsulePath,
 		&instance.Firmware.MediaDir,
 		&instance.SSH.HostKeyPath,
 		&instance.SSH.AuthorizedKeysPath,

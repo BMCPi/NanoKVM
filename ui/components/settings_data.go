@@ -15,7 +15,6 @@ type SettingsGeneral struct {
 	AutoUpdateEnabled     bool
 	AutoUpdateInterval    string
 	AutoUpdateApplication bool
-	AutoUpdateBIOS        bool
 
 	// ConsolePrimaryView is "serial" or "hdmi" — which view the dashboard
 	// opens on. Carried as the raw sentinel so it can be handed straight to

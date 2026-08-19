@@ -126,10 +126,11 @@ func Register(r *gin.Engine, d *deps.Deps) {
 		api.GET("/SessionService/Sessions", service.GetSessionCollection)
 		api.DELETE("/SessionService/Sessions/:id", service.DeleteSession)
 
-		// UpdateService (host image updates)
+		// UpdateService (FMP capsule staging; the host applies at next boot)
 		api.GET("/UpdateService", service.GetUpdateService)
 		api.GET("/UpdateService/FirmwareInventory", service.GetFirmwareInventoryCollection)
 		api.GET("/UpdateService/FirmwareInventory/BIOS", service.GetFirmwareInventoryBIOS)
 		api.POST("/UpdateService/Actions/UpdateService.SimpleUpdate", service.SimpleUpdate)
+		api.POST("/UpdateService/update", service.PushCapsule)
 	}
 }

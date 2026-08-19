@@ -1,7 +1,13 @@
-// Package firmware exposes the firmware API: image status and download,
-// direct FAT file management, virtual media, and USB gadget presentation.
-// Boot overrides and host inventory live on the Redfish surface
-// (api/redfish) — the host's firmware reads and applies them itself.
+// Package firmware exposes the firmware API: FMP capsule staging, virtual
+// media, and USB gadget presentation.
+//
+// The BMC no longer serves a bootable host image over the gadget. Firmware is
+// delivered as UEFI FMP capsules: they are staged into \EFI\UpdateCapsule\ on
+// the capsule volume presented over USB mass storage, and the host's own
+// firmware finds and applies them at its next boot (UEFI 2.10 §8.5.5).
+//
+// Boot overrides and host inventory live on the Redfish surface (api/redfish)
+// — the host's firmware reads and applies them itself.
 package firmware
 
 import (
@@ -19,83 +25,52 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 )
 
-// Upload body cap. Uploads are streamed to the image (constant memory), so
-// this bounds the on-image/disk size against abuse rather than RAM.
-const maxFileUploadBytes = 128 << 20 // 128 MiB — boot-partition files
+// maxCapsuleUploadBytes caps a capsule upload. Capsules are firmware-sized;
+// uploads are streamed into the capsule volume (constant memory), so this
+// bounds what a client can force onto the volume rather than RAM.
+const maxCapsuleUploadBytes = 128 << 20 // 128 MiB
 
 // Register mounts the firmware routes on the shared authenticated group.
 func Register(api *gin.RouterGroup, d *deps.Deps) {
 	ctrl := d.Firmware
 	fw := api.Group("/firmware")
 
-	registerImage(fw, ctrl)
-	registerFiles(fw, ctrl)
+	registerCapsules(fw, ctrl)
 	registerMedia(fw, ctrl)
 	registerGadget(fw, ctrl)
 }
 
-// registerImage wires image status and download.
-func registerImage(fw *gin.RouterGroup, ctrl *firmware.Controller) {
+// registerCapsules wires capsule staging: what is queued for the host, and the
+// three ways to change that (upload, fetch from a URL, delete).
+func registerCapsules(fw *gin.RouterGroup, ctrl *firmware.Controller) {
+	// GET /api/firmware/status — capsule volume state plus what is staged.
 	fw.GET("/status", func(c *gin.Context) {
 		c.JSON(http.StatusOK, ctrl.GetStatus())
 	})
 
-	fw.POST("/download", func(c *gin.Context) {
-		if ctrl.IsDownloading() {
-			c.JSON(http.StatusConflict, gin.H{"error": "download already in progress"})
-			return
-		}
-
-		go func() {
-			if err := ctrl.DownloadAndInit(); err != nil {
-				log.Errorf("firmware download failed: %v", err)
-			}
-		}()
-
-		c.JSON(http.StatusAccepted, gin.H{"message": "download started"})
-	})
-}
-
-// registerFiles wires the direct FAT file management endpoints (go-diskfs).
-func registerFiles(fw *gin.RouterGroup, ctrl *firmware.Controller) {
-	// GET /api/firmware/files — list all files in the FAT root.
-	fw.GET("/files", func(c *gin.Context) {
-		names, err := ctrl.ListFilesInImage()
+	// GET /api/firmware/capsules — the capsules the host will find at boot.
+	fw.GET("/capsules", func(c *gin.Context) {
+		capsules, err := ctrl.ListCapsules()
 		if err != nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"files": names})
+		c.JSON(http.StatusOK, gin.H{"capsules": capsules})
 	})
 
-	// GET /api/firmware/file/:name — download a file from the FAT image.
-	fw.GET("/file/:name", func(c *gin.Context) {
-		name := filepath.Base(c.Param("name")) // sanitise; stay at root
-		data, err := ctrl.ReadFileFromImage(name)
-		if err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+	// POST /api/firmware/capsules — upload a capsule. Accepts multipart form
+	// field "file" or a raw binary body with ?name=<filename>.
+	fw.POST("/capsules", func(c *gin.Context) {
+		if ctrl.IsStaging() {
+			c.JSON(http.StatusConflict, gin.H{"error": "a capsule is already being staged"})
 			return
 		}
-		if data == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("%s not found in image", name)})
-			return
-		}
-		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, name))
-		c.Data(http.StatusOK, "application/octet-stream", data)
-	})
 
-	// PUT /api/firmware/file/:name — upload / overwrite a file in the FAT image.
-	// Accepts raw binary body (Content-Type: application/octet-stream) or
-	// multipart form field "file".
-	fw.PUT("/file/:name", func(c *gin.Context) {
-		name := filepath.Base(c.Param("name"))
-
-		// Stream the upload straight into the image so memory stays flat
-		// regardless of file size (see firmware.WriteReaderToImage). The body is
-		// capped to guard the image/disk, not RAM.
-		var src io.Reader
-		ct := c.ContentType()
-		if ct == "multipart/form-data" {
+		var (
+			src  io.Reader
+			name string
+		)
+		if strings.HasPrefix(c.ContentType(), "multipart/") {
 			fh, err := c.FormFile("file")
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "multipart field 'file' required"})
@@ -107,37 +82,73 @@ func registerFiles(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 				return
 			}
 			defer f.Close()
-			src = io.LimitReader(f, maxFileUploadBytes)
+			src = io.LimitReader(f, maxCapsuleUploadBytes)
+			name = filepath.Base(fh.Filename)
 		} else {
-			src = http.MaxBytesReader(c.Writer, c.Request.Body, maxFileUploadBytes)
+			src = http.MaxBytesReader(c.Writer, c.Request.Body, maxCapsuleUploadBytes)
+			name = filepath.Base(c.Query("name"))
+		}
+		if name == "" || name == "." || name == "/" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "capsule filename required (multipart filename or ?name=)"})
+			return
 		}
 
-		written, err := ctrl.WriteReaderToImage(name, src)
+		written, err := ctrl.StageCapsule(name, src)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-
-		c.JSON(http.StatusOK, gin.H{"file": name, "bytes": written})
+		c.JSON(http.StatusOK, gin.H{"capsule": name, "bytes": written})
 	})
 
-	// DELETE /api/firmware/file/:name — remove a file from the FAT image.
-	fw.DELETE("/file/:name", func(c *gin.Context) {
+	// POST /api/firmware/capsules/fetch — have the BMC download a capsule.
+	// Body: { "url": "https://…/host.cap", "name": "…" (optional) }
+	fw.POST("/capsules/fetch", func(c *gin.Context) {
+		var req struct {
+			URL  string `json:"url"`
+			Name string `json:"name"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil || req.URL == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "url required"})
+			return
+		}
+		if parsed, err := url.ParseRequestURI(req.URL); err != nil ||
+			(parsed.Scheme != "http" && parsed.Scheme != "https") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "url must be http or https"})
+			return
+		}
+		if ctrl.IsStaging() {
+			c.JSON(http.StatusConflict, gin.H{"error": "a capsule is already being staged"})
+			return
+		}
+
+		go func(rawURL, name string) {
+			if err := ctrl.StageCapsuleFromURL(rawURL, name); err != nil {
+				log.Errorf("firmware: capsule fetch failed: %v", err)
+			}
+		}(req.URL, filepath.Base(req.Name))
+
+		c.JSON(http.StatusAccepted, gin.H{"message": "capsule fetch started"})
+	})
+
+	// DELETE /api/firmware/capsules/:name — un-stage a capsule the host has
+	// not consumed yet.
+	fw.DELETE("/capsules/:name", func(c *gin.Context) {
 		name := filepath.Base(c.Param("name"))
-		if err := ctrl.RemoveFileFromImage(name); err != nil {
+		if err := ctrl.RemoveCapsule(name); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"file": name, "deleted": true})
+		c.JSON(http.StatusOK, gin.H{"capsule": name, "deleted": true})
 	})
 
-	// POST /api/firmware/sync — copy files from firmwareDir into the mounted image.
-	fw.POST("/sync", func(c *gin.Context) {
-		if err := ctrl.SyncFirmwareDirToImage(); err != nil {
+	// POST /api/firmware/capsules/clear — cancel every pending update.
+	fw.POST("/capsules/clear", func(c *gin.Context) {
+		if err := ctrl.ClearCapsules(); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "synced"})
+		c.JSON(http.StatusOK, gin.H{"message": "cleared"})
 	})
 }
 
@@ -253,8 +264,8 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 		c.JSON(http.StatusOK, gin.H{"file": name, "deleted": true})
 	})
 
-	// POST /api/firmware/media/eject — eject virtual media and remove vm.iso
-	// from firmwareDir and the FAT image.
+	// POST /api/firmware/media/eject — clear lun.1 so the host sees an empty
+	// CD-ROM tray. The staged ISO stays in mediaDir.
 	fw.POST("/media/eject", func(c *gin.Context) {
 		if err := ctrl.EjectVirtualMedia(); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -264,7 +275,9 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 	})
 }
 
-// registerGadget wires the USB gadget presentation controls.
+// registerGadget wires the USB gadget presentation controls for lun.0 (the
+// capsule volume). Unpresenting hides the volume from the host entirely; it is
+// re-presented automatically around every capsule write.
 func registerGadget(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 	fw.POST("/present", func(c *gin.Context) {
 		if err := ctrl.Present(); err != nil {

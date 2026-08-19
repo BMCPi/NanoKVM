@@ -220,7 +220,9 @@ templ metricsDisabledNotice() {
 templ metricsStatTiles(snap telemetry.Snapshot, gridClass string) {
 	<div class={ "grid gap-3", gridClass }>
 		@metricsStateTile("Host Power", snap.PowerOn, "On", "Off")
-		@metricsStateTile("Virtual Media", snap.ImagePresented, "Presented", "None")
+		// Driven by nanokvm_firmware_image_presented, which tracks lun.0 — the
+		// FMP capsule volume — not the lun.1 virtual-media tray.
+		@metricsStateTile("Capsule Volume", snap.ImagePresented, "Presented", "None")
 		@metricsCountTile("IPMI Sessions", snap.IPMISessions)
 		@metricsCountTile("Serial Sessions", snap.SerialSessions)
 	</div>

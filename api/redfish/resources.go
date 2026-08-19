@@ -262,9 +262,12 @@ type Session struct {
 
 type UpdateService struct {
 	Resource
-	ServiceEnabled    bool                 `json:"ServiceEnabled"`
-	FirmwareInventory Link                 `json:"FirmwareInventory"`
-	Actions           UpdateServiceActions `json:"Actions"`
+	ServiceEnabled    bool `json:"ServiceEnabled"`
+	FirmwareInventory Link `json:"FirmwareInventory"`
+	// HTTPPushURI is where a client POSTs capsule bytes directly instead of
+	// handing the BMC a URL to fetch (Redfish DSP2046 §6.98, HttpPushUri).
+	HTTPPushURI string               `json:"HttpPushUri,omitempty"`
+	Actions     UpdateServiceActions `json:"Actions"`
 }
 
 type UpdateServiceActions struct {
@@ -285,7 +288,7 @@ type SoftwareInventory struct {
 	SoftwareID string `json:"SoftwareId,omitempty"`
 	Version    string `json:"Version,omitempty"`
 	// Manufacturer is the firmware vendor (SMBIOS type-0 Vendor for the
-	// BIOS/U-Boot image).
+	// host's boot firmware).
 	Manufacturer string `json:"Manufacturer,omitempty"`
 	// ReleaseDate is the firmware's release/production date (ISO 8601). For
 	// the bootloader it carries the EEPROM flash time from

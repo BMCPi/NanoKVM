@@ -720,7 +720,7 @@ func metricsStatTiles(snap telemetry.Snapshot, gridClass string) templ.Component
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = metricsStateTile("Virtual Media", snap.ImagePresented, "Presented", "None").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = metricsStateTile("Capsule Volume", snap.ImagePresented, "Presented", "None").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -792,7 +792,7 @@ func metricsStateTile(label string, on bool, onText, offText string) templ.Compo
 				var templ_7745c5c3_Var27 string
 				templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/metrics_panel.templ`, Line: 232, Col: 51}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/metrics_panel.templ`, Line: 234, Col: 51}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 				if templ_7745c5c3_Err != nil {
@@ -818,7 +818,7 @@ func metricsStateTile(label string, on bool, onText, offText string) templ.Compo
 						var templ_7745c5c3_Var29 string
 						templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(onText)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/metrics_panel.templ`, Line: 236, Col: 14}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/metrics_panel.templ`, Line: 238, Col: 14}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 						if templ_7745c5c3_Err != nil {
@@ -846,7 +846,7 @@ func metricsStateTile(label string, on bool, onText, offText string) templ.Compo
 						var templ_7745c5c3_Var31 string
 						templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(offText)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/metrics_panel.templ`, Line: 240, Col: 15}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/metrics_panel.templ`, Line: 242, Col: 15}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 						if templ_7745c5c3_Err != nil {
@@ -931,7 +931,7 @@ func metricsCountTile(label string, count int) templ.Component {
 				var templ_7745c5c3_Var35 string
 				templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/metrics_panel.templ`, Line: 251, Col: 51}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/metrics_panel.templ`, Line: 253, Col: 51}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
 				if templ_7745c5c3_Err != nil {
@@ -944,7 +944,7 @@ func metricsCountTile(label string, count int) templ.Component {
 				var templ_7745c5c3_Var36 string
 				templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(count))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/metrics_panel.templ`, Line: 252, Col: 76}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/metrics_panel.templ`, Line: 254, Col: 76}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 				if templ_7745c5c3_Err != nil {
@@ -1038,7 +1038,7 @@ func metricsBarCard(id, title, subtitle, unit string, samples []telemetry.Sample
 						var templ_7745c5c3_Var41 string
 						templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs(title)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/metrics_panel.templ`, Line: 269, Col: 12}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/metrics_panel.templ`, Line: 271, Col: 12}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
 						if templ_7745c5c3_Err != nil {
@@ -1069,7 +1069,7 @@ func metricsBarCard(id, title, subtitle, unit string, samples []telemetry.Sample
 						var templ_7745c5c3_Var43 string
 						templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinStringErrs(subtitle)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/metrics_panel.templ`, Line: 272, Col: 15}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/metrics_panel.templ`, Line: 274, Col: 15}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var43))
 						if templ_7745c5c3_Err != nil {

@@ -37,7 +37,9 @@ type Snapshot struct {
 
 	// Current state — these are gauges, so they are shown as stat tiles
 	// rather than charted: one number each, with no history to plot.
-	PowerOn        bool `json:"powerOn"`
+	PowerOn bool `json:"powerOn"`
+	// ImagePresented reports whether the FMP capsule volume is on lun.0. The
+	// name predates capsule delivery and matches the metric it reads.
 	ImagePresented bool `json:"imagePresented"`
 	IPMISessions   int  `json:"ipmiSessions"`
 	SerialSessions int  `json:"serialSessions"`

@@ -68,9 +68,9 @@ var (
 )
 
 // lockInstance refuses to start when another server is already running. The
-// listeners, the USB gadget and the firmware image staging all assume sole
+// listeners, the USB gadget and the capsule volume all assume sole
 // ownership, so a second copy — typically started by hand on the console
-// while the supervised one is still seeding its boot image — must not run.
+// while the supervised one is still creating its capsule volume — must not run.
 func lockInstance() {
 	l, err := net.Listen("unix", "@nanokvm-server.instance")
 	if err != nil {
@@ -156,9 +156,9 @@ func initialize(ctx context.Context) {
 	}
 
 	// Build the USB gadget (g0 + all functions + UDC bind) before presenting the
-	// firmware image. usbgadget is the sole owner of the gadget configfs — this
+	// capsule volume. usbgadget is the sole owner of the gadget configfs — this
 	// replaces the old S03usbdev init script — so the host-visible topology and
-	// a bound UDC come up independent of firmware image availability.
+	// a bound UDC come up independent of the capsule volume's availability.
 	if err := usbgadget.Get().Init(); err != nil {
 		log.Printf("USB gadget init: %v", err)
 	}
@@ -171,7 +171,9 @@ func initialize(ctx context.Context) {
 	// ifupdown usb0 stanza.
 	network.Start()
 
-	// Initialize firmware controller (mount image if available).
+	// Create the FMP capsule volume if it does not exist yet and present it on
+	// the gadget's lun.0, so the host can pick up staged capsules at its next
+	// boot.
 	if err := fwCtrl.Init(); err != nil {
 		log.Printf("Firmware controller init: %v", err)
 	}

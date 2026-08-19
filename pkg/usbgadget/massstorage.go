@@ -14,7 +14,7 @@ import (
 // Inquiry strings written to the LUNs. Preserve the exact spacing (vendor(8) +
 // product(16) + revision(4)) — hosts display these and some match on them.
 const (
-	lun0Inquiry = "NanoKVM USB Mass Storage0520"
+	lun0Inquiry = "NanoKVM Capsule Volume  0100"
 	lun1Inquiry = "NanoKVM Virtual Media   0100"
 )
 
@@ -65,11 +65,15 @@ func (g *Gadget) ensureMassStorageFunc() error {
 		_ = g.fs.writeAttr(filepath.Join(lun1, "inquiry_string"), lun1Inquiry)
 	}
 
-	// lun.0 (boot firmware image). Leave file empty — firmware.Controller fills
-	// it via PresentImage. Only assert the attributes the old script set here,
-	// diff-guarded so re-running on an already-bound gadget (server restart)
-	// doesn't poke the LUN.
+	// lun.0 (the FMP capsule volume). Leave file empty — firmware.Controller
+	// fills it via PresentDisk. The LUN is a writable, non-CD-ROM removable
+	// disk: host firmware deletes each capsule from \EFI\UpdateCapsule\ once
+	// it has been applied, so it must be able to write back. Diff-guarded so
+	// re-running on an already-bound gadget (server restart) doesn't poke the
+	// LUN.
 	lun0 := g.lun0Path()
+	_ = g.fs.writeAttrIfDifferent(filepath.Join(lun0, "cdrom"), "0")
+	_ = g.fs.writeAttrIfDifferent(filepath.Join(lun0, "ro"), "0")
 	_ = g.fs.writeAttrIfDifferent(filepath.Join(lun0, "removable"), "1")
 	_ = g.fs.writeAttrIfDifferent(filepath.Join(lun0, "inquiry_string"), lun0Inquiry)
 	return nil
@@ -97,27 +101,19 @@ func (g *Gadget) ensureLUN1Locked() error {
 	return g.ensureBindState()
 }
 
-// PresentImage sets lun.0's backing file to path and re-enumerates if the UDC
-// is not already bound. The byte sequencing here — cdrom-mode selection,
-// clear-then-retry-on-EBUSY, and "rebind only when unbound" — is load-bearing
-// and preserved from the former firmware.Controller.presentImage.
-func (g *Gadget) PresentImage(path string) error {
+// PresentDisk sets lun.0's backing file to path and re-enumerates if the UDC
+// is not already bound. path is the BMC's FMP capsule volume — a writable
+// removable disk, never a CD-ROM. The byte sequencing here —
+// clear-then-retry-on-EBUSY and "rebind only when unbound" — is load-bearing
+// and carried over from the retired boot-image transport that used to own it.
+func (g *Gadget) PresentDisk(path string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
 	lun0 := g.lun0Path()
 
-	isISO := strings.EqualFold(filepath.Ext(path), ".iso")
-	cdromVal := "0"
-	if isISO && !isHybridISO(path) {
-		cdromVal = "1"
-	}
-	_ = g.fs.writeAttr(filepath.Join(lun0, "cdrom"), cdromVal)
-	_ = g.fs.writeAttr(filepath.Join(lun0, "ro"), "0")
-	_ = g.fs.writeAttr(filepath.Join(lun0, "inquiry_string"), fmt.Sprintf("%-8s%-16s%04x", "NanoKVM", "Firmware", 0x0100))
-
-	// Clear first, then set to the image path. Retry on EBUSY because a
-	// just-detached loop device or in-flight gadget I/O can briefly hold it.
+	// Clear first, then set to the image path. Retry on EBUSY because
+	// in-flight gadget I/O can briefly hold it.
 	filePath := filepath.Join(lun0, "file")
 	_ = g.fs.writeAttr(filePath, "\n")
 	var lastErr error
@@ -144,9 +140,9 @@ func (g *Gadget) PresentImage(path string) error {
 	return nil
 }
 
-// UnpresentImage clears lun.0's backing file so the image is no longer held by
-// f_mass_storage and is safe to loop-mount.
-func (g *Gadget) UnpresentImage() error {
+// UnpresentDisk clears lun.0's backing file so the image is no longer held by
+// f_mass_storage and is safe for the BMC to rewrite in place.
+func (g *Gadget) UnpresentDisk() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 

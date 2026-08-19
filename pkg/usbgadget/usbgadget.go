@@ -78,7 +78,7 @@ func Get() *Gadget {
 // it. It is idempotent: when the gadget already exists and is correct (the
 // common server-restart case) it leaves the bound gadget undisturbed rather
 // than re-enumerating the host. No-op when disabled in config. Call once at
-// server startup, before firmware.Controller.Init presents the boot image.
+// server startup, before firmware.Controller.Init presents the capsule volume.
 func (g *Gadget) Init() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()

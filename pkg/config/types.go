@@ -124,9 +124,11 @@ type MDNS struct {
 	Hostname string `yaml:"hostname"`
 }
 
-// AutoUpdate configures the background updater that periodically checks
-// for new application and BIOS (U-Boot) releases and applies them when
-// enabled. Disabled by default — opt-in via config or the settings dialog.
+// AutoUpdate configures the background updater that periodically checks for
+// new application releases and applies them when enabled. Disabled by default
+// — opt-in via config or the settings dialog. Host firmware is deliberately
+// out of scope: it is delivered as operator-staged FMP capsules (see Firmware),
+// never fetched and applied behind the operator's back.
 type AutoUpdate struct {
 	// Enabled gates the whole subsystem; when false the ticker doesn't run.
 	Enabled bool `yaml:"enabled" json:"enabled"`
@@ -135,8 +137,6 @@ type AutoUpdate struct {
 	IntervalMinutes int `yaml:"intervalMinutes" json:"intervalMinutes"`
 	// Application toggles auto-updating the NanoKVM application package.
 	Application bool `yaml:"application" json:"application"`
-	// BIOS toggles auto-updating the U-Boot BIOS image.
-	BIOS bool `yaml:"bios" json:"bios"`
 }
 
 // Telemetry holds OpenTelemetry + Prometheus configuration.
@@ -330,30 +330,26 @@ type SSH struct {
 	PasswordAuth bool `yaml:"passwordAuth" json:"passwordAuth"`
 }
 
+// Firmware configures how the BMC delivers firmware to the managed host.
+//
+// The BMC no longer serves a bootable host image over the USB gadget: that
+// path is retired. The host boots its own firmware, and updates are delivered
+// as UEFI FMP capsules using the specification's standard "Delivering Capsules
+// Across a System Reset" mechanism (UEFI 2.10 §8.5.5).
+//
+// The BMC keeps a small GPT disk image (CapsulePath) holding one EFI System
+// Partition formatted FAT32. Capsules are staged into \EFI\UpdateCapsule\ on
+// it and the image is presented on the mass-storage gadget's lun.0. At the
+// host's next boot its firmware scans the attached FAT volumes, finds the
+// capsules and applies them via FMP; nothing on the BMC flashes the host.
 type Firmware struct {
-	ImageURL  string `yaml:"imageURL"`
-	ImagePath string `yaml:"imagePath"`
-	// SeedPath is an xz-compressed copy of the boot image baked into the
-	// read-only rootfs (shipped by the build's rpi-firmware-seed recipe).
-	// When ImagePath is absent at startup it is decompressed from here
-	// instead of downloaded, so a factory-fresh BMC needs no network fetch.
-	SeedPath string `yaml:"seedPath"`
-	// FirmwareDir is the local directory holding the canonical FAT root files
-	// (u-boot.bin, config.txt, RPi *.elf/*.dat firmware blobs, .dtb files,
-	// overlays/, etc.). The boot image is built from this directory; it is
-	// the source of truth, allowing each file to be versioned/edited
-	// independently of the composite .img.
-	FirmwareDir string `yaml:"firmwareDir"`
-	// MountPoint is retained for backward-compat with existing YAML files but
-	// is no longer used at runtime — env paths are derived as FAT-root names.
-	MountPoint string `yaml:"mountPoint"`
-	// MachineEnv, PersistentEnv and OnceEnv are retained for backward-compat
-	// with existing YAML files but are no longer used at runtime: the U-Boot
-	// environment lives in the I2C EEPROM (see UbootEnv), not in files inside
-	// the boot image.
-	MachineEnv    string `yaml:"machineEnv"`
-	PersistentEnv string `yaml:"persistentEnv"`
-	OnceEnv       string `yaml:"onceEnv"`
+	// CapsulePath is the GPT capsule volume image presented on lun.0. It is
+	// created on first run if absent.
+	CapsulePath string `yaml:"capsulePath"`
+	// CapsuleSizeMB is the size of the capsule volume when it is first
+	// created. Ignored once the image exists — delete the file to resize.
+	// Floored at capsuleMinSizeMB so the ESP is a spec-legal FAT32 volume.
+	CapsuleSizeMB int `yaml:"capsuleSizeMB"`
 	// MediaDir is the directory where ISO images for virtual media are stored.
 	MediaDir string `yaml:"mediaDir"`
 }
@@ -391,7 +387,7 @@ type UsbGadget struct {
 	Ethernet string `yaml:"ethernet"`
 	// Disk controls whether the mass-storage disk (mass_storage.disk0) is linked
 	// into configs/c.1 and so visible to the host. The function and its LUNs
-	// always exist — the firmware boot image lives on lun.0 — this only gates the
+	// always exist — the FMP capsule volume lives on lun.0 — this only gates the
 	// symlink. Toggled at runtime like Ethernet. Formerly the state file's disk
 	// toggle.
 	Disk bool `yaml:"disk"`

@@ -147,6 +147,7 @@ const (
 	firmwareInventoryPath = updateServicePath + "/FirmwareInventory"
 	firmwareBIOSPath      = firmwareInventoryPath + "/BIOS"
 	simpleUpdatePath      = updateServicePath + "/Actions/UpdateService.SimpleUpdate"
+	httpPushURIPath       = updateServicePath + "/update"
 )
 
 // odataTypeKey is the @odata.type property name. Typed resources get it from

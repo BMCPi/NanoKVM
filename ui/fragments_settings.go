@@ -122,7 +122,6 @@ func generalModel() components.SettingsGeneral {
 		AutoUpdateEnabled:     au.Enabled,
 		AutoUpdateInterval:    strconv.Itoa(au.IntervalMinutes),
 		AutoUpdateApplication: au.Application,
-		AutoUpdateBIOS:        au.BIOS,
 		ConsolePrimaryView:    conf.Console.PrimaryView,
 		TimeSyncEnabled:       ts.Enabled,
 		TimeSyncServers:       strings.Join(ts.Servers, ", "),
@@ -171,7 +170,6 @@ func patchAutoUpdate(c *gin.Context) {
 	au := &config.GetInstance().AutoUpdate
 	au.Enabled = checked(c, "enabled")
 	au.Application = checked(c, "application")
-	au.BIOS = checked(c, "bios")
 	if n, err := strconv.Atoi(c.PostForm("intervalMinutes")); err == nil && n > 0 {
 		au.IntervalMinutes = n
 	}

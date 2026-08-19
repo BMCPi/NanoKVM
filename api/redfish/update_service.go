@@ -2,20 +2,32 @@ package redfish
 
 // update_service.go implements a minimal Redfish UpdateService: a
 // FirmwareInventory whose BIOS entry reports the version the host itself
-// reported, plus a SimpleUpdate action that downloads a host boot image
-// from a caller-supplied URL and presents it on the USB gadget. The BMC
-// does not flash anything — the image is transport, consumed by the host.
+// reported, plus the two standard ways of handing the BMC a UEFI FMP capsule —
+// SimpleUpdate (the BMC fetches it from a URL) and an HttpPushUri (the client
+// POSTs the bytes).
 //
-// StartUpdate is gone deliberately: its "no parameters, fetch latest"
-// semantics regressed hosts to stale images by design.
+// Neither path flashes the host. Both stage the capsule into
+// \EFI\UpdateCapsule\ on the capsule volume the BMC presents over USB mass
+// storage; the host's own firmware finds it at its next boot and applies it
+// via FMP (UEFI 2.10 §8.5.5, "Delivering Capsules Across a System Reset").
+// Serving a bootable host image over the gadget is retired — that transport no
+// longer exists, and neither does StartUpdate, whose "no parameters, fetch
+// latest" semantics regressed hosts to stale images by design.
 
 import (
+	"io"
 	"net/http"
+	"path"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
 	"github.com/stmcginnis/gofish/schemas"
 )
+
+// maxCapsulePushBytes caps an HttpPushUri body. Capsules are firmware-sized;
+// this bounds what a client can force onto the capsule volume.
+const maxCapsulePushBytes = 128 << 20 // 128 MiB
 
 // GetUpdateService returns the UpdateService root.
 func (s *Service) GetUpdateService(c *gin.Context) {
@@ -26,13 +38,15 @@ func (s *Service) GetUpdateService(c *gin.Context) {
 			ODataContext: context("UpdateService.UpdateService"),
 			ID:           "UpdateService",
 			Name:         "Update Service",
+			Description:  "Stages UEFI FMP capsules for the managed host to apply at its next boot",
 		},
 		ServiceEnabled:    true,
 		FirmwareInventory: Link(firmwareInventoryPath),
+		HTTPPushURI:       httpPushURIPath,
 		Actions: UpdateServiceActions{
 			SimpleUpdate: SimpleUpdateAction{
 				Target:                    simpleUpdatePath,
-				AllowableTransferProtocol: []string{"HTTPS"},
+				AllowableTransferProtocol: []string{"HTTP", "HTTPS"},
 			},
 		},
 	})
@@ -72,8 +86,8 @@ func (s *Service) GetFirmwareInventoryBIOS(c *gin.Context) {
 	})
 }
 
-// SimpleUpdate downloads the image at ImageURI and presents it to the host
-// on the USB gadget. ImageURI is required: there is no implicit "latest".
+// SimpleUpdate downloads the FMP capsule at ImageURI and stages it on the
+// capsule volume. ImageURI is required: there is no implicit "latest".
 func (s *Service) SimpleUpdate(c *gin.Context) {
 	var req struct {
 		ImageURI         string   `json:"ImageURI"`
@@ -88,21 +102,78 @@ func (s *Service) SimpleUpdate(c *gin.Context) {
 	}
 
 	ctrl := s.Firmware
-	if ctrl.IsDownloading() {
-		redfishErrorResponse(c, http.StatusConflict, "update already in progress")
+	if ctrl.IsStaging() {
+		redfishErrorResponse(c, http.StatusConflict, "a capsule is already being staged")
 		return
 	}
 
 	go func(url string) {
-		if err := ctrl.UpdateHostImageFromURL(url); err != nil {
-			log.Errorf("redfish: host image update failed: %v", err)
+		if err := ctrl.StageCapsuleFromURL(url, ""); err != nil {
+			log.Errorf("redfish: capsule staging failed: %v", err)
 		}
 	}(req.ImageURI)
 
 	c.JSON(http.StatusAccepted, Message{
 		ODataType: "#Message.v1_1_0.Message",
 		MessageID: "Update.1.0.UpdateInProgress",
-		Message:   "Host image update started",
+		Message:   "Capsule staging started; the host applies it at its next boot",
+		Severity:  "OK",
+	})
+}
+
+// PushCapsule is the HttpPushUri handler: the client POSTs the capsule bytes
+// and the BMC stages them directly, no outbound fetch involved. Accepts a raw
+// body (application/octet-stream) or multipart form field "UpdateFile" —
+// Redfish's MultipartHttpPushUri field name — falling back to "file".
+func (s *Service) PushCapsule(c *gin.Context) {
+	ctrl := s.Firmware
+	if ctrl.IsStaging() {
+		redfishErrorResponse(c, http.StatusConflict, "a capsule is already being staged")
+		return
+	}
+
+	var (
+		src  io.Reader
+		name string
+	)
+	if strings.HasPrefix(c.ContentType(), "multipart/") {
+		fh, err := c.FormFile("UpdateFile")
+		if err != nil {
+			if fh, err = c.FormFile("file"); err != nil {
+				redfishErrorResponse(c, http.StatusBadRequest, "multipart field 'UpdateFile' required")
+				return
+			}
+		}
+		f, err := fh.Open()
+		if err != nil {
+			redfishErrorResponse(c, http.StatusInternalServerError, err.Error())
+			return
+		}
+		defer f.Close()
+		src = io.LimitReader(f, maxCapsulePushBytes)
+		name = path.Base(fh.Filename)
+	} else {
+		src = http.MaxBytesReader(c.Writer, c.Request.Body, maxCapsulePushBytes)
+		// No filename in a raw push; let the caller name it with ?name= and
+		// fall back to a fixed one so repeated pushes replace rather than pile
+		// up on a volume the host only drains at boot.
+		name = path.Base(c.Query("name"))
+	}
+	if name == "" || name == "." || name == "/" {
+		name = "update.cap"
+	}
+
+	written, err := ctrl.StageCapsule(name, src)
+	if err != nil {
+		redfishErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	log.Infof("redfish: staged pushed capsule %s (%d bytes)", name, written)
+
+	c.JSON(http.StatusAccepted, Message{
+		ODataType: "#Message.v1_1_0.Message",
+		MessageID: "Update.1.0.AwaitToUpdate",
+		Message:   "Capsule staged; the host applies it at its next boot",
 		Severity:  "OK",
 	})
 }

@@ -316,11 +316,6 @@ templ SettingsGeneralBody(m SettingsGeneral) {
 				}
 				@settingsSwitchRow("au-application", "application", "Update application",
 					"Apply new NanoKVM application releases. The service restarts.", m.AutoUpdateApplication)
-				// This switch is not optional decoration: patchAutoUpdate reads
-				// "bios" out of this form on every change, so while the row was
-				// missing, every auto-update write silently cleared the flag.
-				@settingsSwitchRow("au-bios", "bios", "Update BIOS",
-					"Apply new U-Boot firmware releases. Takes effect on the host's next boot.", m.AutoUpdateBIOS)
 			}
 		</form>
 		<form

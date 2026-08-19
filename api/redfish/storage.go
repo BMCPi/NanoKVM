@@ -8,16 +8,15 @@ package redfish
 //     has, readable even while the host is off.
 //   - "BMC" is the storage the BMC itself presents to the host — the USB
 //     mass-storage gadget's LUNs, one Drive per backed LUN. The BMC is the
-//     authority for these: it authors the LUN backing files. lun.0 is the
-//     boot image the managed host boots from; lun.1 is the operator's
-//     virtual-media ISO and appears only while inserted.
+//     authority for these: it authors the LUN backing files. lun.0 is the FMP
+//     capsule volume the host's firmware scans at boot; lun.1 is the
+//     operator's virtual-media ISO and appears only while inserted.
 //
 // The two subsystems describe the same cable from either end: the gadget
 // LUNs show up again in "1" as the USB drives the host sees them as.
 
 import (
 	"net/http"
-	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stmcginnis/gofish/schemas"
@@ -26,10 +25,10 @@ import (
 )
 
 const (
-	storageID        = "1"
-	gadgetStorageID  = "BMC"
-	driveBootImageID = "BootImage"
-	driveMediaID     = "VirtualMedia"
+	storageID       = "1"
+	gadgetStorageID = "BMC"
+	driveCapsuleID  = "CapsuleVolume"
+	driveMediaID    = "VirtualMedia"
 )
 
 // Storage is the Redfish Storage resource (DSP2046 §6.87).
@@ -60,11 +59,9 @@ type Drive struct {
 func gadgetDrives(fw *firmware.Controller) []Drive {
 	var drives []Drive
 
-	if st := fw.GetStatus(); st.ImagePath != "" {
-		if fi, err := os.Stat(st.ImagePath); err == nil && fi.Size() > 0 {
-			drives = append(drives, driveResource(driveBootImageID,
-				"USB gadget LUN 0 (host boot image)", fi.Size()))
-		}
+	if st := fw.GetStatus(); st.VolumeReady {
+		drives = append(drives, driveResource(driveCapsuleID,
+			"USB gadget LUN 0 (FMP capsule volume)", st.VolumeSize))
 	}
 	if vm := fw.GetVirtualMediaState(); vm.Inserted {
 		name := vm.ImageName

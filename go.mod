@@ -25,7 +25,6 @@ require (
 	github.com/sirupsen/logrus v1.9.4
 	github.com/spf13/viper v1.21.0
 	github.com/stmcginnis/gofish v0.23.0
-	github.com/ulikunitz/xz v0.5.15
 	github.com/unrolled/secure v1.17.0
 	github.com/vishvananda/netlink v1.3.1
 	github.com/warthog618/go-gpiocdev v0.9.1
@@ -122,6 +121,7 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/u-root/uio v0.0.0-20230220225925-ffce2a382923 // indirect
 	github.com/ugorji/go/codec v1.3.1 // indirect
+	github.com/ulikunitz/xz v0.5.15 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	go.mongodb.org/mongo-driver/v2 v2.5.0 // indirect
