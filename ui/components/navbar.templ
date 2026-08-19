@@ -81,6 +81,18 @@ templ Navbar(onDocsPage bool) {
 				@button.Button(button.Props{
 					Variant: button.VariantGhost,
 					Size:    button.SizeSm,
+					Href:    "/bios",
+					Attributes: templ.Attributes{
+						"aria-label": "BIOS Configuration",
+						"title":      "Host BIOS attributes",
+					},
+				}) {
+					@icon.Microchip()
+					<span class="hidden sm:inline">BIOS</span>
+				}
+				@button.Button(button.Props{
+					Variant: button.VariantGhost,
+					Size:    button.SizeSm,
 					Href:    "/docs",
 					Attributes: templ.Attributes{
 						"target":     "_blank",

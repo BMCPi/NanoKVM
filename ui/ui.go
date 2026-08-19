@@ -104,6 +104,14 @@ func pageRoutes(r *gin.Engine, d *deps.Deps) {
 		c.Redirect(http.StatusFound, "/dashboard")
 	})
 
+	// Host BIOS configuration. A page rather than a settings panel: these
+	// attributes belong to the managed host, not the BMC, and a real
+	// attribute registry is far too large for a modal.
+	protected.GET("/bios", func(c *gin.Context) {
+		render := newRender(c.Request.Context(), http.StatusOK, pages.Bios(biosPageModel()))
+		c.Render(http.StatusOK, render)
+	})
+
 	// API docs — custom templ-rendered view of the embedded OpenAPI
 	// spec. The raw spec stays public at /redfish/v1/openapi.{yaml,json}
 	// for tooling discovery; the rendered docs page is behind auth so

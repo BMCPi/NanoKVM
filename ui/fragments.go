@@ -35,6 +35,7 @@ func fragmentRoutes(r *gin.RouterGroup, d *deps.Deps) {
 	settingsFragmentRoutes(frag, d)
 	mediaFragmentRoutes(frag, d)
 	metricsFragmentRoutes(frag, d)
+	biosFragmentRoutes(frag, d)
 }
 
 // requireAuthFragment answers an unauthenticated fragment request with the

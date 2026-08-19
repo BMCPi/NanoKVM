@@ -1,0 +1,523 @@
+package components
+
+import (
+	"net/url"
+	"strconv"
+
+	"github.com/pi-bmc/nanokvm-app/ui/components/badge"
+	"github.com/pi-bmc/nanokvm-app/ui/components/button"
+	"github.com/pi-bmc/nanokvm-app/ui/components/card"
+	"github.com/pi-bmc/nanokvm-app/ui/components/field"
+	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
+	"github.com/pi-bmc/nanokvm-app/ui/components/input"
+	selectcomp "github.com/pi-bmc/nanokvm-app/ui/components/select"
+	switchcomp "github.com/pi-bmc/nanokvm-app/ui/components/switch"
+	"github.com/pi-bmc/nanokvm-app/ui/utils"
+)
+
+// The BIOS page is server-rendered end to end, like the settings dialog, but
+// its layering is different in one way worth stating up front.
+//
+// Three regions move independently: the menu rail (whose per-menu staged
+// counts change), the attribute form in the middle, and the staged-changes bar
+// at the bottom. A write to any one of them changes all three. Rather than
+// give each region its own hx-get on a shared "bios-changed" event — which is
+// what the overview sidebar does — every BIOS response carries all three:
+// the content in the response body, the rail and the staged bar as
+// hx-swap-oob elements beside it.
+//
+// The reason is that the rail and the bar are not merely stale after a write,
+// they are stale *in a way that depends on the request that caused it*. A rail
+// re-fetching itself has no idea which menu the user just navigated to, so it
+// would need its own hx-get URL rewritten on every click to keep the active
+// item right. Sending all three from the one handler that knows both the menu
+// and the staged set removes that coordination problem entirely: there is one
+// source of truth per response and no second round trip.
+//
+// Attribute values are typed on the way in (api/redfish.StageBiosAttributes).
+// Every editable row also emits a hidden "__attr" input naming itself, because
+// an unchecked switch submits nothing at all — without the roster the handler
+// cannot tell "turned off" from "not on this form", and an off switch would
+// never stage.
+
+// BIOS page element ids. Fixed because the out-of-band swaps address them.
+const (
+	biosRailID    = "bios-rail"
+	biosContentID = "bios-content"
+	biosStagedID  = "bios-staged"
+	biosFormID    = "bios-form"
+)
+
+// BiosPage is the whole page body: rail on the left, attribute form in the
+// middle, staged-changes bar pinned underneath it.
+templ BiosPage(m BiosModel) {
+	<div class="flex h-full min-h-0 w-full">
+		@BiosRail(m, false)
+		<div class="flex min-w-0 flex-1 flex-col">
+			@biosHeader(m)
+			<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+				<div id={ biosContentID }>
+					@BiosContent(m)
+				</div>
+			</div>
+			@BiosStagedBar(m, false)
+		</div>
+	</div>
+}
+
+// biosHeader carries the page title, what firmware the values belong to, and
+// the search box. Search targets the content region only — the rail keeps
+// showing the menu tree so an operator can leave the results by picking a menu.
+templ biosHeader(m BiosModel) {
+	<header class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border bg-card/60 px-4 py-2.5 backdrop-blur-xs">
+		<div class="min-w-0">
+			<h1 class="flex items-center gap-2 text-sm font-semibold">
+				@icon.Microchip(icon.Props{Class: "size-4"})
+				BIOS Configuration
+			</h1>
+			<p class="mt-0.5 truncate text-xs text-muted-foreground">
+				if m.BiosVersion != "" {
+					{ "Host firmware " + m.BiosVersion + " · " }
+				}
+				{ strconv.Itoa(m.TotalCount) } attributes
+				if !m.HasRegistry && m.TotalCount > 0 {
+					{ " · no attribute registry published" }
+				}
+			</p>
+		</div>
+		<form
+			class="flex items-center gap-2"
+			hx-get="/ui/bios/search"
+			hx-target={ "#" + biosContentID }
+			hx-swap="innerHTML"
+			hx-trigger="input changed delay:250ms from:find input, submit"
+			onsubmit="return false"
+		>
+			<div class="relative">
+				<span class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground">
+					@icon.Search(icon.Props{Class: "size-3.5"})
+				</span>
+				@input.Input(input.Props{
+					ID:          "bios-search",
+					Name:        "q",
+					Type:        "search",
+					Value:       m.Query,
+					Placeholder: "Search attributes…",
+					Class:       "h-8 w-56 pl-7",
+					Attributes: templ.Attributes{
+						"autocomplete": "off",
+						"spellcheck":   "false",
+						"aria-label":   "Search BIOS attributes",
+					},
+				})
+			</div>
+		</form>
+	</header>
+}
+
+// BiosRail is the menu tree. oob marks it as an out-of-band swap, which is how
+// every content response keeps the rail's active item and staged counts in
+// step without a second request.
+templ BiosRail(m BiosModel, oob bool) {
+	<nav
+		id={ biosRailID }
+		if oob {
+			hx-swap-oob="true"
+		}
+		aria-label="BIOS menus"
+		class="no-scrollbar w-56 shrink-0 overflow-y-auto border-r border-border bg-card/30 p-2"
+	>
+		if len(m.Menus) == 0 {
+			<p class="px-2 py-3 text-xs text-muted-foreground">No menus published.</p>
+		}
+		for _, item := range m.Menus {
+			@biosRailItem(item)
+		}
+	</nav>
+}
+
+// biosRailItem is one menu button. The indent comes from the menu's depth in
+// the registry's MenuPath tree, so "./Advanced/CPU" sits under "./Advanced".
+templ biosRailItem(item BiosMenuItem) {
+	<button
+		type="button"
+		hx-get={ "/ui/bios/menu?path=" + url.QueryEscape(item.Path) }
+		hx-target={ "#" + biosContentID }
+		hx-swap="innerHTML"
+		data-active={ utils.IfElse(item.Active, "true", "false") }
+		aria-current={ utils.IfElse(item.Active, "page", "false") }
+		class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground data-[active=true]:bg-accent data-[active=true]:font-medium data-[active=true]:text-accent-foreground"
+		style={ biosIndent(item.Depth) }
+	>
+		<span class="min-w-0 flex-1 truncate">{ item.Label }</span>
+		if item.Staged > 0 {
+			@badge.Badge(badge.Props{Variant: badge.VariantDefault, Class: "h-4 px-1 text-[10px]"}) {
+				{ strconv.Itoa(item.Staged) }
+			}
+		} else if item.Count > 0 {
+			<span class="text-[10px] tabular-nums text-muted-foreground/60">
+				{ strconv.Itoa(item.Count) }
+			</span>
+		}
+	</button>
+}
+
+// biosIndent converts menu depth to a left pad. Depth 1 is a top-level menu
+// and gets no extra indent.
+func biosIndent(depth int) string {
+	if depth <= 1 {
+		return "padding-left:0.5rem"
+	}
+	return "padding-left:" + strconv.FormatFloat(0.5+float64(depth-1)*0.75, 'f', 2, 64) + "rem"
+}
+
+// BiosContent is the swappable middle region: either one menu's attribute
+// form, or search results.
+templ BiosContent(m BiosModel) {
+	if m.Empty() {
+		@biosEmptyState()
+	} else if m.Searching() && len(m.Attrs) == 0 {
+		<p class="px-1 py-6 text-center text-xs text-muted-foreground">
+			No attribute matches “{ m.Query }”.
+		</p>
+	} else {
+		@biosForm(m)
+	}
+}
+
+// biosEmptyState is what a host that has never published anything looks like.
+// It says what is missing and who publishes it, because the honest answer is
+// that there is nothing for the operator to do here yet.
+templ biosEmptyState() {
+	@card.Card() {
+		@card.Header() {
+			@card.Title(card.TitleProps{Class: "flex items-center gap-2 text-sm"}) {
+				@icon.Info(icon.Props{Class: "size-4"})
+				No BIOS attributes yet
+			}
+			@card.Description() {
+				The managed host publishes its attribute vocabulary and current values over
+				the host interface as it boots. Nothing has been reported yet, so there is
+				nothing to configure.
+			}
+		}
+		@card.Content() {
+			<p class="text-xs text-muted-foreground">
+				Attributes appear here once the host's firmware PATCHes
+				<code class="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">/redfish/v1/Systems/1/Bios</code>
+				and PUTs its attribute registry. Staged changes can be made as soon as it does.
+			</p>
+		}
+	}
+}
+
+// biosForm is the attribute editor. One form per rendered region: it submits
+// only the attributes it owns, and the handler merges them into the staged set
+// rather than replacing it, so editing one menu never discards another's.
+templ biosForm(m BiosModel) {
+	<form
+		id={ biosFormID }
+		hx-post="/ui/bios/stage"
+		hx-target={ "#" + biosContentID }
+		hx-swap="innerHTML"
+	>
+		// Echoed back so the handler can re-render the same region it was
+		// submitted from, whether that was a menu or a set of search results.
+		<input type="hidden" name="menu" value={ m.MenuPath }/>
+		<input type="hidden" name="q" value={ m.Query }/>
+		if m.Searching() {
+			<p class="mb-3 text-xs text-muted-foreground">
+				{ strconv.Itoa(len(m.Attrs)) } matching { utils.IfElse(len(m.Attrs) == 1, "attribute", "attributes") } across all menus.
+			</p>
+		}
+		@field.Group() {
+			@field.Set() {
+				if !m.Searching() && m.MenuLabel != "" {
+					@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+						{ m.MenuLabel }
+					}
+				}
+				for _, a := range m.Attrs {
+					@biosAttrRow(a)
+				}
+			}
+		}
+		<div class="mt-4 flex items-center gap-2">
+			@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm}) {
+				Stage changes
+			}
+			<p class="text-xs text-muted-foreground">
+				Staged values are applied by the host firmware at its next boot.
+			</p>
+		</div>
+	</form>
+}
+
+// biosAttrRow renders one attribute: its label, help text, the control its
+// type calls for, and the staged/unregistered/error annotations.
+templ biosAttrRow(a BiosAttr) {
+	<div class="border-b border-border/40 py-2 last:border-b-0" data-bios-attr={ a.Name }>
+		if a.Control != BiosControlReadOnly {
+			// The roster entry. Every editable attribute names itself so the
+			// handler knows this form owned it even when the control submits
+			// nothing (an unchecked switch).
+			<input type="hidden" name="__attr" value={ a.Name }/>
+		}
+		@field.Field(field.Props{Orientation: field.OrientationResponsive}) {
+			@field.Content() {
+				@field.Label(field.LabelProps{For: biosFieldID(a.Name)}) {
+					{ a.Label }
+					if a.Staged {
+						@badge.Badge(badge.Props{Variant: badge.VariantDefault, Class: "ml-2 h-4 px-1 text-[10px]"}) {
+							staged
+						}
+					}
+					if a.Unregistered {
+						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "ml-2 h-4 px-1 text-[10px]"}) {
+							unregistered
+						}
+					}
+					if a.Control == BiosControlReadOnly {
+						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "ml-2 h-4 px-1 text-[10px]"}) {
+							read-only
+						}
+					}
+				}
+				@field.Description() {
+					if a.Help != "" {
+						{ a.Help }
+					} else {
+						<span class="font-mono text-[11px]">{ a.Name }</span>
+					}
+				}
+				if a.ShowCurrent() {
+					<p class="text-[11px] text-muted-foreground">
+						Currently <span class="font-mono">{ a.Current }</span> on the host.
+					</p>
+				}
+				if a.Warning != "" {
+					<p class="flex items-start gap-1 text-[11px] text-amber-500">
+						@icon.TriangleAlert(icon.Props{Class: "size-3 mt-0.5 shrink-0"})
+						{ a.Warning }
+					</p>
+				}
+				if a.HasError() {
+					<p class="flex items-start gap-1 text-[11px] text-destructive" role="alert">
+						@icon.CircleAlert(icon.Props{Class: "size-3 mt-0.5 shrink-0"})
+						{ a.Error }
+					</p>
+				}
+			}
+			<div class="flex shrink-0 items-center gap-2">
+				@biosControl(a)
+			</div>
+		}
+	</div>
+}
+
+// biosControl draws the editor an attribute's type calls for.
+templ biosControl(a BiosAttr) {
+	switch a.Control {
+		case BiosControlSwitch:
+			@switchcomp.Switch(switchcomp.Props{
+				ID:      biosFieldID(a.Name),
+				Name:    a.Name,
+				Value:   "true",
+				Checked: a.Bool,
+			})
+		case BiosControlSelect:
+			@selectcomp.Select(selectcomp.Props{ID: biosFieldID(a.Name) + "-sel", Name: a.Name, Value: a.Value}) {
+				@selectcomp.Trigger(selectcomp.TriggerProps{ID: biosFieldID(a.Name), Class: "w-56"}) {
+					@selectcomp.Value(selectcomp.ValueProps{})
+				}
+				@selectcomp.Content() {
+					for _, o := range a.Options {
+						@selectcomp.Item(selectcomp.ItemProps{Value: o.Value}) {
+							{ o.Label }
+						}
+					}
+				}
+			}
+		case BiosControlNumber:
+			@input.Input(input.Props{
+				ID:         biosFieldID(a.Name),
+				Name:       a.Name,
+				Type:       "number",
+				Value:      a.Value,
+				Class:      "w-32 font-mono",
+				Attributes: biosNumberAttrs(a),
+			})
+		case BiosControlPassword:
+			@input.Input(input.Props{
+				ID:          biosFieldID(a.Name),
+				Name:        a.Name,
+				Type:        "password",
+				Placeholder: "unchanged",
+				Class:       "w-56 font-mono",
+				Attributes:  utils.MergeAttributes(biosLengthAttrs(a), templ.Attributes{"autocomplete": "new-password"}),
+			})
+		case BiosControlReadOnly:
+			<span class="font-mono text-xs text-muted-foreground">
+				if a.Value != "" {
+					{ a.Value }
+				} else {
+					—
+				}
+			</span>
+		default:
+			@input.Input(input.Props{
+				ID:         biosFieldID(a.Name),
+				Name:       a.Name,
+				Type:       "text",
+				Value:      a.Value,
+				Class:      "w-56 font-mono",
+				Attributes: utils.MergeAttributes(biosLengthAttrs(a), templ.Attributes{"spellcheck": "false", "autocomplete": "off"}),
+			})
+	}
+}
+
+// biosFieldID namespaces a control's DOM id. Attribute names come from the
+// host's registry and only have to be unique among themselves, so they are
+// prefixed rather than used raw.
+func biosFieldID(name string) string { return "bios-attr-" + name }
+
+// biosNumberAttrs mirrors the registry's LowerBound/UpperBound onto the input.
+// The server re-checks both — a hand-crafted POST never sees these — so this
+// is purely so the browser can reject a bad value before a round trip.
+func biosNumberAttrs(a BiosAttr) templ.Attributes {
+	attrs := templ.Attributes{"inputmode": "numeric", "step": "1"}
+	if a.Min != "" {
+		attrs["min"] = a.Min
+	}
+	if a.Max != "" {
+		attrs["max"] = a.Max
+	}
+	return attrs
+}
+
+// biosLengthAttrs mirrors MinLength/MaxLength onto a text input, on the same
+// terms as biosNumberAttrs.
+func biosLengthAttrs(a BiosAttr) templ.Attributes {
+	attrs := templ.Attributes{}
+	if a.MinLength != "" {
+		attrs["minlength"] = a.MinLength
+	}
+	if a.MaxLength != "" {
+		attrs["maxlength"] = a.MaxLength
+	}
+	return attrs
+}
+
+// BiosStagedBar summarises everything staged across every menu, with the one
+// destructive control on the page. Rendered out-of-band by every content
+// response, so it can never disagree with the form above it.
+templ BiosStagedBar(m BiosModel, oob bool) {
+	<div
+		id={ biosStagedID }
+		if oob {
+			hx-swap-oob="true"
+		}
+		class="shrink-0 border-t border-border bg-card/60 px-4 py-2 backdrop-blur-xs"
+	>
+		if m.StagedCount == 0 {
+			<p class="flex items-center gap-1.5 text-xs text-muted-foreground">
+				@icon.CircleCheck(icon.Props{Class: "size-3.5"})
+				No pending changes. The host is running what is shown above.
+			</p>
+		} else {
+			<div class="flex flex-wrap items-center justify-between gap-2">
+				<div class="min-w-0">
+					<p class="flex items-center gap-1.5 text-xs font-medium">
+						@icon.Pencil(icon.Props{Class: "size-3.5"})
+						{ strconv.Itoa(m.StagedCount) } pending { utils.IfElse(m.StagedCount == 1, "change", "changes") }
+						<span class="font-normal text-muted-foreground">— applied at the host's next boot</span>
+					</p>
+					<div class="mt-1 flex flex-wrap gap-1">
+						for _, a := range m.Staged {
+							@biosStagedChip(m, a)
+						}
+					</div>
+				</div>
+				@button.Button(button.Props{
+					Variant: button.VariantOutline,
+					Size:    button.SizeSm,
+					Attributes: templ.Attributes{
+						"hx-post":              "/ui/bios/discard" + biosWhere(m, "?"),
+						"hx-target":            "#" + biosContentID,
+						"hx-swap":              "innerHTML",
+						"hx-confirm":           "Discard every pending BIOS change? The host keeps running its current settings.",
+						"data-confirm-title":   "Discard staged changes?",
+						"data-confirm-label":   "Discard",
+						"data-confirm-variant": "destructive",
+					},
+				}) {
+					@icon.RotateCcw(icon.Props{Class: "size-3.5"})
+					Discard all
+				}
+			</div>
+		}
+	</div>
+}
+
+// biosStagedChip is one pending change: what it will become, and a control to
+// drop just that one. Each chip posts the attribute name rather than relying
+// on the form, so an operator can back out a single change from anywhere.
+templ biosStagedChip(m BiosModel, a BiosAttr) {
+	<span class="inline-flex items-center gap-1 rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px]">
+		<span class="text-muted-foreground">{ a.Label }</span>
+		<span class="font-mono">{ biosChipValue(a) }</span>
+		<button
+			type="button"
+			hx-post={ "/ui/bios/discard?attr=" + url.QueryEscape(a.Name) + biosWhere(m, "&") }
+			hx-target={ "#" + biosContentID }
+			hx-swap="innerHTML"
+			class="text-muted-foreground transition-colors hover:text-destructive"
+			aria-label={ "Discard staged change to " + a.Label }
+			title="Discard this change"
+		>
+			@icon.X(icon.Props{Class: "size-3"})
+		</button>
+	</span>
+}
+
+// biosWhere encodes which region the operator is currently looking at, so a
+// discard re-renders where they are instead of bouncing them back to the first
+// menu. sep is "?" for a URL that has no query yet and "&" for one that does
+// (the per-chip control already carries ?attr=…).
+func biosWhere(m BiosModel, sep string) string {
+	switch {
+	case m.Query != "":
+		return sep + "q=" + url.QueryEscape(m.Query)
+	case m.MenuPath != "":
+		return sep + "menu=" + url.QueryEscape(m.MenuPath)
+	default:
+		return ""
+	}
+}
+
+// biosChipValue renders a staged change compactly. A password's staged value
+// is never echoed — the chip says only that one is set.
+func biosChipValue(a BiosAttr) string {
+	if a.Control == BiosControlPassword {
+		return "set"
+	}
+	if a.Value == "" {
+		return `""`
+	}
+	return a.Value
+}
+
+// BiosContentResponse is what every BIOS fragment handler answers with: the
+// content region itself, followed by out-of-band copies of the rail and the
+// staged bar.
+//
+// htmx swaps the leading markup into the request's hx-target and then applies
+// any element carrying hx-swap-oob to the element with the same id already in
+// the document. So one response updates all three regions, and they cannot
+// disagree — the rail's active item, the form, and the staged summary are all
+// derived from the same BiosModel in the same request.
+templ BiosContentResponse(m BiosModel) {
+	@BiosContent(m)
+	@BiosRail(m, true)
+	@BiosStagedBar(m, true)
+}
