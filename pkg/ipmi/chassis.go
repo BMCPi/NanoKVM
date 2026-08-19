@@ -1,9 +1,12 @@
 package ipmi
 
 import (
+	"context"
+
 	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/api/redfish"
+	"github.com/pi-bmc/nanokvm-app/pkg/power"
 )
 
 // IPMI boot device selector byte values (bits 5:2 of boot flags byte 2,
@@ -73,7 +76,7 @@ func handleGetDeviceID() []byte {
 // handleGetChassisStatus reads the power state via the injected controller.
 func (sm *sessionManager) handleGetChassisStatus() []byte {
 	powerOn := false
-	on, err := sm.power.State()
+	on, err := sm.power.State(sm.ctx)
 	if err != nil {
 		log.Errorf("IPMI: failed to read power state: %s", err)
 	} else {
@@ -104,7 +107,9 @@ func (sm *sessionManager) handleChassisControl(cmdData []byte) []byte {
 	case controlPowerUp:
 		log.Info("IPMI: chassis power on")
 		go func() {
-			if err := ctrl.PowerOn(); err != nil {
+			ctx, cancel := context.WithTimeout(sm.ctx, power.ActionTimeout)
+			defer cancel()
+			if err := ctrl.PowerOn(ctx); err != nil {
 				log.Errorf("IPMI: power on failed: %s", err)
 			}
 		}()
@@ -112,7 +117,9 @@ func (sm *sessionManager) handleChassisControl(cmdData []byte) []byte {
 	case controlPowerDown:
 		log.Info("IPMI: chassis power off")
 		go func() {
-			if err := ctrl.PowerOff(); err != nil {
+			ctx, cancel := context.WithTimeout(sm.ctx, power.ActionTimeout)
+			defer cancel()
+			if err := ctrl.PowerOff(ctx); err != nil {
 				log.Errorf("IPMI: power off failed: %s", err)
 			}
 		}()
@@ -120,7 +127,9 @@ func (sm *sessionManager) handleChassisControl(cmdData []byte) []byte {
 	case controlPowerCycle:
 		log.Info("IPMI: chassis power cycle")
 		go func() {
-			if err := ctrl.Reset(); err != nil {
+			ctx, cancel := context.WithTimeout(sm.ctx, power.ActionTimeout)
+			defer cancel()
+			if err := ctrl.Reset(ctx); err != nil {
 				log.Errorf("IPMI: power cycle failed: %s", err)
 			}
 		}()
@@ -128,7 +137,9 @@ func (sm *sessionManager) handleChassisControl(cmdData []byte) []byte {
 	case controlHardReset:
 		log.Info("IPMI: chassis hard reset")
 		go func() {
-			if err := ctrl.Reset(); err != nil {
+			ctx, cancel := context.WithTimeout(sm.ctx, power.ActionTimeout)
+			defer cancel()
+			if err := ctrl.Reset(ctx); err != nil {
 				log.Errorf("IPMI: reset failed: %s", err)
 			}
 		}()
@@ -136,7 +147,9 @@ func (sm *sessionManager) handleChassisControl(cmdData []byte) []byte {
 	case controlSoftShutdown:
 		log.Info("IPMI: chassis soft shutdown")
 		go func() {
-			if err := ctrl.PowerOff(); err != nil {
+			ctx, cancel := context.WithTimeout(sm.ctx, power.ActionTimeout)
+			defer cancel()
+			if err := ctrl.PowerOff(ctx); err != nil {
 				log.Errorf("IPMI: soft shutdown failed: %s", err)
 			}
 		}()

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -107,20 +108,27 @@ func realMain() int {
 	defer dispose()
 
 	if err := run(ctx, stop); err != nil {
-		log.Printf("server: %v", err)
+		slog.Error("server exited with an error", slog.Any("err", err))
 		return 1
 	}
 	return 0
 }
 
 func initialize(ctx context.Context) {
-	log.Printf("NanoKVM BMC %s (commit=%s, built=%s)", version, commit, date)
+	// First, before any subsystem can log: until Init runs, slog's default
+	// handler writes unleveled text to stderr, which on this device goes
+	// nowhere useful. Config is read as part of this (Init needs the level and
+	// file), so config's own messages are the only ones that predate it.
+	logger.Init()
+
+	slog.InfoContext(ctx, "NanoKVM BMC starting",
+		slog.String("version", version),
+		slog.String("commit", commit),
+		slog.String("built", date))
 
 	// Propagate build-time version to the application service.
 	application.Version = version
 	telemetry.Version = version
-
-	logger.Init()
 
 	// Apply a soft heap limit so the GC pushes back before the process exhausts
 	// memory on this constrained device (no-op if GOMEMLIMIT is set in the env).
@@ -128,7 +136,7 @@ func initialize(ctx context.Context) {
 
 	// Initialize OpenTelemetry + Prometheus (no-op when disabled in config).
 	if err := telemetry.Init(ctx); err != nil {
-		log.Printf("telemetry init: %v", err)
+		slog.ErrorContext(ctx, "telemetry init failed", slog.Any("err", err))
 	}
 	// Record a rolling hour of counter samples for the metrics panel's trend
 	// charts. No-op when telemetry is off, since there is nothing to sample.
@@ -148,9 +156,9 @@ func initialize(ctx context.Context) {
 	redfish.LoadHostState()
 
 	// Start IPMI server on standard port 623
-	srv, err := ipmi.Start(623, powerCtrl, fwCtrl)
+	srv, err := ipmi.Start(ctx, 623, powerCtrl, fwCtrl)
 	if err != nil {
-		log.Printf("IPMI server failed to start: %v", err)
+		slog.ErrorContext(ctx, "IPMI server failed to start", slog.Any("err", err))
 	} else {
 		ipmiServer = srv
 	}
@@ -160,7 +168,7 @@ func initialize(ctx context.Context) {
 	// replaces the old S03usbdev init script — so the host-visible topology and
 	// a bound UDC come up independent of the capsule volume's availability.
 	if err := usbgadget.Get().Init(); err != nil {
-		log.Printf("USB gadget init: %v", err)
+		slog.ErrorContext(ctx, "USB gadget init failed", slog.Any("err", err))
 	}
 
 	// Configure the host-facing interfaces via netlink: eth0 (static or an
@@ -175,7 +183,7 @@ func initialize(ctx context.Context) {
 	// the gadget's lun.0, so the host can pick up staged capsules at its next
 	// boot.
 	if err := fwCtrl.Init(); err != nil {
-		log.Printf("Firmware controller init: %v", err)
+		slog.ErrorContext(ctx, "firmware controller init failed", slog.Any("err", err))
 	}
 
 	// Begin the always-on capture of the host's serial console to a bounded
@@ -185,14 +193,14 @@ func initialize(ctx context.Context) {
 	serial.StartCapture()
 
 	// Start the auto-update ticker (no-op when AutoUpdate.Enabled is false).
-	autoupdate.Start()
+	autoupdate.Start(ctx)
 
 	// Start the SSH server. The image ships no sshd — this is the BMC's only
 	// SSH listener, authenticating against the same account as the web UI plus
 	// the configured authorized_keys, and running sessions on the shared PTY
 	// plumbing the web terminal uses. No-op when ssh.enabled is false.
 	if err := sshd.Start(); err != nil {
-		log.Printf("SSH server start: %v", err)
+		slog.ErrorContext(ctx, "SSH server start failed", slog.Any("err", err))
 	}
 
 	// Start the clock synchronizer (SNTP + HTTP fallback, RTC mirror).
@@ -202,7 +210,7 @@ func initialize(ctx context.Context) {
 	// Start the mDNS responder (advertises <hostname>.local). Replaces
 	// avahi-daemon; its watcher brings it up once eth0 has an address.
 	if r, err := mdns.Start(); err != nil {
-		log.Printf("mDNS start: %v", err)
+		slog.ErrorContext(ctx, "mDNS start failed", slog.Any("err", err))
 	} else {
 		mdnsResponder = r
 	}
@@ -229,8 +237,9 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 
 	gin.SetMode(gin.ReleaseMode)
 
-	// Route gin's request/error logs through the same destination as the rest
-	// of the app (the rotating log file when file logging is configured) so
+	// gin's own writers are only reached by its internal debug/warning output
+	// (route registration, TLS notices) — the request log and panic recovery
+	// are slog-backed middleware below. Point them at the same destination so
 	// nothing writes to a separate, unrotated stream.
 	gin.DefaultWriter = logger.Writer()
 	gin.DefaultErrorWriter = logger.Writer()
@@ -242,8 +251,18 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 	// ctx-taking code and cancellation propagates when the client disconnects
 	// or the server drains during shutdown.
 	r.ContextWithFallback = true
-	r.Use(gin.Logger())
-	r.Use(gin.Recovery())
+	// Order matters and is load-bearing:
+	//   1. otelgin, outermost, so its span covers the whole request AND is
+	//      readable by everything below it. It restores c.Request on the way
+	//      out, so middleware registered outside it sees no span — which is
+	//      how the request log silently loses its trace_id if this moves.
+	//   2. Recovery, so a panic anywhere below becomes a 500 and one error
+	//      record, logged inside the span.
+	//   3. RequestLogger, innermost of the three, so its latency covers the
+	//      handler rather than the middleware around it.
+	telemetry.Middleware(r)
+	r.Use(middleware.Recovery())
+	r.Use(middleware.RequestLogger())
 	if conf.Authentication == "disable" {
 		r.Use(cors.Default())
 	}
@@ -257,7 +276,14 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 	hidCtrl := hid.NewController()
 	defer hidCtrl.Close()
 
-	d := &deps.Deps{Config: conf, Power: powerCtrl, Firmware: fwCtrl, Video: videoHub, HID: hidCtrl}
+	d := &deps.Deps{
+		Ctx:      ctx,
+		Config:   conf,
+		Power:    powerCtrl,
+		Firmware: fwCtrl,
+		Video:    videoHub,
+		HID:      hidCtrl,
+	}
 	telemetry.Routes(r)
 	ui.Register(r, d)
 	api.Register(r, d)
@@ -308,7 +334,8 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 	// Shutdown path: restore default signal handling first so a second signal
 	// force-kills instead of being swallowed while we drain.
 	stop()
-	log.Printf("shutdown: signal received, draining requests (max %s)", shutdownTimeout)
+	slog.Info("shutdown: signal received, draining requests",
+		slog.Duration("timeout", shutdownTimeout))
 
 	// Persist before draining: host reports save on a debounce, and the
 	// in-flight timer dies with the process.
@@ -318,7 +345,8 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 	defer cancel()
 	for _, srv := range servers {
 		if err := srv.Shutdown(drainCtx); err != nil {
-			log.Printf("shutdown: %s: %v", srv.Addr, err)
+			slog.Error("shutdown: server drain failed",
+				slog.String("addr", srv.Addr), slog.Any("err", err))
 		}
 	}
 	return nil
@@ -336,7 +364,7 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 func newVideoHub(cfg *config.Config) *rtc.Hub {
 	capturer := video.Capturer(&video.Unsupported{})
 	if c, err := v4l2.Open(); err != nil {
-		log.Printf("video: capture unavailable, serving without it: %v", err)
+		slog.Warn("video: capture unavailable, serving without it", slog.Any("err", err))
 	} else {
 		capturer = c
 	}
@@ -349,7 +377,7 @@ func newVideoHub(cfg *config.Config) *rtc.Hub {
 		Capture: video.Config{Codec: video.CodecH264},
 	})
 	if err != nil {
-		log.Printf("video: hub init: %v", err)
+		slog.Error("video: hub init failed", slog.Any("err", err))
 		return nil
 	}
 	return hub
@@ -393,7 +421,8 @@ func iceServers(cfg *config.Config) []webrtc.ICEServer {
 // regardless of whether we asked nicely first.
 func dispose() {
 	if !runBounded(disposeTimeout, disposeAll) {
-		log.Printf("shutdown: cleanup still running after %s, exiting anyway", disposeTimeout)
+		slog.Warn("shutdown: cleanup still running, exiting anyway",
+			slog.Duration("timeout", disposeTimeout))
 	}
 }
 
@@ -420,7 +449,7 @@ func runBounded(timeout time.Duration, fn func()) bool {
 func disposeAll() {
 	if videoHub != nil {
 		if err := videoHub.Close(); err != nil {
-			log.Printf("video: hub close: %v", err)
+			slog.Error("video: hub close failed", slog.Any("err", err))
 		}
 	}
 	autoupdate.Stop()

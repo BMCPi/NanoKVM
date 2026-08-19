@@ -154,5 +154,8 @@ const (
 // their struct tag; the free-form Oem maps have to spell it out.
 const odataTypeKey = "@odata.type"
 
-// context builds an @odata.context value for the given schema fragment.
-func context(fragment string) string { return metadataPath + "#" + fragment }
+// odataContext builds an @odata.context value for the given schema fragment.
+//
+// Named odataContext rather than context so it does not shadow the standard
+// library package of that name across this whole package.
+func odataContext(fragment string) string { return metadataPath + "#" + fragment }

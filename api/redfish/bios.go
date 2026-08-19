@@ -33,7 +33,7 @@ func biosResource() Bios {
 		Resource: Resource{
 			ODataType:    "#Bios.v1_2_0.Bios",
 			ODataID:      biosPath,
-			ODataContext: context("Bios.Bios"),
+			ODataContext: odataContext("Bios.Bios"),
 			ID:           "Bios",
 			Name:         "BIOS Configuration",
 			Description:  "Firmware attributes as last reported by the managed host",
@@ -76,7 +76,7 @@ func biosSettingsResource() Bios {
 		Resource: Resource{
 			ODataType:    "#Bios.v1_2_0.Bios",
 			ODataID:      biosSettingsPath,
-			ODataContext: context("Bios.Bios"),
+			ODataContext: odataContext("Bios.Bios"),
 			ID:           "Settings",
 			Name:         "BIOS Pending Settings",
 			Description:  desc,

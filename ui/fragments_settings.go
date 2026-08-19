@@ -175,7 +175,9 @@ func patchAutoUpdate(c *gin.Context) {
 	}
 
 	config.Save()
-	autoupdate.Start() // re-reads config; cancels an existing ticker if running
+	// The process context, not the request's: the ticker outlives this call
+	// and must only stop at shutdown.
+	autoupdate.Start(deps.FromContext(c).Ctx) // re-reads config; cancels an existing ticker
 
 	hxToast(c, "success", "Settings saved", "Automatic update settings applied.")
 	renderFragment(c, components.SettingsGeneralBody(generalModel()))

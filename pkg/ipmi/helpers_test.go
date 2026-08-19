@@ -40,7 +40,7 @@ func startServer(t *testing.T) (*Server, int) {
 	port := findFreePort(t)
 	powerCtrl := power.NewController(config.Hardware{}, config.Power{})
 	fwCtrl := firmware.NewController(&config.Config{})
-	srv, err := Start(port, powerCtrl, fwCtrl)
+	srv, err := Start(t.Context(), port, powerCtrl, fwCtrl)
 	if err != nil {
 		t.Fatalf("start IPMI server: %v", err)
 	}

@@ -7,6 +7,7 @@ package ui
 // every card that shows its consequences.
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -27,10 +28,10 @@ func overviewFragmentRoutes(g *gin.RouterGroup, d *deps.Deps) {
 	o := g.Group("/overview")
 
 	o.GET("/server", func(c *gin.Context) {
-		renderFragment(c, components.OverviewServerBody(overviewServerModel(d)))
+		renderFragment(c, components.OverviewServerBody(overviewServerModel(c.Request.Context(), d)))
 	})
 	o.GET("/app-update", func(c *gin.Context) {
-		renderFragment(c, components.OverviewAppUpdateBody(overviewAppUpdateModel()))
+		renderFragment(c, components.OverviewAppUpdateBody(overviewAppUpdateModel(c.Request.Context())))
 	})
 	o.POST("/app/update", postOverviewAppUpdate)
 
@@ -42,11 +43,11 @@ func overviewFragmentRoutes(g *gin.RouterGroup, d *deps.Deps) {
 	})
 
 	o.GET("/firmware", func(c *gin.Context) {
-		renderFragment(c, components.OverviewHostFirmwareBody(overviewFirmwareModel(d)))
+		renderFragment(c, components.OverviewHostFirmwareBody(overviewFirmwareModel(c.Request.Context(), d)))
 	})
 
 	o.GET("/boot-override", func(c *gin.Context) {
-		renderFragment(c, components.OverviewBootOverrideBody(overviewBootOverrideModel(d)))
+		renderFragment(c, components.OverviewBootOverrideBody(overviewBootOverrideModel(c.Request.Context(), d)))
 	})
 	o.POST("/boot-override", postOverviewBootOverride(d))
 }
@@ -60,8 +61,8 @@ func oemString(sys redfish.ComputerSystem, key string) string {
 
 // overviewServerModel maps the Redfish system inventory onto the Server
 // Information card.
-func overviewServerModel(d *deps.Deps) components.OverviewServer {
-	sys := redfish.SystemInventory(d.Firmware, d.Power)
+func overviewServerModel(ctx context.Context, d *deps.Deps) components.OverviewServer {
+	sys := redfish.SystemInventory(ctx, d.Firmware, d.Power)
 
 	m := components.OverviewServer{
 		Board:    sys.Model,
@@ -89,11 +90,14 @@ func overviewServerModel(d *deps.Deps) components.OverviewServer {
 	return m
 }
 
+// appUpdateTimeout bounds a self-update: release lookup, download and install.
+const appUpdateTimeout = 30 * time.Minute
+
 // overviewAppUpdateModel runs the GitHub release check. Latest is "" when
 // upstream is unreachable (closed networks), which renders as no chrome.
-func overviewAppUpdateModel() components.OverviewUpdateCheck {
+func overviewAppUpdateModel(ctx context.Context) components.OverviewUpdateCheck {
 	cur := strings.TrimPrefix(application.CurrentVersion(), "v")
-	latest := strings.TrimPrefix(application.LatestVersion(), "v")
+	latest := strings.TrimPrefix(application.LatestVersion(ctx), "v")
 	return components.OverviewUpdateCheck{
 		Current:         cur,
 		Latest:          latest,
@@ -105,8 +109,8 @@ func overviewAppUpdateModel() components.OverviewUpdateCheck {
 // stagedBootOverride reads the staged override out of the system inventory's
 // Boot block — the same state PATCH /redfish/v1/Systems/1 writes and the
 // host firmware reads at boot.
-func stagedBootOverride(d *deps.Deps) components.OverviewBootOverride {
-	sys := redfish.SystemInventory(d.Firmware, d.Power)
+func stagedBootOverride(ctx context.Context, d *deps.Deps) components.OverviewBootOverride {
+	sys := redfish.SystemInventory(ctx, d.Firmware, d.Power)
 	return components.OverviewBootOverride{
 		Target:  string(sys.Boot.BootSourceOverrideTarget),
 		Enabled: string(sys.Boot.BootSourceOverrideEnabled),
@@ -116,8 +120,8 @@ func stagedBootOverride(d *deps.Deps) components.OverviewBootOverride {
 // overviewFirmwareModel builds the Host Firmware card from the system
 // inventory: host-reported BIOS version and boot progress, plus the staged
 // boot override.
-func overviewFirmwareModel(d *deps.Deps) components.OverviewHostFirmware {
-	sys := redfish.SystemInventory(d.Firmware, d.Power)
+func overviewFirmwareModel(ctx context.Context, d *deps.Deps) components.OverviewHostFirmware {
+	sys := redfish.SystemInventory(ctx, d.Firmware, d.Power)
 	reported, _ := redfish.HostReported()
 
 	bios := sys.BiosVersion
@@ -126,18 +130,24 @@ func overviewFirmwareModel(d *deps.Deps) components.OverviewHostFirmware {
 	}
 	return components.OverviewHostFirmware{
 		BiosVersion:  bios,
-		BootOverride: stagedBootOverride(d).BootOverrideLabel(),
+		BootOverride: stagedBootOverride(ctx, d).BootOverrideLabel(),
 		BootProgress: reported.BootProgress,
 	}
 }
 
 // overviewBootOverrideModel feeds the Boot Override card's staging form.
-func overviewBootOverrideModel(d *deps.Deps) components.OverviewBootOverride {
-	return stagedBootOverride(d)
+func overviewBootOverrideModel(ctx context.Context, d *deps.Deps) components.OverviewBootOverride {
+	return stagedBootOverride(ctx, d)
 }
 
 func postOverviewAppUpdate(c *gin.Context) {
-	if err := application.RunUpdate(); err != nil {
+	// The process context, not the request's: an update replaces the running
+	// binary and then restarts the process, so a browser navigating away must
+	// not abandon it half-installed. See deps.ActionContext.
+	ctx, cancel := deps.FromContext(c).ActionContext(appUpdateTimeout)
+	defer cancel()
+
+	if err := application.RunUpdate(ctx); err != nil {
 		log.Errorf("ui: application update failed: %s", err)
 		hxToast(c, "error", "Update failed", err.Error())
 		c.Status(http.StatusInternalServerError)

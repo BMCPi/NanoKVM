@@ -79,7 +79,7 @@ func TestPathsDeriveFromDefaultServiceRoot(t *testing.T) {
 		{managerPath, "/redfish/v1/Managers/1"},
 		{sessionsPath, "/redfish/v1/SessionService/Sessions"},
 		{firmwareBIOSPath, "/redfish/v1/UpdateService/FirmwareInventory/BIOS"},
-		{context("Bios.Bios"), "/redfish/v1/$metadata#Bios.Bios"},
+		{odataContext("Bios.Bios"), "/redfish/v1/$metadata#Bios.Bios"},
 	} {
 		if tc.got != tc.want {
 			t.Errorf("path = %q, want %q", tc.got, tc.want)

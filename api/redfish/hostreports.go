@@ -239,7 +239,7 @@ func renderHostMember(stored map[string]any, path, id, odataType, ctxFragment, n
 		m[odataTypeKey] = odataType
 	}
 	if _, ok := m["@odata.context"]; !ok {
-		m["@odata.context"] = context(ctxFragment)
+		m["@odata.context"] = odataContext(ctxFragment)
 	}
 	if _, ok := m["Name"]; !ok {
 		m["Name"] = name

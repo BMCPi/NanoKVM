@@ -17,7 +17,7 @@ func (s *Service) GetSessionService(c *gin.Context) {
 		Resource: Resource{
 			ODataType:    "#SessionService.v1_1_8.SessionService",
 			ODataID:      sessionServicePath,
-			ODataContext: context("SessionService.SessionService"),
+			ODataContext: odataContext("SessionService.SessionService"),
 			ID:           "SessionService",
 			Name:         "Session Service",
 		},
@@ -57,7 +57,7 @@ func (s *Service) CreateSession(c *gin.Context) {
 		Resource: Resource{
 			ODataType:    "#Session.v1_3_0.Session",
 			ODataID:      sessionsPath + "/" + sessionID,
-			ODataContext: context("Session.Session"),
+			ODataContext: odataContext("Session.Session"),
 			ID:           sessionID,
 			Name:         "User Session",
 		},

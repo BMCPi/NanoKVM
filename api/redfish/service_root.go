@@ -12,7 +12,7 @@ func (s *Service) GetServiceRoot(c *gin.Context) {
 		Resource: Resource{
 			ODataType:    "#ServiceRoot.v1_9_0.ServiceRoot",
 			ODataID:      ServiceRootPath,
-			ODataContext: context("ServiceRoot.ServiceRoot"),
+			ODataContext: odataContext("ServiceRoot.ServiceRoot"),
 			ID:           "ServiceRoot",
 			Name:         "NanoKVM BMC",
 		},

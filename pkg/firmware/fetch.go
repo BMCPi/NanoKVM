@@ -43,7 +43,13 @@ func (c *Controller) IsStaging() bool { return isStaging() }
 // \EFI\UpdateCapsule\ on the capsule volume. name overrides the filename
 // derived from the URL path when non-empty. The host applies the capsule at
 // its next boot; nothing is flashed here.
-func (c *Controller) StageCapsuleFromURL(rawURL, name string) (retErr error) {
+//
+// ctx bounds the download. Callers run this detached from the HTTP request
+// that asked for it — a capsule fetch outlives the 202 that acknowledged it —
+// so ctx should be the process-lifetime context, not the request's. Cancelling
+// it aborts the transfer and the staging file is removed by the deferred
+// cleanup, leaving no half-written capsule for firmware to trip over.
+func (c *Controller) StageCapsuleFromURL(ctx context.Context, rawURL, name string) (retErr error) {
 	parsed, err := url.ParseRequestURI(rawURL)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return fmt.Errorf("capsule URL must be http or https")
@@ -70,7 +76,7 @@ func (c *Controller) StageCapsuleFromURL(rawURL, name string) (retErr error) {
 		if retErr != nil {
 			outcome = "error"
 		}
-		telemetry.FirmwareDownload(context.Background(), outcome, time.Since(started).Seconds())
+		telemetry.FirmwareDownload(ctx, outcome, time.Since(started).Seconds())
 	}()
 
 	// Beside the capsule volume on the data partition, never os.TempDir().
@@ -89,7 +95,7 @@ func (c *Controller) StageCapsuleFromURL(rawURL, name string) (retErr error) {
 	}()
 
 	log.Infof("firmware: downloading capsule %s from %s", fileName, rawURL)
-	if err := downloadTo(rawURL, tmp, maxCapsuleFetchBytes); err != nil {
+	if err := downloadTo(ctx, rawURL, tmp, maxCapsuleFetchBytes); err != nil {
 		return err
 	}
 	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
@@ -121,8 +127,8 @@ func (c *Controller) stagingDir() (string, error) {
 // downloadTo copies the body at rawURL into w, refusing anything larger than
 // maxBytes. utils.FetchURL owns the scheme check, the transport timeouts and
 // the cap; everything here is a straight stream to disk.
-func downloadTo(rawURL string, w io.Writer, maxBytes int64) error {
-	remote, err := utils.FetchURL(rawURL, maxBytes)
+func downloadTo(ctx context.Context, rawURL string, w io.Writer, maxBytes int64) error {
+	remote, err := utils.FetchURL(ctx, rawURL, maxBytes)
 	if err != nil {
 		return err
 	}

@@ -5,6 +5,7 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/autoupdate"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 
 	"github.com/gin-gonic/gin"
 )
@@ -13,7 +14,7 @@ import (
 // dialog onto the shared authenticated group. Changes persist to
 // /etc/kvm/server.yaml and restart the background ticker so toggles take
 // effect immediately.
-func Register(api *gin.RouterGroup) {
+func Register(api *gin.RouterGroup, d *deps.Deps) {
 	api.GET("/autoupdate/settings", func(c *gin.Context) {
 		c.JSON(http.StatusOK, config.GetInstance().AutoUpdate)
 	})
@@ -41,7 +42,9 @@ func Register(api *gin.RouterGroup) {
 		}
 
 		config.Save()
-		autoupdate.Start() // re-reads config; cancels existing ticker if running
+		// The process context, not the request's: the ticker outlives this
+		// call and must only stop at shutdown.
+		autoupdate.Start(d.Ctx) // re-reads config; cancels existing ticker if running
 
 		c.JSON(http.StatusOK, cfg)
 	})

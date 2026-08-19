@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
@@ -26,6 +27,12 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 )
+
+// capsuleStageTimeout bounds a BMC-initiated capsule download started by
+// SimpleUpdate. Generous because the link may be slow and a capsule is
+// firmware-sized, but finite so a stalled transfer cannot hold the
+// "a capsule is being staged" latch until the next reboot.
+const capsuleStageTimeout = 30 * time.Minute
 
 // maxCapsulePushBytes caps an HttpPushUri body. Capsules are firmware-sized;
 // this bounds what a client can force onto the capsule volume.
@@ -37,7 +44,7 @@ func (s *Service) GetUpdateService(c *gin.Context) {
 		Resource: Resource{
 			ODataType:    "#UpdateService.v1_11_0.UpdateService",
 			ODataID:      updateServicePath,
-			ODataContext: context("UpdateService.UpdateService"),
+			ODataContext: odataContext("UpdateService.UpdateService"),
 			ID:           "UpdateService",
 			Name:         "Update Service",
 			Description:  "Stages UEFI FMP capsules for the managed host to apply at its next boot",
@@ -76,7 +83,7 @@ func (s *Service) GetFirmwareInventoryBIOS(c *gin.Context) {
 		Resource: Resource{
 			ODataType:    "#SoftwareInventory.v1_8_0.SoftwareInventory",
 			ODataID:      firmwareBIOSPath,
-			ODataContext: context("SoftwareInventory.SoftwareInventory"),
+			ODataContext: odataContext("SoftwareInventory.SoftwareInventory"),
 			ID:           "BIOS",
 			Name:         "BIOS",
 			Description:  "Host boot firmware version, as reported by the host",
@@ -109,8 +116,14 @@ func (s *Service) SimpleUpdate(c *gin.Context) {
 		return
 	}
 
+	// Detached from the request — the 202 below returns immediately and the
+	// download runs on past it — but NOT from the process: the context comes
+	// from deps, so SIGTERM aborts a transfer in flight instead of leaving it
+	// to be killed mid-write. See deps.ActionContext.
+	ctx, cancel := s.Deps.ActionContext(capsuleStageTimeout)
 	go func(url string) {
-		if err := ctrl.StageCapsuleFromURL(url, ""); err != nil {
+		defer cancel()
+		if err := ctrl.StageCapsuleFromURL(ctx, url, ""); err != nil {
 			log.Errorf("redfish: capsule staging failed: %v", err)
 		}
 	}(req.ImageURI)

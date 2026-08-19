@@ -123,7 +123,7 @@ func (s *Service) insertMediaStream(c *gin.Context) {
 	// Download the ISO into the media staging directory. utils.FetchURL caps
 	// the transfer and bounds the connection: the remote, not the operator,
 	// decides how many bytes this BMC is asked to store.
-	remote, err := utils.FetchURL(req.Image, maxMediaUploadBytes)
+	remote, err := utils.FetchURL(c.Request.Context(), req.Image, maxMediaUploadBytes)
 	if err != nil {
 		redfishErrorResponse(c, http.StatusBadGateway, "fetch failed: "+err.Error())
 		return
@@ -305,7 +305,7 @@ func buildVirtualMediaResource(fwCtrl *firmware.Controller) VirtualMedia {
 		Resource: Resource{
 			ODataType:    "#VirtualMedia.v1_3_0.VirtualMedia",
 			ODataID:      virtualMediaCDPath,
-			ODataContext: context("VirtualMedia.VirtualMedia"),
+			ODataContext: odataContext("VirtualMedia.VirtualMedia"),
 			ID:           "CD",
 			Name:         "Virtual Removable Media",
 		},

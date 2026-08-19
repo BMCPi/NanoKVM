@@ -37,7 +37,12 @@ var (
 // Start launches the background ticker if AutoUpdate.Enabled is true.
 // Safe to call multiple times — repeated calls cancel any existing ticker
 // and restart with the current config. Returns immediately.
-func Start() {
+//
+// ctx is the process-lifetime context: the ticker, and any update running on
+// it, stop when the server shuts down. Callers restarting the ticker after a
+// config change (the settings UI, the autoupdate API) pass the same one, which
+// they reach through deps.
+func Start(ctx context.Context) {
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -54,7 +59,7 @@ func Start() {
 		return
 	}
 
-	ctx, c := context.WithCancel(context.Background())
+	loopCtx, c := context.WithCancel(ctx)
 	cancel = c
 	running = true
 
@@ -63,7 +68,7 @@ func Start() {
 		interval = minInterval
 	}
 
-	go loop(ctx, interval)
+	go loop(loopCtx, interval)
 	log.Infof("autoupdate: enabled (interval=%s, application=%v)",
 		interval, cfg.Application)
 }
@@ -93,7 +98,7 @@ func loop(ctx context.Context, interval time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			runOnce()
+			runOnce(ctx)
 		}
 	}
 }
@@ -101,25 +106,25 @@ func loop(ctx context.Context, interval time.Duration) {
 // runOnce performs a single check + apply pass. Errors are logged but
 // don't abort the loop — a transient GitHub outage or network blip should
 // not silently disable the updater forever.
-func runOnce() {
+func runOnce(ctx context.Context) {
 	cfg := config.GetInstance().AutoUpdate
 
 	if cfg.Application {
-		if err := applyAppUpdateIfNewer(); err != nil {
+		if err := applyAppUpdateIfNewer(ctx); err != nil {
 			log.Warnf("autoupdate: application: %v", err)
 		}
 	}
 }
 
-func applyAppUpdateIfNewer() error {
+func applyAppUpdateIfNewer(ctx context.Context) error {
 	current := normaliseVersion(application.CurrentVersion())
-	latest := normaliseVersion(application.LatestVersion())
+	latest := normaliseVersion(application.LatestVersion(ctx))
 	if latest == "" || latest == current {
 		return nil
 	}
 	log.Infof("autoupdate: application update available (%s → %s)", current, latest)
 
-	if err := application.RunUpdate(); err != nil {
+	if err := application.RunUpdate(ctx); err != nil {
 		return err
 	}
 	log.Info("autoupdate: application update applied; restarting service")

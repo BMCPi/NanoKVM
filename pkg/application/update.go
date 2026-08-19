@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -16,17 +17,21 @@ const (
 	maxTries = 3
 )
 
-// RunUpdate downloads and installs the latest application release without an
-// HTTP context. Acquires the global update lock so concurrent runs (HTTP
-// trigger + auto-update ticker) can't collide. On success the service
-// restart is initiated by the caller (HTTP handler) or by the auto-update
-// service after a short delay.
-func RunUpdate() error {
+// RunUpdate downloads and installs the latest application release. Acquires
+// the global update lock so concurrent runs (HTTP trigger + auto-update
+// ticker) can't collide. On success the service restart is initiated by the
+// caller (HTTP handler) or by the auto-update service after a short delay.
+//
+// ctx bounds the release lookup and the download. Callers pass a context
+// detached from the HTTP request: an update replaces the running binary, and
+// abandoning that partway because a browser tab closed would leave the install
+// half-applied.
+func RunUpdate(ctx context.Context) error {
 	if !acquireUpdateLock() {
 		return fmt.Errorf("update already in progress")
 	}
 	defer releaseUpdateLock()
-	return update()
+	return update(ctx)
 }
 
 // RunOfflineUpdate installs an update package supplied by the caller: it
@@ -68,28 +73,28 @@ func RestartService() {
 // LatestVersion returns the latest available release version string (or
 // empty when the lookup fails). Exposed so the auto-update service can
 // compare against the running version without depending on internals.
-func LatestVersion() string {
-	l, err := getLatest()
+func LatestVersion(ctx context.Context) string {
+	l, err := getLatest(ctx)
 	if err != nil || l == nil {
 		return ""
 	}
 	return l.Version
 }
 
-func update() error {
+func update(ctx context.Context) error {
 	_ = os.RemoveAll(CacheDir)
 	_ = os.MkdirAll(CacheDir, 0o755)
 	defer func() {
 		_ = os.RemoveAll(CacheDir)
 	}()
 
-	latest, err := getLatest()
+	latest, err := getLatest(ctx)
 	if err != nil {
 		return err
 	}
 
 	target := fmt.Sprintf("%s/%s", CacheDir, latest.Name)
-	if err := download(latest.Url, target); err != nil {
+	if err := download(ctx, latest.Url, target); err != nil {
 		log.Errorf("download app failed: %s", err)
 		return err
 	}
@@ -102,15 +107,21 @@ func update() error {
 	return nil
 }
 
-func download(url string, target string) (err error) {
+func download(ctx context.Context, url string, target string) (err error) {
 	for i := range maxTries {
 		log.Debugf("attempt #%d/%d", i+1, maxTries)
 		if i > 0 {
-			time.Sleep(time.Second * 3)
+			// Back off between attempts, but give up immediately if the caller
+			// has gone away rather than sleeping through a cancelled update.
+			select {
+			case <-time.After(3 * time.Second):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 		}
 
 		var req *http.Request
-		req, err = http.NewRequest("GET", url, nil)
+		req, err = http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			log.Errorf("new request err: %s", err)
 			continue

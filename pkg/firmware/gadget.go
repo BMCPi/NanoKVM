@@ -31,6 +31,12 @@ func (c *Controller) presentVolume() error {
 		return err
 	}
 	c.presented = true
+	// context.Background is deliberate, not an omission. This records the
+	// gadget's resulting state, and it is reached from paths that have no
+	// caller context at all (Init at boot, withVolume's unpresent/re-present
+	// around a write). Binding it to a request context would also make the
+	// record disappear exactly when a client disconnected mid-operation —
+	// while the gadget stayed presented.
 	telemetry.FirmwarePresented(context.Background(), true)
 	log.Infof("firmware: presented capsule volume %s via USB gadget", c.capsulePath)
 	return nil
@@ -47,6 +53,7 @@ func (c *Controller) unpresentVolume() error {
 		return err
 	}
 	c.presented = false
+	// See presentVolume for why this is not a caller's context.
 	telemetry.FirmwarePresented(context.Background(), false)
 	log.Info("firmware: unpresented USB gadget")
 	return nil

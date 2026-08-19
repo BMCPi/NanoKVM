@@ -124,7 +124,7 @@ func buildSerialInterfaceResource() SerialInterface {
 		Resource: Resource{
 			ODataType:    "#SerialInterface.v1_1_7.SerialInterface",
 			ODataID:      serialInterfacePath,
-			ODataContext: context("SerialInterface.SerialInterface"),
+			ODataContext: odataContext("SerialInterface.SerialInterface"),
 			ID:           "1",
 			Name:         "Serial Interface 1",
 		},

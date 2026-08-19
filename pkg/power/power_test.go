@@ -56,7 +56,7 @@ func waitState(t *testing.T, c *Controller, want bool) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		got, err := c.State()
+		got, err := c.State(t.Context())
 		if err != nil {
 			t.Fatalf("State: %v", err)
 		}
@@ -77,7 +77,7 @@ func TestStateSeedsFromLineLevel(t *testing.T) {
 		t.Fatalf("pull LED high: %v", err)
 	}
 
-	on, err := c.State()
+	on, err := c.State(t.Context())
 	if err != nil {
 		t.Fatalf("State: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestStateDoesNotBlockOnPowerSequence(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		if _, err := c.State(); err != nil {
+		if _, err := c.State(t.Context()); err != nil {
 			t.Errorf("State during power sequence: %v", err)
 		}
 	}()
@@ -203,7 +203,7 @@ func TestWaitForOffReturnsOnFallingEdge(t *testing.T) {
 	setLED(t, c, sim, 1)
 
 	done := make(chan error, 1)
-	go func() { done <- c.waitForOff() }()
+	go func() { done <- c.waitForOff(t.Context()) }()
 
 	// Give waitForOff time to subscribe before the edge lands.
 	time.Sleep(50 * time.Millisecond)
@@ -228,7 +228,7 @@ func TestWaitForOffReturnsImmediatelyWhenAlreadyOff(t *testing.T) {
 	setLED(t, c, sim, 0)
 
 	done := make(chan error, 1)
-	go func() { done <- c.waitForOff() }()
+	go func() { done <- c.waitForOff(t.Context()) }()
 
 	select {
 	case err := <-done:
@@ -261,7 +261,7 @@ func TestRpibootRejectsLegacyMode(t *testing.T) {
 		lines:      make(map[config.GPIOPin]*gpiocdev.Line),
 		subs:       make(map[chan bool]struct{}),
 	}
-	if err := c.Rpiboot(); err == nil {
+	if err := c.Rpiboot(t.Context()); err == nil {
 		t.Fatal("Rpiboot in legacy mode succeeded, want error")
 	}
 }

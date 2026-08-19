@@ -38,7 +38,7 @@ func processorResource() Processor {
 		Resource: Resource{
 			ODataType:    processorODataType,
 			ODataID:      processorPath,
-			ODataContext: context("Processor.Processor"),
+			ODataContext: odataContext("Processor.Processor"),
 			ID:           processorID,
 			Name:         "Processor",
 		},

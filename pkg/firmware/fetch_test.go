@@ -57,7 +57,7 @@ func TestStageCapsuleFromURLDoesNotUseTempDir(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if err := c.StageCapsuleFromURL(srv.URL+"/host.cap", "host.cap"); err != nil {
+	if err := c.StageCapsuleFromURL(t.Context(), srv.URL+"/host.cap", "host.cap"); err != nil {
 		t.Fatalf("StageCapsuleFromURL: %v", err)
 	}
 
@@ -102,7 +102,7 @@ func TestStageCapsuleFromURLRejectsOversize(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	err := c.StageCapsuleFromURL(srv.URL+"/huge.cap", "huge.cap")
+	err := c.StageCapsuleFromURL(t.Context(), srv.URL+"/huge.cap", "huge.cap")
 	if err == nil {
 		t.Fatal("want an error for an oversized capsule")
 	}
@@ -110,7 +110,7 @@ func TestStageCapsuleFromURLRejectsOversize(t *testing.T) {
 
 func TestStageCapsuleFromURLRejectsBadScheme(t *testing.T) {
 	c := newTestController(t)
-	if err := c.StageCapsuleFromURL("file:///etc/passwd", "x.cap"); err == nil {
+	if err := c.StageCapsuleFromURL(t.Context(), "file:///etc/passwd", "x.cap"); err == nil {
 		t.Fatal("want an error for a non-http(s) URL")
 	}
 }

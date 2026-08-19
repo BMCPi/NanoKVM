@@ -51,7 +51,7 @@ func (s *Service) GetChassis(c *gin.Context) {
 		Resource: Resource{
 			ODataType:    "#Chassis.v1_21_0.Chassis",
 			ODataID:      chassisItemPath,
-			ODataContext: context("Chassis.Chassis"),
+			ODataContext: odataContext("Chassis.Chassis"),
 			ID:           "1",
 			Name:         "Host Baseboard",
 		},

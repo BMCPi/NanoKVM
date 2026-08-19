@@ -1,6 +1,8 @@
 package components
 
 import (
+	"context"
+
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/power"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
@@ -15,8 +17,8 @@ import (
 // known is false when the controller cannot read the state (e.g. dev host),
 // in which case the pill falls back to the neutral "Checking…" look until
 // the stream delivers.
-func initialPowerState(ctrl *power.Controller) (on bool, known bool) {
-	s, err := ctrl.State()
+func initialPowerState(ctx context.Context, ctrl *power.Controller) (on bool, known bool) {
+	s, err := ctrl.State(ctx)
 	return s, err == nil
 }
 
@@ -34,7 +36,7 @@ templ PowerMenu() {
 				templ.Attributes{"aria-label": "Power menu"},
 			),
 		}) {
-			{{ pwrOn, pwrKnown := initialPowerState(deps.FromContext(ctx).Power) }}
+			{{ pwrOn, pwrKnown := initialPowerState(ctx, deps.FromContext(ctx).Power) }}
 			if pwrKnown && pwrOn {
 				<span id="power-dot" class="inline-block size-2 rounded-full bg-green-500 shrink-0"></span>
 				<span id="power-text" class="hidden sm:inline">Power On</span>

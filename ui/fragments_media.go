@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
@@ -25,6 +26,12 @@ import (
 // media directory on the data partition (constant memory), so this exists to
 // keep a runaway client from filling that partition, not to bound RAM.
 const maxMediaUploadBytes = 8 << 30 // 8 GiB
+
+// mediaFetchTimeout bounds a BMC-initiated ISO download. An 8 GiB image over a
+// slow management link is legitimate, so this is generous — but finite, because
+// mediaFetchBusy latches on the fetch goroutine and a transfer that never ends
+// would wedge the feature until the BMC reboots.
+const mediaFetchTimeout = 6 * time.Hour
 
 func mediaFragmentRoutes(g *gin.RouterGroup, d *deps.Deps) {
 	m := g.Group("/media")
@@ -233,8 +240,12 @@ func postMediaFetch(d *deps.Deps) gin.HandlerFunc {
 		// matter more, because mediaFetchBusy latches on this goroutine —
 		// a peer that connects and then goes silent would otherwise wedge the
 		// fetch feature until the BMC reboots.
+		// Detached from the request but bounded by the process context, so a
+		// shutdown aborts the transfer rather than being blocked by it.
+		ctx, cancel := d.ActionContext(mediaFetchTimeout)
 		go func() {
-			remote, err := utils.FetchURL(rawURL, maxMediaUploadBytes)
+			defer cancel()
+			remote, err := utils.FetchURL(ctx, rawURL, maxMediaUploadBytes)
 			if err != nil {
 				mediaFetchFinish(err)
 				return

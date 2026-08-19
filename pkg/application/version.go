@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -68,7 +69,7 @@ func CurrentVersion() string {
 	return Version
 }
 
-func getLatest() (*Latest, error) {
+func getLatest(ctx context.Context) (*Latest, error) {
 	latestCacheMu.Lock()
 	defer latestCacheMu.Unlock()
 
@@ -77,7 +78,7 @@ func getLatest() (*Latest, error) {
 		return latestCacheValue, nil
 	}
 
-	latest, err := fetchLatest()
+	latest, err := fetchLatest(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -87,10 +88,10 @@ func getLatest() (*Latest, error) {
 	return latest, nil
 }
 
-func fetchLatest() (*Latest, error) {
+func fetchLatest(ctx context.Context) (*Latest, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", GitHubOwner, GitHubRepo)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}

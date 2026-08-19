@@ -1,6 +1,7 @@
 package redfish
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -24,7 +25,7 @@ func (s *Service) GetSystem(c *gin.Context) {
 	// The host firmware polls this resource for its boot override, so it is
 	// served with the host-interface conventions: exact application/json
 	// content type and an ETag it can round-trip.
-	writeHostResource(c, hostView(buildSystemResource(s.Power)))
+	writeHostResource(c, hostView(buildSystemResource(c.Request.Context(), s.Power)))
 }
 
 func (s *Service) ResetSystem(c *gin.Context) {
@@ -43,13 +44,20 @@ func (s *Service) ResetSystem(c *gin.Context) {
 	ctrl := s.Power
 	var err error
 
+	// Detached from the request for the same reason as the /api/vm/gpio
+	// handler: Redfish clients (gofish, bmclib, the Dell Terraform provider)
+	// set short client timeouts, and a timed-out PowerCycle must not leave the
+	// host off. See deps.ActionContext.
+	ctx, cancel := s.Deps.ActionContext(power.ActionTimeout)
+	defer cancel()
+
 	switch req.ResetType {
 	case schemas.OnResetType:
-		err = ctrl.PowerOn()
+		err = ctrl.PowerOn(ctx)
 	case schemas.ForceOffResetType, schemas.GracefulShutdownResetType:
-		err = ctrl.PowerOff()
+		err = ctrl.PowerOff(ctx)
 	case schemas.ForceRestartResetType, schemas.PowerCycleResetType:
-		err = ctrl.Reset()
+		err = ctrl.Reset(ctx)
 	default:
 		// Unreachable while these cases cover supportedResetTypes. Catches
 		// a value being added to that list without a case here.
@@ -140,7 +148,7 @@ func (s *Service) PatchSystem(c *gin.Context) {
 		}
 	}
 
-	writeHostResource(c, hostView(buildSystemResource(s.Power)))
+	writeHostResource(c, hostView(buildSystemResource(c.Request.Context(), s.Power)))
 }
 
 // applyBootPatch validates and stages a boot-override change with the PATCH
@@ -174,8 +182,8 @@ func applyBootPatch(target schemas.BootSource, enabled schemas.BootSourceOverrid
 // Information card from it. Same data GET /redfish/v1/Systems/1 serves.
 // The firmware controller is no longer a data source (identity is
 // host-reported), but the parameter stays so ui call sites keep compiling.
-func SystemInventory(_ *firmware.Controller, pw *power.Controller) ComputerSystem {
-	return buildSystemResource(pw)
+func SystemInventory(ctx context.Context, _ *firmware.Controller, pw *power.Controller) ComputerSystem {
+	return buildSystemResource(ctx, pw)
 }
 
 // ApplyBootOverride sets or clears the boot-source override for in-process
@@ -186,9 +194,9 @@ func ApplyBootOverride(target schemas.BootSource, enabled schemas.BootSourceOver
 	return applyBootPatch(target, enabled)
 }
 
-func buildSystemResource(pw *power.Controller) ComputerSystem {
+func buildSystemResource(ctx context.Context, pw *power.Controller) ComputerSystem {
 	powerState := schemas.OffPowerState
-	if on, err := pw.State(); err == nil && on {
+	if on, err := pw.State(ctx); err == nil && on {
 		powerState = schemas.OnPowerState
 	}
 
@@ -205,7 +213,7 @@ func buildSystemResource(pw *power.Controller) ComputerSystem {
 		Resource: Resource{
 			ODataType:    "#ComputerSystem.v1_13_0.ComputerSystem",
 			ODataID:      systemPath,
-			ODataContext: context("ComputerSystem.ComputerSystem"),
+			ODataContext: odataContext("ComputerSystem.ComputerSystem"),
 			ID:           "1",
 			Name:         "Computer System",
 		},

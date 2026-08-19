@@ -37,17 +37,24 @@ func (s *Service) SetGpio(c *gin.Context) {
 	ctrl := s.Power
 	var err error
 
+	// Not the request context: a power action is a command, and abandoning one
+	// midway is worse than finishing it. Reset in particular is off-then-on, so
+	// a client that hangs up between the two phases would leave the host down.
+	// This context still dies at shutdown. See deps.ActionContext.
+	ctx, cancel := s.Deps.ActionContext(power.ActionTimeout)
+	defer cancel()
+
 	switch req.Action {
 	case "on":
-		err = ctrl.PowerOn()
+		err = ctrl.PowerOn(ctx)
 	case "off":
-		err = ctrl.PowerOff()
+		err = ctrl.PowerOff(ctx)
 	case "forceoff":
-		err = ctrl.ForceOff()
+		err = ctrl.ForceOff(ctx)
 	case "reset":
-		err = ctrl.Reset()
+		err = ctrl.Reset(ctx)
 	case "rpiboot":
-		err = ctrl.Rpiboot()
+		err = ctrl.Rpiboot(ctx)
 	default:
 		rsp.ErrRsp(c, -2, fmt.Sprintf("invalid action: %s", req.Action))
 		return
@@ -66,7 +73,7 @@ func (s *Service) GetGpio(c *gin.Context) {
 	var rsp proto.Response
 
 	ctrl := s.Power
-	pwr, err := ctrl.State()
+	pwr, err := ctrl.State(c.Request.Context())
 	if err != nil {
 		rsp.ErrRsp(c, -2, fmt.Sprintf("failed to read power state: %s", err))
 		return
@@ -109,7 +116,7 @@ func (s *Service) StreamGpio(c *gin.Context) {
 	// Report an unreadable LED as a plain error before any SSE headers go out,
 	// so the client sees a failed request rather than an empty stream that
 	// EventSource would silently retry forever.
-	pwr, err := ctrl.State()
+	pwr, err := ctrl.State(c.Request.Context())
 	if err != nil {
 		var rsp proto.Response
 		rsp.ErrRsp(c, -2, fmt.Sprintf("failed to read power state: %s", err))
@@ -151,7 +158,7 @@ func (s *Service) StreamGpio(c *gin.Context) {
 			c.Writer.Flush()
 
 		case <-poll:
-			on, err := ctrl.State()
+			on, err := ctrl.State(ctx)
 			if err != nil {
 				log.Debugf("gpio stream: poll failed: %s", err)
 				continue

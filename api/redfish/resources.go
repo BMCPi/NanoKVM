@@ -47,7 +47,7 @@ func newCollection(odataType, name, path string, members ...Link) Collection {
 		Resource: Resource{
 			ODataType:    "#" + odataType + "." + odataType,
 			ODataID:      path,
-			ODataContext: context(odataType + "." + odataType),
+			ODataContext: odataContext(odataType + "." + odataType),
 			Name:         name,
 		},
 		MembersCount: len(members),

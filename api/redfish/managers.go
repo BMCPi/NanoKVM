@@ -25,7 +25,7 @@ func (s *Service) GetManager(c *gin.Context) {
 		Resource: Resource{
 			ODataType:    "#Manager.v1_11_0.Manager",
 			ODataID:      managerPath,
-			ODataContext: context("Manager.Manager"),
+			ODataContext: odataContext("Manager.Manager"),
 			ID:           "1",
 			Name:         "NanoKVM BMC",
 		},
@@ -56,7 +56,7 @@ func (s *Service) GetDellIDRACAttributes(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		odataTypeKey:        "#DellAttributes.v1_0_0.DellAttributes",
 		"@odata.id":         dellAttributesPath,
-		"@odata.context":    context("DellAttributes.DellAttributes"),
+		"@odata.context":    odataContext("DellAttributes.DellAttributes"),
 		"Id":                "iDRAC.Embedded.1",
 		"Name":              "iDRAC Attributes",
 		"AttributeRegistry": "ManagerAttributeRegistry.v1_0_0",

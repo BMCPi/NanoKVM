@@ -25,8 +25,8 @@ func TestFetchURLRejectsNonHTTPSchemes(t *testing.T) {
 		"not a url",
 		"",
 	} {
-		if _, err := FetchURL(raw, 0); err == nil {
-			t.Errorf("FetchURL(%q) succeeded; want a scheme rejection", raw)
+		if _, err := FetchURL(t.Context(), raw, 0); err == nil {
+			t.Errorf("FetchURL(t.Context(), %q) succeeded; want a scheme rejection", raw)
 		}
 	}
 }
@@ -41,7 +41,7 @@ func TestFetchURLRejectsDeclaredOversizeBeforeReading(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := FetchURL(srv.URL, 1024)
+	_, err := FetchURL(t.Context(), srv.URL, 1024)
 	if !errors.Is(err, ErrRemoteTooLarge) {
 		t.Fatalf("err = %v, want ErrRemoteTooLarge", err)
 	}
@@ -59,7 +59,7 @@ func TestFetchURLCapsUndeclaredBody(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	remote, err := FetchURL(srv.URL, 4096)
+	remote, err := FetchURL(t.Context(), srv.URL, 4096)
 	if err != nil {
 		t.Fatalf("FetchURL: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestFetchURLPassesBodyUnderTheCap(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	remote, err := FetchURL(srv.URL, 1<<20)
+	remote, err := FetchURL(t.Context(), srv.URL, 1<<20)
 	if err != nil {
 		t.Fatalf("FetchURL: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestFetchURLUncappedWhenZero(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	remote, err := FetchURL(srv.URL, 0)
+	remote, err := FetchURL(t.Context(), srv.URL, 0)
 	if err != nil {
 		t.Fatalf("FetchURL: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestFetchURLRejectsNon2xx(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := FetchURL(srv.URL, 0); err == nil {
+	if _, err := FetchURL(t.Context(), srv.URL, 0); err == nil {
 		t.Fatal("want an error for a 404 response")
 	}
 }
@@ -145,7 +145,7 @@ func TestFetchURLDoesNotBufferToTempDir(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	remote, err := FetchURL(srv.URL, 0)
+	remote, err := FetchURL(t.Context(), srv.URL, 0)
 	if err != nil {
 		t.Fatalf("FetchURL: %v", err)
 	}

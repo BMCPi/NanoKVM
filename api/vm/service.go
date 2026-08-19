@@ -27,6 +27,11 @@ type Service struct {
 
 	// Conf is the live config, for the stored keyboard macros.
 	Conf *config.Config
+
+	// Deps is retained for its process-lifetime context: power actions run on
+	// a context detached from the request so a client disconnect cannot
+	// abandon one midway. See deps.ActionContext.
+	Deps *deps.Deps
 }
 
 func NewService(d *deps.Deps) *Service {
@@ -36,5 +41,6 @@ func NewService(d *deps.Deps) *Service {
 		VideoHub:  d.Video,
 		HIDGadget: d.HID,
 		Conf:      d.Config,
+		Deps:      d,
 	}
 }

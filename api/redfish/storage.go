@@ -79,7 +79,7 @@ func driveResource(id, model string, size int64) Drive {
 		Resource: Resource{
 			ODataType:    "#Drive.v1_17_0.Drive",
 			ODataID:      gadgetDrivesPath + "/" + id,
-			ODataContext: context("Drive.Drive"),
+			ODataContext: odataContext("Drive.Drive"),
 			ID:           id,
 			Name:         model,
 		},
@@ -102,7 +102,7 @@ func storageSubsystem(id, path, name string, driveLinks Links) Storage {
 		Resource: Resource{
 			ODataType:    "#Storage.v1_15_0.Storage",
 			ODataID:      path,
-			ODataContext: context("Storage.Storage"),
+			ODataContext: odataContext("Storage.Storage"),
 			ID:           id,
 			Name:         name,
 		},

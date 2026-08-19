@@ -28,12 +28,20 @@ type Server struct {
 	stop     chan struct{}
 	wg       sync.WaitGroup
 	sem      chan struct{}
+
+	// ctx is the server-lifetime context passed to Start; see sessionManager.
+	ctx context.Context
 }
 
 // Start creates and starts the IPMI UDP server on the given port. powerCtrl
 // and fwCtrl are injected into the session manager for the chassis/OEM
 // command handlers instead of being reached via package-level singletons.
-func Start(port int, powerCtrl *power.Controller, fwCtrl *firmware.Controller) (*Server, error) {
+//
+// ctx is the process root context. IPMI has no per-request context of its own
+// — a command arrives as a datagram and the requester does not stay on the
+// line — so this is what carries telemetry and what stops the detached power
+// sequences at shutdown.
+func Start(ctx context.Context, port int, powerCtrl *power.Controller, fwCtrl *firmware.Controller) (*Server, error) {
 	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return nil, fmt.Errorf("resolve udp addr: %w", err)
@@ -46,7 +54,7 @@ func Start(port int, powerCtrl *power.Controller, fwCtrl *firmware.Controller) (
 
 	s := &Server{
 		conn:     conn,
-		sessions: newSessionManager(powerCtrl, fwCtrl),
+		sessions: newSessionManager(ctx, powerCtrl, fwCtrl),
 		stop:     make(chan struct{}),
 		sem:      make(chan struct{}, maxConcurrentHandlers),
 	}
@@ -115,7 +123,7 @@ func (s *Server) listen() {
 		pkt := make([]byte, n)
 		copy(pkt, buf[:n])
 
-		telemetry.IPMIPacketReceived(context.Background())
+		telemetry.IPMIPacketReceived(s.ctx)
 
 		// Acquire a handler slot, or bail out if the server is stopping. When all
 		// slots are busy this blocks, pausing reads so a flood is dropped by the
@@ -219,7 +227,7 @@ func (s *Server) send(data []byte, addr *net.UDPAddr) {
 		log.Errorf("IPMI send error: %s", err)
 		return
 	}
-	telemetry.IPMIPacketSent(context.Background())
+	telemetry.IPMIPacketSent(s.ctx)
 }
 
 // wrapRMCP prepends an RMCP header to a payload.

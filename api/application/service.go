@@ -8,15 +8,27 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
+	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/proto"
 )
 
+// appUpdateTimeout bounds a self-update: the GitHub release lookup, the
+// download and the install. Finite so a stalled download cannot hold the
+// global update lock until the next reboot.
+const appUpdateTimeout = 30 * time.Minute
+
 // Service handles application API requests.
-type Service struct{}
+type Service struct {
+	// Deps is retained for its process-lifetime context. An application
+	// update replaces the running binary and then restarts the process, so it
+	// must not be bound to the request that triggered it. See
+	// deps.ActionContext.
+	Deps *deps.Deps
+}
 
 // NewService creates a new application service.
-func NewService() *Service {
-	return &Service{}
+func NewService(d *deps.Deps) *Service {
+	return &Service{Deps: d}
 }
 
 // GetVersion reports the running version and the latest release available.
@@ -28,7 +40,7 @@ func (s *Service) GetVersion(c *gin.Context) {
 
 	rsp.OkRspWithData(c, &proto.GetVersionRsp{
 		Current: current,
-		Latest:  application.LatestVersion(),
+		Latest:  application.LatestVersion(c.Request.Context()),
 	})
 }
 
@@ -37,7 +49,10 @@ func (s *Service) GetVersion(c *gin.Context) {
 func (s *Service) Update(c *gin.Context) {
 	var rsp proto.Response
 
-	if err := application.RunUpdate(); err != nil {
+	ctx, cancel := s.Deps.ActionContext(appUpdateTimeout)
+	defer cancel()
+
+	if err := application.RunUpdate(ctx); err != nil {
 		rsp.ErrRsp(c, -1, fmt.Sprintf("update failed: %s", err))
 		return
 	}

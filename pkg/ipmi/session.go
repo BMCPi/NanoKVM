@@ -75,15 +75,24 @@ type sessionManager struct {
 	mu       sync.RWMutex
 	sessions map[uint32]*session
 
+	// ctx is the server-lifetime context, cancelled when the process starts
+	// shutting down. IPMI is a UDP protocol with no per-request context, so
+	// this is the only one there is: it carries the trace/telemetry context
+	// and it is what bounds the chassis-control goroutines, which run detached
+	// because a power sequence takes many seconds and the requester is a
+	// fire-and-forget datagram that is long gone by then.
+	ctx context.Context
+
 	power    *power.Controller
 	firmware *firmware.Controller
 }
 
 var sessionIDCounter uint32
 
-func newSessionManager(powerCtrl *power.Controller, fwCtrl *firmware.Controller) *sessionManager {
+func newSessionManager(ctx context.Context, powerCtrl *power.Controller, fwCtrl *firmware.Controller) *sessionManager {
 	return &sessionManager{
 		sessions: make(map[uint32]*session),
+		ctx:      ctx,
 		power:    powerCtrl,
 		firmware: fwCtrl,
 	}
@@ -110,7 +119,7 @@ func (sm *sessionManager) newSession() *session {
 	sm.sessions[id] = sess
 	sm.mu.Unlock()
 
-	telemetry.IPMISessionOpened(context.Background())
+	telemetry.IPMISessionOpened(sm.ctx)
 	return sess
 }
 
@@ -139,7 +148,7 @@ func (sm *sessionManager) remove(id uint32) {
 // sm.mu so broker teardown never blocks the manager lock.
 func (sm *sessionManager) cleanupSession(sess *session) {
 	solSession.stopIfSession(sess)
-	telemetry.IPMISessionClosed(context.Background())
+	telemetry.IPMISessionClosed(sm.ctx)
 }
 
 // reap drops sessions idle longer than idle. Called periodically by the server.
@@ -173,7 +182,7 @@ func (sm *sessionManager) closeAll() {
 
 	solSession.stop()
 	for range expired {
-		telemetry.IPMISessionClosed(context.Background())
+		telemetry.IPMISessionClosed(sm.ctx)
 	}
 }
 

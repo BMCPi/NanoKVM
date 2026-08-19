@@ -21,9 +21,13 @@ package utils
 //
 // The total transfer is deliberately NOT on a stopwatch: a multi-gigabyte ISO
 // over a slow management link is a legitimate download. A peer that stalls
-// mid-body after sending headers is therefore still only bounded by the cap.
+// mid-body after sending headers is therefore still only bounded by the cap
+// and by the caller's context — cancelling that aborts the transfer, including
+// a read already blocked on the body, which is how a download in flight is
+// abandoned at shutdown instead of pinning the process.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -72,14 +76,22 @@ func (f *RemoteFile) Close() error               { return f.body.Close() }
 // check lives here so no caller can forget it, and so a redirect chain cannot
 // land somewhere unexpected. A non-2xx response is an error and the body is
 // closed before returning.
-func FetchURL(rawURL string, maxBytes int64) (*RemoteFile, error) {
+//
+// Cancelling ctx aborts the transfer, so the returned RemoteFile's Read fails
+// rather than blocking. The caller must still Close it.
+func FetchURL(ctx context.Context, rawURL string, maxBytes int64) (*RemoteFile, error) {
 	parsed, err := url.ParseRequestURI(rawURL)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return nil, fmt.Errorf("url must be an http or https URL")
 	}
 
 	// #nosec G107 — scheme validated immediately above.
-	resp, err := fetchClient.Get(rawURL) //nolint:noctx // bounded by fetchClient's transport timeouts
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := fetchClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

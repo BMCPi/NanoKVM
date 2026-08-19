@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
@@ -34,19 +35,25 @@ const maxCapsuleUploadBytes = 128 << 20 // 128 MiB
 // straight to the data partition, so this bounds disk rather than RAM.
 const maxMediaUploadBytes = 8 << 30 // 8 GiB
 
+// capsuleStageTimeout bounds a BMC-initiated capsule download. Generous
+// because the link to the capsule host may be slow and a capsule is
+// firmware-sized, but finite so a stalled transfer cannot hold the
+// "a capsule is being staged" latch until the next reboot.
+const capsuleStageTimeout = 30 * time.Minute
+
 // Register mounts the firmware routes on the shared authenticated group.
 func Register(api *gin.RouterGroup, d *deps.Deps) {
 	ctrl := d.Firmware
 	fw := api.Group("/firmware")
 
-	registerCapsules(fw, ctrl)
+	registerCapsules(fw, d, ctrl)
 	registerMedia(fw, ctrl)
 	registerGadget(fw, ctrl)
 }
 
 // registerCapsules wires capsule staging: what is queued for the host, and the
 // three ways to change that (upload, fetch from a URL, delete).
-func registerCapsules(fw *gin.RouterGroup, ctrl *firmware.Controller) {
+func registerCapsules(fw *gin.RouterGroup, d *deps.Deps, ctrl *firmware.Controller) {
 	// GET /api/firmware/status — capsule volume state plus what is staged.
 	fw.GET("/status", func(c *gin.Context) {
 		c.JSON(http.StatusOK, ctrl.GetStatus())
@@ -124,8 +131,12 @@ func registerCapsules(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 			return
 		}
 
+		// Detached from the request but bounded by the process context, so a
+		// shutdown aborts the transfer. See deps.ActionContext.
+		ctx, cancel := d.ActionContext(capsuleStageTimeout)
 		go func(rawURL, name string) {
-			if err := ctrl.StageCapsuleFromURL(rawURL, name); err != nil {
+			defer cancel()
+			if err := ctrl.StageCapsuleFromURL(ctx, rawURL, name); err != nil {
 				log.Errorf("firmware: capsule fetch failed: %v", err)
 			}
 		}(req.URL, filepath.Base(req.Name))
@@ -221,7 +232,7 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 		}
 		// Bounded and timeout-guarded; the body streams straight to the media
 		// directory on the data partition.
-		remote, err := utils.FetchURL(req.URL, maxMediaUploadBytes)
+		remote, err := utils.FetchURL(c.Request.Context(), req.URL, maxMediaUploadBytes)
 		if err != nil {
 			c.JSON(http.StatusBadGateway, gin.H{"error": "fetch failed: " + err.Error()})
 			return

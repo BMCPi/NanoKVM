@@ -16,6 +16,7 @@ package deps
 
 import (
 	"context"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -28,6 +29,27 @@ import (
 
 // Deps holds the process-wide subsystem controllers built once at startup.
 type Deps struct {
+	// Ctx is the process-lifetime context: the root context from main,
+	// cancelled when the server starts shutting down.
+	//
+	// It is NOT a substitute for the request context. Handlers pass
+	// c.Request.Context() to anything whose result the client is waiting for,
+	// so a disconnect stops the work. Ctx is for the other case — work a
+	// handler starts that must outlive the request but must still stop at
+	// shutdown:
+	//
+	//   - Detached goroutines (capsule staging, media fetch). These already
+	//     had to avoid the request context, and previously reached for
+	//     context.Background(), which meant SIGTERM abandoned a half-written
+	//     capsule with nothing watching.
+	//   - Side-effecting operations that are worse when interrupted than when
+	//     completed. A power reset is off-then-on; abandoning it midway
+	//     because a browser tab closed leaves the host powered down. See
+	//     ActionContext.
+	//
+	// Nil in tests that construct Deps directly; ActionContext handles that.
+	Ctx context.Context
+
 	Config   *config.Config
 	Power    *power.Controller
 	Firmware *firmware.Controller
@@ -66,4 +88,20 @@ func FromContext(ctx context.Context) *Deps {
 		panic("deps: no Deps in request context — Middleware not installed on this route")
 	}
 	return d
+}
+
+// ActionContext returns a context for a side-effecting operation the caller
+// must not abandon just because the client stopped listening, bounded by
+// timeout, plus its cancel func.
+//
+// It derives from Ctx, not from the request, so the operation survives a
+// closed browser tab but is still cancelled at shutdown. Falls back to
+// context.Background when Ctx is unset, which is only the case in tests that
+// build a Deps by hand.
+func (d *Deps) ActionContext(timeout time.Duration) (context.Context, context.CancelFunc) {
+	parent := d.Ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	return context.WithTimeout(parent, timeout)
 }

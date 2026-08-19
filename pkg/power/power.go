@@ -56,6 +56,13 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
 )
 
+// ActionTimeout is a safe upper bound for any single power action, for callers
+// that need to put one on a clock. It covers the longest real sequence —
+// rpiboot's force-off, its wait for the host to drop (offTimeout), and its
+// multi-second hold — with margin, so it never cuts a legitimate operation
+// short while still guaranteeing the caller is not blocked forever.
+const ActionTimeout = 90 * time.Second
+
 // ErrNoEdgeEvents is returned by Watch when the controller cannot deliver
 // change notifications — currently only in legacy mode, which has no LED line.
 // Callers should fall back to polling State.
@@ -153,7 +160,7 @@ func NewController(hw config.Hardware, pw config.Power) *Controller {
 // Button mode: returns the edge-maintained cache — no ioctl, no lock, so it
 // stays responsive while a multi-second power sequence holds mu.
 // Legacy mode:  reads the button pin directly under mu.
-func (c *Controller) State() (bool, error) {
+func (c *Controller) State(ctx context.Context) (bool, error) {
 	if !c.legacyMode {
 		if err := c.ensureLEDWatcher(); err != nil {
 			return false, err
@@ -165,7 +172,7 @@ func (c *Controller) State() (bool, error) {
 	defer c.mu.Unlock()
 	on, err := c.readState()
 	if err == nil {
-		telemetry.PowerState(context.Background(), on)
+		telemetry.PowerState(ctx, on)
 	}
 	return on, err
 }
@@ -208,10 +215,19 @@ func (c *Controller) Watch() (<-chan bool, func(), error) {
 //
 // Button mode:  sends a short press if the system is currently off.
 // Legacy mode:  runs the 1→0→1 boot sequence on the power pin.
-func (c *Controller) PowerOn() (retErr error) {
+func (c *Controller) PowerOn(ctx context.Context) (retErr error) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	defer func() { telemetry.PowerOperation(context.Background(), "on", retErr) }()
+	defer func() { telemetry.PowerOperation(ctx, "on", retErr) }()
+
+	// Re-check after the lock: a queued caller may have waited out a multi-second
+	// sequence, and the client that asked for this one may be long gone.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	on, err := c.readState()
 	if err != nil {
@@ -235,10 +251,17 @@ func (c *Controller) PowerOn() (retErr error) {
 //
 // Button mode:  short button press (OS handles the ACPI shutdown).
 // Legacy mode:  sets the power pin to 0 (immediate cut).
-func (c *Controller) PowerOff() (retErr error) {
+func (c *Controller) PowerOff(ctx context.Context) (retErr error) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	defer func() { telemetry.PowerOperation(context.Background(), "off", retErr) }()
+	defer func() { telemetry.PowerOperation(ctx, "off", retErr) }()
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	on, err := c.readState()
 	if err != nil {
@@ -262,10 +285,17 @@ func (c *Controller) PowerOff() (retErr error) {
 //
 // Button mode:  holds the power button LOW for ≥5 s.
 // Legacy mode:  sets the power pin to 0 (same as PowerOff — immediate cut).
-func (c *Controller) ForceOff() (retErr error) {
+func (c *Controller) ForceOff(ctx context.Context) (retErr error) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	defer func() { telemetry.PowerOperation(context.Background(), "force_off", retErr) }()
+	defer func() { telemetry.PowerOperation(ctx, "force_off", retErr) }()
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	on, err := c.readState()
 	if err != nil {
@@ -286,10 +316,17 @@ func (c *Controller) ForceOff() (retErr error) {
 }
 
 // Reset forces the system off and powers it back on.
-func (c *Controller) Reset() (retErr error) {
+func (c *Controller) Reset(ctx context.Context) (retErr error) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	defer func() { telemetry.PowerOperation(context.Background(), "reset", retErr) }()
+	defer func() { telemetry.PowerOperation(ctx, "reset", retErr) }()
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	on, err := c.readState()
 	if err != nil {
@@ -297,20 +334,14 @@ func (c *Controller) Reset() (retErr error) {
 	}
 
 	if on {
-		if !c.legacyMode {
-			log.Info("power: reset — force off (long button press)")
-			if err := c.buttonPress(longPressDuration); err != nil {
-				return fmt.Errorf("reset force-off: %w", err)
-			}
-			if err := c.waitForOff(); err != nil {
-				log.Warnf("power: reset — timed out waiting for off, proceeding anyway: %v", err)
-			}
-		} else {
+		if c.legacyMode {
 			log.Info("power: reset — off (legacy)")
 			if err := c.legacyWritePin(0); err != nil {
 				return fmt.Errorf("reset legacy off: %w", err)
 			}
 			time.Sleep(toggleDelay)
+		} else if err := c.forceOffAndWait(ctx, "reset"); err != nil {
+			return err
 		}
 	}
 
@@ -339,10 +370,17 @@ func (c *Controller) Reset() (retErr error) {
 //
 // Button-press mode only: legacy mode drives the supply rail directly and has
 // no button to hold, so there is no combination to send.
-func (c *Controller) Rpiboot() (retErr error) {
+func (c *Controller) Rpiboot(ctx context.Context) (retErr error) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	defer func() { telemetry.PowerOperation(context.Background(), "rpiboot", retErr) }()
+	defer func() { telemetry.PowerOperation(ctx, "rpiboot", retErr) }()
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	if c.legacyMode {
 		return fmt.Errorf("rpiboot requires button-press mode (legacy mode has no power button to hold)")
@@ -353,12 +391,8 @@ func (c *Controller) Rpiboot() (retErr error) {
 		return fmt.Errorf("read state: %w", err)
 	}
 	if on {
-		log.Info("power: rpiboot — force off (long button press)")
-		if err := c.buttonPress(longPressDuration); err != nil {
-			return fmt.Errorf("rpiboot force-off: %w", err)
-		}
-		if err := c.waitForOff(); err != nil {
-			log.Warnf("power: rpiboot — timed out waiting for off, proceeding anyway: %v", err)
+		if err := c.forceOffAndWait(ctx, "rpiboot"); err != nil {
+			return err
 		}
 	}
 
@@ -367,6 +401,31 @@ func (c *Controller) Rpiboot() (retErr error) {
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
+
+// forceOffAndWait holds the power button down long enough to cut the host, then
+// waits for the power LED to confirm it went down. Reset and Rpiboot both need
+// the host off before their next step; what labels the operation in messages.
+//
+// A timeout waiting for off is logged and tolerated: the LED may not be wired
+// on this board, and the caller's next step is still the right thing to do.
+// A cancelled context is not tolerated — it means the server is shutting down,
+// and continuing into a power-on nobody asked for any more would be worse than
+// stopping with the host off.
+//
+// Caller must hold c.mu.
+func (c *Controller) forceOffAndWait(ctx context.Context, what string) error {
+	log.Infof("power: %s — force off (long button press)", what)
+	if err := c.buttonPress(longPressDuration); err != nil {
+		return fmt.Errorf("%s force-off: %w", what, err)
+	}
+	if err := c.waitForOff(ctx); err != nil {
+		if ctx.Err() != nil {
+			return fmt.Errorf("%s abandoned while waiting for off: %w", what, err)
+		}
+		log.Warnf("power: %s — timed out waiting for off, proceeding anyway: %v", what, err)
+	}
+	return nil
+}
 
 // readState returns true if the system is powered on.
 // Button mode: returns the edge-maintained LED cache.
@@ -452,6 +511,10 @@ func (c *Controller) setLED(on bool) {
 		return
 	}
 	log.Debugf("power: power-LED changed to %v", on)
+	// context.Background is correct here and not a missing parameter: this runs
+	// on the GPIO edge-event goroutine, driven by the host changing state on
+	// its own. There is no request, and no caller whose cancellation should
+	// suppress recording that the machine powered down.
 	telemetry.PowerState(context.Background(), on)
 
 	c.subsMu.Lock()
@@ -474,6 +537,17 @@ func (c *Controller) setLED(on bool) {
 // buttonPress simulates a button press: ensures the pin is HIGH, pulls it LOW
 // for duration, then restores HIGH. The pin is always left at 1 (released).
 // Caller must hold c.mu.
+//
+// This deliberately takes no context and cannot be cancelled. The duration IS
+// the instruction — 300 ms means "power on or shut down gracefully", ≥5 s means
+// "cut the power". Cutting a long press short on cancellation would not abort
+// the operation, it would silently perform a DIFFERENT one: a caller who asked
+// to force a wedged host off would instead send it an ACPI shutdown request it
+// is too wedged to answer. Releasing late is also not an option, since the line
+// would stay pulled to ground with nothing scheduled to release it.
+//
+// Cancellation is therefore honoured at operation boundaries and during
+// waitForOff, never inside a press.
 func (c *Controller) buttonPress(duration time.Duration) error {
 	pin := c.gpioPower
 	if pin.IsZero() {
@@ -507,10 +581,14 @@ func (c *Controller) buttonPress(duration time.Duration) error {
 	return nil
 }
 
-// waitForOff blocks until the power LED reports off, or until offTimeout.
-// Caller must hold c.mu — State and Watch do not take it, so concurrent readers
-// stay responsive for the whole wait.
-func (c *Controller) waitForOff() error {
+// waitForOff blocks until the power LED reports off, or until offTimeout, or
+// until ctx is done. Caller must hold c.mu — State and Watch do not take it, so
+// concurrent readers stay responsive for the whole wait.
+//
+// This is the one part of a power sequence that is safe to abandon: it is pure
+// waiting, with no half-finished physical actuation to leave behind. The
+// button presses either side of it are not — see buttonPress.
+func (c *Controller) waitForOff(ctx context.Context) error {
 	ch, cancel, err := c.Watch()
 	if err != nil {
 		return err
@@ -537,6 +615,8 @@ func (c *Controller) waitForOff() error {
 			}
 		case <-timeout.C:
 			return fmt.Errorf("timed out after %s waiting for power off", offTimeout)
+		case <-ctx.Done():
+			return fmt.Errorf("waiting for power off: %w", ctx.Err())
 		}
 	}
 }
