@@ -431,7 +431,12 @@ paths:
         One processor: what the host reported for this id, or the BMC's
         placeholder for CPU1 while the host has reported none.
       parameters:
-        - { name: processor, in: path, required: true, schema: { type: string } }
+        - {
+            name: processor,
+            in: path,
+            required: true,
+            schema: { type: string },
+          }
       responses:
         "200": { description: Processor resource. }
         "404": { description: No such processor. }
@@ -439,7 +444,12 @@ paths:
       tags: [Systems]
       summary: (Host interface only) Merge changes into a reported processor.
       parameters:
-        - { name: processor, in: path, required: true, schema: { type: string } }
+        - {
+            name: processor,
+            in: path,
+            required: true,
+            schema: { type: string },
+          }
       responses:
         "200": { description: Updated Processor resource. }
         "403": { description: Not the host interface. }
@@ -449,7 +459,12 @@ paths:
       tags: [Systems]
       summary: (Host interface only) Drop a reported processor.
       parameters:
-        - { name: processor, in: path, required: true, schema: { type: string } }
+        - {
+            name: processor,
+            in: path,
+            required: true,
+            schema: { type: string },
+          }
       responses:
         "204": { description: Removed. }
         "403": { description: Not the host interface. }
@@ -866,7 +881,8 @@ paths:
                 ImageURI: https://example.com/releases/host-firmware.cap
                 TransferProtocol: HTTPS
       responses:
-        "202": { description: Staging accepted; the download runs in background. }
+        "202":
+          { description: Staging accepted; the download runs in background. }
         "400": { $ref: "#/components/responses/BadRequest" }
         "409": { description: A capsule is already being staged. }
 
@@ -1073,7 +1089,10 @@ components:
       type: object
       properties:
         "@odata.type":
-          { type: string, example: "#SoftwareInventory.v1_8_0.SoftwareInventory" }
+          {
+            type: string,
+            example: "#SoftwareInventory.v1_8_0.SoftwareInventory",
+          }
         "@odata.id":
           {
             type: string,
@@ -1084,10 +1103,7 @@ components:
         Description: { type: string }
         SoftwareId: { type: string, example: BIOS }
         Version:
-          {
-            type: string,
-            description: Host-reported boot firmware version.,
-          }
+          { type: string, description: Host-reported boot firmware version. }
         Updateable: { type: boolean }
         Status:
           type: object
@@ -1098,7 +1114,7 @@ components:
     Bios:
       type: object
       properties:
-        "@odata.type": { type: string, example: "#Bios.v1_2_0.Bios" }
+        "@odata.type": { type: string, example: "#Bios.v1_0_9.Bios" }
         "@odata.id": { type: string, example: "/redfish/v1/Systems/1/Bios" }
         "@odata.etag": { type: string }
         Id: { type: string, example: Bios }

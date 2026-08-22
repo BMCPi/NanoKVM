@@ -31,7 +31,7 @@ func biosResource() Bios {
 	reported, _ := HostReported()
 	res := Bios{
 		Resource: Resource{
-			ODataType:    "#Bios.v1_2_0.Bios",
+			ODataType:    "#Bios.v1_0_9.Bios",
 			ODataID:      biosPath,
 			ODataContext: odataContext("Bios.Bios"),
 			ID:           "Bios",
@@ -74,7 +74,7 @@ func biosSettingsResource() Bios {
 	}
 	return Bios{
 		Resource: Resource{
-			ODataType:    "#Bios.v1_2_0.Bios",
+			ODataType:    "#Bios.v1_0_9.Bios",
 			ODataID:      biosSettingsPath,
 			ODataContext: odataContext("Bios.Bios"),
 			ID:           "Settings",
