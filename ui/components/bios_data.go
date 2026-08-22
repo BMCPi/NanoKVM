@@ -78,6 +78,14 @@ func (a BiosAttr) HasError() bool { return a.Error != "" }
 // staged attribute that actually has a live value to contrast against.
 func (a BiosAttr) ShowCurrent() bool { return a.Staged && a.Current != "" }
 
+// BiosSection is one labelled group of rows. An empty Label means the rows
+// belong to the menu the page is showing and need no sub-heading of their own.
+type BiosSection struct {
+	Path  string
+	Label string
+	Attrs []BiosAttr
+}
+
 // BiosMenuItem is one entry in the page's left rail.
 type BiosMenuItem struct {
 	Path  string
@@ -104,11 +112,19 @@ type BiosModel struct {
 	MenuPath  string
 	MenuLabel string
 
-	// Query is the active search term; when set, Attrs holds matches from
+	// Query is the active search term; when set, Sections holds matches from
 	// every menu rather than one menu's contents.
 	Query string
 
-	Attrs []BiosAttr
+	// Sections are the groups of rows to draw, in order. A section with no
+	// Label belongs to the menu named in MenuLabel; a labelled one is a
+	// sub-menu rendered inline beneath it, which is how a menu that files all
+	// its attributes under children still has something to show.
+	Sections []BiosSection
+
+	// AttrCount is how many rows Sections holds in total, for the "N matching
+	// attributes" line above a search result.
+	AttrCount int
 
 	// Staged is every pending attribute across all menus, for the staged bar.
 	StagedCount int

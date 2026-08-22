@@ -40,21 +40,30 @@ func sampleModel() BiosModel {
 			{Path: "./Advanced", Label: "Advanced", Depth: 1, Count: 0},
 			{Path: "./Advanced/CPU", Label: "Processor", Depth: 2, Count: 3, Staged: 1, Active: true},
 		},
-		Attrs: []BiosAttr{
-			{
-				Name: "ProcHyperThreading", Label: "Hyper-Threading", Help: "Simultaneous multithreading.",
-				Control: BiosControlSelect, Value: "Enabled",
-				Options: []BiosOption{{Value: "Enabled", Label: "Enabled"}, {Value: "Disabled", Label: "Disabled"}},
+		AttrCount: 6,
+		Sections: []BiosSection{{
+			Path: "./Advanced/CPU",
+			Attrs: []BiosAttr{
+				{
+					Name: "ProcHyperThreading", Label: "Hyper-Threading", Help: "Simultaneous multithreading.",
+					Control: BiosControlSelect, Value: "Enabled",
+					Options: []BiosOption{{Value: "Enabled", Label: "Enabled"}, {Value: "Disabled", Label: "Disabled"}},
+				},
+				{
+					Name: "ProcCoreCount", Label: "Active Cores", Control: BiosControlNumber,
+					Value: "8", Current: "16", Staged: true, Min: "0", Max: "16",
+				},
+				{Name: "QuietBoot", Label: "Quiet Boot", Control: BiosControlSwitch, Bool: true},
+				{Name: "AssetTag", Label: "Asset Tag", Control: BiosControlText, Value: "rack42", MaxLength: "8"},
+				{Name: "AdminPassword", Label: "Admin Password", Control: BiosControlPassword},
 			},
-			{
-				Name: "ProcCoreCount", Label: "Active Cores", Control: BiosControlNumber,
-				Value: "8", Current: "16", Staged: true, Min: "0", Max: "16",
+		}, {
+			Path:  "./Advanced/CPU/Identification",
+			Label: "Identification",
+			Attrs: []BiosAttr{
+				{Name: "CpuSignature", Label: "CPU Signature", Control: BiosControlReadOnly, Value: "0x000806F8"},
 			},
-			{Name: "QuietBoot", Label: "Quiet Boot", Control: BiosControlSwitch, Bool: true},
-			{Name: "AssetTag", Label: "Asset Tag", Control: BiosControlText, Value: "rack42", MaxLength: "8"},
-			{Name: "AdminPassword", Label: "Admin Password", Control: BiosControlPassword},
-			{Name: "CpuSignature", Label: "CPU Signature", Control: BiosControlReadOnly, Value: "0x000806F8"},
-		},
+		}},
 		StagedCount: 1,
 		Staged: []BiosAttr{
 			{Name: "ProcCoreCount", Label: "Active Cores", Control: BiosControlNumber, Value: "8", Current: "16", Staged: true},
@@ -251,7 +260,7 @@ func TestBiosStagedChipHidesPasswordValues(t *testing.T) {
 
 func TestBiosFormRendersInlineErrors(t *testing.T) {
 	m := sampleModel()
-	m.Attrs[1].Error = "must be at most 16"
+	m.Sections[0].Attrs[1].Error = "must be at most 16"
 
 	html := renderContent(t, m)
 	if !strings.Contains(html, "must be at most 16") {
@@ -277,7 +286,8 @@ func TestBiosSearchResultsAndNoMatches(t *testing.T) {
 	m := sampleModel()
 	m.Query = "core"
 	m.MenuPath = ""
-	m.Attrs = []BiosAttr{m.Attrs[1]}
+	m.Sections = []BiosSection{{Path: "./Advanced/CPU", Label: "Advanced \u203a Processor", Attrs: []BiosAttr{m.Sections[0].Attrs[1]}}}
+	m.AttrCount = 1
 
 	html := renderContent(t, m)
 	if !strings.Contains(html, "across all menus") {
@@ -289,7 +299,7 @@ func TestBiosSearchResultsAndNoMatches(t *testing.T) {
 		t.Error("the active query should be echoed into the form")
 	}
 
-	m.Attrs = nil
+	m.Sections, m.AttrCount = nil, 0
 	if html := renderContent(t, m); !strings.Contains(html, "No attribute matches") {
 		t.Errorf("a search with no matches should say so:\n%s", html)
 	}
@@ -297,10 +307,11 @@ func TestBiosSearchResultsAndNoMatches(t *testing.T) {
 
 func TestBiosUnregisteredAttributesAreMarked(t *testing.T) {
 	m := sampleModel()
-	m.Attrs = []BiosAttr{{
+	m.Sections = []BiosSection{{Path: "./Unregistered", Attrs: []BiosAttr{{
 		Name: "MysteryKnob", Label: "MysteryKnob",
 		Control: BiosControlText, Value: "x", Unregistered: true,
-	}}
+	}}}}
+	m.AttrCount = 1
 
 	html := renderContent(t, m)
 	if !strings.Contains(html, "unregistered") {
@@ -366,5 +377,29 @@ func TestBiosPanelCarriesEveryRegion(t *testing.T) {
 	}
 	if !strings.Contains(html, "BIOS Configuration") {
 		t.Error("panel heading missing")
+	}
+}
+
+// The registry's MenuPath is what groups rows and its DisplayName is what
+// titles the group, so a menu that files its attributes under children renders
+// them inline under sub-headings rather than showing a blank pane.
+func TestBiosFormRendersSubSectionHeadings(t *testing.T) {
+	html := renderContent(t, sampleModel())
+
+	// The menu's own name sits above the sub-sections, not as one of them.
+	if !strings.Contains(html, `<h3 class="mb-2 text-sm font-semibold">Processor</h3>`) {
+		t.Error("the active menu should be named above its sections")
+	}
+	if !strings.Contains(html, "Identification") {
+		t.Error("a descendant menu should render as a labelled sub-section")
+	}
+	// Both sections' rows are in the one form, so a submit carries all of them.
+	for _, name := range []string{"ProcHyperThreading", "CpuSignature"} {
+		if !strings.Contains(html, `data-bios-attr="`+name+`"`) {
+			t.Errorf("%s is missing; every section's rows belong to the same form", name)
+		}
+	}
+	if strings.Count(html, `id="bios-form"`) != 1 {
+		t.Error("sections must share one form, or a submit would only carry one of them")
 	}
 }

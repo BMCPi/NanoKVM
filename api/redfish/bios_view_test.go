@@ -9,6 +9,8 @@ package redfish
 
 import (
 	"encoding/json"
+	"sort"
+	"strings"
 	"testing"
 )
 
@@ -450,4 +452,214 @@ func TestStageBiosAttributesIgnoresEmptyPassword(t *testing.T) {
 	if len(res.Staged) != 1 {
 		t.Errorf("Staged = %v, want the password staged", res.Staged)
 	}
+}
+
+// edk2Registry is the shape a Raspberry Pi UEFI build actually publishes, and
+// every awkward part of it is load-bearing for the tests below: AttributeName
+// arrives as a JSON pointer rather than the key the Attributes object uses,
+// every MenuPath hangs off a "/Root" container that holds nothing, and one
+// form set is named "ACPI / Device Tree" — a title with a literal slash in it.
+// There is no Menus[] array at all, so the rail has to be inferred.
+const edk2Registry = `{
+  "Id": "BiosAttributeRegistry",
+  "RegistryVersion": "1.0.0",
+  "RegistryEntries": {
+    "Attributes": [
+      {"AttributeName": "/Bios/Attributes/SystemTableMode", "DisplayName": "System Table Mode",
+       "Type": "Enumeration", "MenuPath": "/Root/Raspberry Pi Configuration/ACPI / Device Tree",
+       "CurrentValue": "DeviceTree", "DefaultValue": "DeviceTree"},
+      {"AttributeName": "/Bios/Attributes/AcpiSdLimitUhs", "DisplayName": "Limit UHS-I Modes",
+       "Type": "Boolean", "MenuPath": "/Root/Raspberry Pi Configuration/ACPI / Device Tree",
+       "DefaultValue": true},
+      {"AttributeName": "/Bios/Attributes/Pcie1MaxLinkSpeed", "DisplayName": "Link Speed",
+       "Type": "Enumeration", "MenuPath": "/Root/Raspberry Pi Configuration/PCI Express",
+       "DefaultValue": "Gen2"},
+      {"AttributeName": "/Bios/Attributes/SecureBoot", "DisplayName": "Attempt Secure Boot",
+       "Type": "Boolean", "MenuPath": "/Root/Secure Boot", "DefaultValue": false}
+    ]
+  }
+}`
+
+// The registry names attributes by JSON pointer while the host reports values
+// under the bare key. Joining on the raw string matches nothing, and the
+// failure is silent: every registered attribute falls back to its default and
+// every reported value reappears in the Unregistered bucket, doubling the
+// attribute count.
+func TestBiosSnapshotJoinsPointerStyleAttributeNames(t *testing.T) {
+	resetHostState(t)
+	seedRegistry(t, edk2Registry)
+	mergeHostBiosAttributes(map[string]any{
+		"SystemTableMode":   "Acpi",
+		"AcpiSdLimitUhs":    false,
+		"Pcie1MaxLinkSpeed": "Gen3",
+		"SecureBoot":        true,
+	})
+
+	v := BiosSnapshot()
+	if len(v.Attributes) != 4 {
+		t.Fatalf("attributes = %d, want 4 — a duplicated set means the join failed", len(v.Attributes))
+	}
+	byName := map[string]BiosAttribute{}
+	for _, a := range v.Attributes {
+		byName[a.Name] = a
+		if !a.Registered {
+			t.Errorf("%s is unregistered — the registry key never matched the reported one", a.Name)
+		}
+		if a.MenuPath == unregisteredMenuPath {
+			t.Errorf("%s landed in the Unregistered bucket", a.Name)
+		}
+	}
+	// The live value must win over the registry's DefaultValue.
+	if got := byName["SystemTableMode"].Current; got != "Acpi" {
+		t.Errorf("SystemTableMode current = %#v, want the reported \"Acpi\"", got)
+	}
+	if got, ok := byName["AcpiSdLimitUhs"].Current.(bool); !ok || got {
+		t.Errorf("AcpiSdLimitUhs current = %#v, want the reported false",
+			byName["AcpiSdLimitUhs"].Current)
+	}
+	if got := byName["SystemTableMode"].DisplayName; got != "System Table Mode" {
+		t.Errorf("DisplayName = %q, want the registry's", got)
+	}
+}
+
+// Staging has to write the key the firmware reads, not the pointer the
+// registry described it with.
+func TestStageBiosAttributesUsesTheBareAttributeKey(t *testing.T) {
+	resetHostState(t)
+	seedRegistry(t, edk2Registry)
+	mergeHostBiosAttributes(map[string]any{"SystemTableMode": "DeviceTree"})
+
+	res := StageBiosAttributes([]string{"SystemTableMode"}, map[string]string{"SystemTableMode": "Acpi"})
+	if len(res.Errors) != 0 {
+		t.Fatalf("Errors = %v, want none", res.Errors)
+	}
+	pending := hostBiosPending()
+	if got, ok := pending["SystemTableMode"]; !ok || got != "Acpi" {
+		t.Errorf("pending = %#v, want SystemTableMode staged under its bare key", pending)
+	}
+	if _, ok := pending["/Bios/Attributes/SystemTableMode"]; ok {
+		t.Error("staged under the JSON pointer, which the host firmware never reads")
+	}
+}
+
+// "/Root" is a container EDK2 puts every form set under. Keeping it adds a
+// dead top-level rail entry that holds nothing — and since the rail opens on
+// its first entry, that is the pane an operator lands on.
+func TestBiosMenusDropTheRootContainer(t *testing.T) {
+	resetHostState(t)
+	seedRegistry(t, edk2Registry)
+
+	v := BiosSnapshot()
+	for _, mn := range v.Menus {
+		if mn.Path == "./Root" || strings.HasPrefix(mn.Path, "./Root/") {
+			t.Errorf("menu %q still carries the Root container", mn.Path)
+		}
+		if mn.Depth < 1 {
+			t.Errorf("menu %q has depth %d", mn.Path, mn.Depth)
+		}
+	}
+	if len(v.Menus) == 0 {
+		t.Fatal("no menus built")
+	}
+	// Whatever the rail opens on must have something to show.
+	if got := v.Sections(v.Menus[0].Path); len(got) == 0 {
+		t.Errorf("the first rail entry %q renders nothing", v.Menus[0].Path)
+	}
+	// A menu genuinely named RootComplex is not the container.
+	if got := normalizeMenuPath("/RootComplex/Ports"); got != "./RootComplex/Ports" {
+		t.Errorf("normalizeMenuPath(/RootComplex/Ports) = %q", got)
+	}
+}
+
+// A "/" with a space beside it is part of a form set's title, not a path
+// separator. Splitting on it invents a phantom "ACPI" menu holding nothing
+// with a " Device Tree" child under it.
+func TestBiosMenuPathKeepsLiteralSlashesInNames(t *testing.T) {
+	resetHostState(t)
+	seedRegistry(t, edk2Registry)
+
+	v := BiosSnapshot()
+	paths := map[string]BiosMenu{}
+	for _, mn := range v.Menus {
+		paths[mn.Path] = mn
+	}
+	const want = "./Raspberry Pi Configuration/ACPI / Device Tree"
+	mn, ok := paths[want]
+	if !ok {
+		t.Fatalf("menus = %v, want one at %q", keysOf(paths), want)
+	}
+	if mn.Depth != 2 {
+		t.Errorf("depth = %d, want 2 — the title's slash was treated as a separator", mn.Depth)
+	}
+	if mn.DisplayName != "ACPI / Device Tree" {
+		t.Errorf("DisplayName = %q, want the full title", mn.DisplayName)
+	}
+	if mn.Count != 2 {
+		t.Errorf("Count = %d, want 2", mn.Count)
+	}
+	for _, bad := range []string{"./Raspberry Pi Configuration/ACPI ", "./Raspberry Pi Configuration/ACPI / Device Tree/ Device Tree"} {
+		if _, ok := paths[bad]; ok {
+			t.Errorf("phantom menu %q was created", bad)
+		}
+	}
+}
+
+// A menu that files every attribute under a child must still render them,
+// grouped under a heading naming the child.
+func TestBiosSectionsIncludeDescendantMenus(t *testing.T) {
+	resetHostState(t)
+	seedRegistry(t, edk2Registry)
+
+	v := BiosSnapshot()
+	secs := v.Sections("./Raspberry Pi Configuration")
+	if len(secs) != 2 {
+		t.Fatalf("sections = %d, want 2 (one per child menu)", len(secs))
+	}
+	if secs[0].Label != "ACPI / Device Tree" || len(secs[0].Attrs) != 2 {
+		t.Errorf("section 0 = %q with %d attrs", secs[0].Label, len(secs[0].Attrs))
+	}
+	if secs[1].Label != "PCI Express" || len(secs[1].Attrs) != 1 {
+		t.Errorf("section 1 = %q with %d attrs", secs[1].Label, len(secs[1].Attrs))
+	}
+
+	// A leaf menu's own rows carry no sub-heading — the page already names it.
+	leaf := v.Sections("./Secure Boot")
+	if len(leaf) != 1 || leaf[0].Label != "" || len(leaf[0].Attrs) != 1 {
+		t.Errorf("leaf sections = %+v, want one unlabelled section of 1", leaf)
+	}
+}
+
+// Search spans menus, so each match has to say which one it came from.
+func TestBiosSearchSectionsGroupByMenu(t *testing.T) {
+	resetHostState(t)
+	seedRegistry(t, edk2Registry)
+
+	secs := BiosSnapshot().SearchSections("s")
+	if len(secs) < 2 {
+		t.Fatalf("sections = %d, want matches grouped across several menus", len(secs))
+	}
+	for _, s := range secs {
+		if s.Label == "" {
+			t.Errorf("section %q has no label; a search result must name its menu", s.Path)
+		}
+		if len(s.Attrs) == 0 {
+			t.Errorf("section %q is empty", s.Path)
+		}
+	}
+	// A nested menu is named by its whole path below the root.
+	for _, s := range secs {
+		if s.Path == "./Raspberry Pi Configuration/ACPI / Device Tree" &&
+			s.Label != "Raspberry Pi Configuration › ACPI / Device Tree" {
+			t.Errorf("nested label = %q, want the full path below the root", s.Label)
+		}
+	}
+}
+
+func keysOf(m map[string]BiosMenu) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

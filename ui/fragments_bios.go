@@ -178,16 +178,21 @@ func biosModel(menuPath, query string, errs map[string]string) components.BiosMo
 		})
 	}
 
-	var attrs []redfish.BiosAttribute
+	var sections []redfish.BiosSection
 	if query != "" {
-		attrs = view.Search(query)
+		sections = view.SearchSections(query)
 	} else {
 		m.MenuPath = menuPath
 		m.MenuLabel = menuLabels[menuPath]
-		attrs = view.Menu(menuPath)
+		sections = view.Sections(menuPath)
 	}
-	for _, a := range attrs {
-		m.Attrs = append(m.Attrs, biosAttr(a, errs[a.Name]))
+	for _, s := range sections {
+		sec := components.BiosSection{Path: s.Path, Label: s.Label}
+		for _, a := range s.Attrs {
+			sec.Attrs = append(sec.Attrs, biosAttr(a, errs[a.Name]))
+		}
+		m.AttrCount += len(sec.Attrs)
+		m.Sections = append(m.Sections, sec)
 	}
 
 	for _, a := range view.Pending() {

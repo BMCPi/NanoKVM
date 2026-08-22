@@ -149,7 +149,19 @@ type BiosView struct {
 	PendingCount    int             `json:"pendingCount"`
 }
 
-// Menu returns the attributes under one menu path, in display order.
+// BiosSection is one labelled group of attribute rows within a rendered
+// region. An empty Label means the rows belong to the menu the caller asked
+// for and are already named by its heading; a non-empty one names a
+// descendant menu relative to it.
+type BiosSection struct {
+	Path  string          `json:"path"`
+	Label string          `json:"label"`
+	Attrs []BiosAttribute `json:"attrs"`
+}
+
+// Menu returns the attributes filed directly under one menu path, in display
+// order. Callers rendering a menu want Sections instead — this is the exact
+// match that Sections is built from.
 func (v BiosView) Menu(path string) []BiosAttribute {
 	out := make([]BiosAttribute, 0, 16)
 	for _, a := range v.Attributes {
@@ -158,6 +170,137 @@ func (v BiosView) Menu(path string) []BiosAttribute {
 		}
 	}
 	return out
+}
+
+// Sections returns everything to render for a menu: its own attributes first,
+// then each descendant menu's under a heading naming it.
+//
+// Exact-path matching is not enough because a menu that holds nothing itself
+// and exists only to group children is the normal shape of an EDK2 registry —
+// "Raspberry Pi Configuration" files every one of its attributes under
+// "ACPI / Device Tree" or "PCI Express". Rendering only exact matches gives
+// such a menu a blank pane, and since the rail opens on its first entry, that
+// blank pane can be the first thing an operator sees.
+func (v BiosView) Sections(path string) []BiosSection {
+	path = normalizeMenuPath(path)
+	if path == "" {
+		return nil
+	}
+	byPath := v.attrsByMenu()
+	names := v.menuNames()
+
+	out := make([]BiosSection, 0, 4)
+	if attrs := byPath[path]; len(attrs) > 0 {
+		out = append(out, BiosSection{Path: path, Attrs: attrs})
+	}
+	for _, mn := range v.Menus {
+		if !isMenuDescendant(mn.Path, path) {
+			continue
+		}
+		// A pure container contributes no section of its own; the heading for
+		// its rows is the deeper menu that actually holds them.
+		if attrs := byPath[mn.Path]; len(attrs) > 0 {
+			out = append(out, BiosSection{
+				Path:  mn.Path,
+				Label: relativeMenuLabel(mn.Path, path, names),
+				Attrs: attrs,
+			})
+		}
+	}
+	return out
+}
+
+// SearchSections groups matches by the menu they belong to. Results span every
+// menu, so without the grouping an operator sees a flat list of labels like
+// "Enabled" and "Link Speed" with nothing saying what they configure.
+func (v BiosView) SearchSections(q string) []BiosSection {
+	hits := v.Search(q)
+	if len(hits) == 0 {
+		return nil
+	}
+	byPath := make(map[string][]BiosAttribute, len(v.Menus))
+	for _, a := range hits {
+		byPath[a.MenuPath] = append(byPath[a.MenuPath], a)
+	}
+	names := v.menuNames()
+
+	out := make([]BiosSection, 0, len(byPath))
+	for _, mn := range v.Menus {
+		if attrs := byPath[mn.Path]; len(attrs) > 0 {
+			out = append(out, BiosSection{
+				Path:  mn.Path,
+				Label: relativeMenuLabel(mn.Path, ".", names),
+				Attrs: attrs,
+			})
+			delete(byPath, mn.Path)
+		}
+	}
+	// A match whose menu the rail does not list (its menu was declared
+	// Hidden) still has to appear: search reached it, so dropping it here
+	// would make it findable and then invisible.
+	rest := make([]string, 0, len(byPath))
+	for p := range byPath {
+		rest = append(rest, p)
+	}
+	sort.Strings(rest)
+	for _, p := range rest {
+		out = append(out, BiosSection{
+			Path:  p,
+			Label: relativeMenuLabel(p, ".", names),
+			Attrs: byPath[p],
+		})
+	}
+	return out
+}
+
+func (v BiosView) attrsByMenu() map[string][]BiosAttribute {
+	out := make(map[string][]BiosAttribute, len(v.Menus))
+	for _, a := range v.Attributes {
+		out[a.MenuPath] = append(out[a.MenuPath], a)
+	}
+	return out
+}
+
+func (v BiosView) menuNames() map[string]string {
+	out := make(map[string]string, len(v.Menus))
+	for _, mn := range v.Menus {
+		out[mn.Path] = mn.DisplayName
+	}
+	return out
+}
+
+// isMenuDescendant reports whether child sits strictly below parent. Compared
+// segment by segment rather than by string prefix so a menu named "ACPI" is
+// never taken for the parent of one named "ACPI / Device Tree".
+func isMenuDescendant(child, parent string) bool {
+	cs, ps := menuSegments(child), menuSegments(parent)
+	if len(cs) <= len(ps) {
+		return false
+	}
+	for i, s := range ps {
+		if cs[i] != s {
+			return false
+		}
+	}
+	return true
+}
+
+// relativeMenuLabel names a menu by its path below base, so a grandchild reads
+// as "PCI Express > Slot 1" instead of losing the level in between.
+func relativeMenuLabel(path, base string, names map[string]string) string {
+	segs, baseSegs := menuSegments(path), menuSegments(base)
+	if len(segs) <= len(baseSegs) {
+		return ""
+	}
+	parts := make([]string, 0, len(segs)-len(baseSegs))
+	for i := len(baseSegs); i < len(segs); i++ {
+		name := segs[i]
+		if n := names["./"+strings.Join(segs[:i+1], "/")]; n != "" {
+			name = n
+		}
+		parts = append(parts, name)
+	}
+	return strings.Join(parts, " \u203a ")
 }
 
 // Pending returns every attribute carrying a staged change, in display order.
@@ -340,7 +483,7 @@ func parseBiosRegistry(reg map[string]any) ([]biosRegEntry, []biosRegMenu) {
 			continue
 		}
 		e := biosRegEntry{
-			Name:        stringField(m, "AttributeName"),
+			Name:        biosAttrKey(stringField(m, "AttributeName")),
 			DisplayName: stringField(m, "DisplayName"),
 			HelpText:    stringField(m, "HelpText"),
 			WarningText: stringField(m, "WarningText"),
@@ -413,6 +556,14 @@ func parseBiosRegistry(reg map[string]any) ([]biosRegEntry, []biosRegMenu) {
 	return entries, menus
 }
 
+// biosMenuRootSegment is the container EDK2 roots every HII form set under,
+// which is why registry MenuPaths arrive as "/Root/Raspberry Pi
+// Configuration/...". It holds no attributes itself, so keeping it would put a
+// dead node at the top of the rail, indent every real menu one level beneath
+// it, and — because the rail opens on its first entry — land the operator on
+// an empty pane.
+const biosMenuRootSegment = "Root"
+
 // normalizeMenuPath canonicalises the "./Advanced/CPU" form so paths from
 // Menus[] and from an attribute's MenuPath compare equal. An empty path
 // becomes "." — the root menu — rather than being dropped, or the attributes
@@ -427,12 +578,45 @@ func normalizeMenuPath(p string) string {
 	case p == "." || p == "./":
 		return "."
 	case strings.HasPrefix(p, "./"):
-		return p
 	case strings.HasPrefix(p, "/"):
-		return "." + p
+		p = "." + p
 	default:
-		return "./" + p
+		p = "./" + p
 	}
+	return stripMenuRoot(p)
+}
+
+// stripMenuRoot drops a leading Root segment, mapping "./Root/PCI" to "./PCI"
+// and "./Root" itself to the root menu. Matching is on the whole segment, so a
+// menu genuinely named "RootComplex" is left alone.
+func stripMenuRoot(p string) string {
+	const root = "./" + biosMenuRootSegment
+	switch {
+	case p == root:
+		return "."
+	case strings.HasPrefix(p, root+"/"):
+		return "./" + strings.TrimPrefix(p, root+"/")
+	default:
+		return p
+	}
+}
+
+// biosAttrKey reduces a registry AttributeName to the key the host reports the
+// value under in Bios.Attributes.
+//
+// EDK2's HII-to-Redfish translation publishes the full JSON pointer
+// ("/Bios/Attributes/SystemTableMode") while the Attributes object it PATCHes
+// is keyed by the bare name. Joining the two on the raw string matches
+// nothing, and the failure is quiet rather than loud: every registered
+// attribute falls back to its DefaultValue, every reported value turns up a
+// second time in the Unregistered bucket, and staging one writes a key the
+// firmware never reads. A name that is not a pointer is left untouched.
+func biosAttrKey(name string) string {
+	name = strings.TrimSpace(name)
+	if !strings.HasPrefix(name, "/") {
+		return name
+	}
+	return strings.TrimSpace(name[strings.LastIndex(name, "/")+1:])
 }
 
 // buildBiosMenus produces the rail: every menu the registry declared, plus
@@ -528,12 +712,28 @@ func menuSortKey(m BiosMenu, byPath map[string]*BiosMenu) string {
 	return b.String()
 }
 
+// menuSegments splits a menu path into its segments.
+//
+// A "/" with whitespace beside it is not a separator. EDK2 form sets carry
+// titles like "ACPI / Device Tree", and splitting those would invent a phantom
+// "ACPI" menu holding nothing with a " Device Tree" child under it — two rail
+// entries for what the firmware calls one screen. Real separators in a
+// MenuPath never have spaces around them.
 func menuSegments(path string) []string {
 	p := strings.TrimPrefix(normalizeMenuPath(path), "./")
 	if p == "" || p == "." {
 		return nil
 	}
-	return strings.Split(p, "/")
+	raw := strings.Split(p, "/")
+	out := make([]string, 0, len(raw))
+	for i, s := range raw {
+		if i > 0 && (strings.HasSuffix(out[len(out)-1], " ") || strings.HasPrefix(s, " ")) {
+			out[len(out)-1] += "/" + s
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 func menuDepth(path string) int { return len(menuSegments(path)) }

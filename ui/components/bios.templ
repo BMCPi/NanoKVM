@@ -251,7 +251,7 @@ func biosIndent(depth int) string {
 templ BiosContent(m BiosModel) {
 	if m.Empty() {
 		@biosEmptyState()
-	} else if m.Searching() && len(m.Attrs) == 0 {
+	} else if m.Searching() && m.AttrCount == 0 {
 		<p class="px-1 py-6 text-center text-xs text-muted-foreground">
 			No attribute matches “{ m.Query }”.
 		</p>
@@ -302,19 +302,17 @@ templ biosForm(m BiosModel) {
 		<input type="hidden" name="q" value={ m.Query }/>
 		if m.Searching() {
 			<p class="mb-3 text-xs text-muted-foreground">
-				{ strconv.Itoa(len(m.Attrs)) } matching { utils.IfElse(len(m.Attrs) == 1, "attribute", "attributes") } across all menus.
+				{ strconv.Itoa(m.AttrCount) } matching { utils.IfElse(m.AttrCount == 1, "attribute", "attributes") } across all menus.
 			</p>
+		} else if m.MenuLabel != "" {
+			// The menu's own name sits above the sub-sections rather than
+			// acting as one of their legends: a menu that files every
+			// attribute under a child would otherwise never be named here.
+			<h3 class="mb-2 text-sm font-semibold">{ m.MenuLabel }</h3>
 		}
 		@field.Group() {
-			@field.Set() {
-				if !m.Searching() && m.MenuLabel != "" {
-					@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
-						{ m.MenuLabel }
-					}
-				}
-				for _, a := range m.Attrs {
-					@biosAttrRow(a)
-				}
+			for _, s := range m.Sections {
+				@biosSection(s)
 			}
 		}
 		<div class="mt-4 flex items-center gap-2">
@@ -326,6 +324,23 @@ templ biosForm(m BiosModel) {
 			</p>
 		</div>
 	</form>
+}
+
+// biosSection renders one group of rows. The registry's MenuPath is what
+// groups them and its DisplayName is what titles the group, so a screen the
+// firmware calls "ACPI / Device Tree" reads that way here too. A section
+// carrying no label belongs to the menu already named above it.
+templ biosSection(s BiosSection) {
+	@field.Set() {
+		if s.Label != "" {
+			@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+				{ s.Label }
+			}
+		}
+		for _, a := range s.Attrs {
+			@biosAttrRow(a)
+		}
+	}
 }
 
 // biosAttrRow renders one attribute: its label, help text, the control its
