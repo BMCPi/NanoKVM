@@ -56,6 +56,10 @@ func Register(r *gin.Engine, d *deps.Deps) {
 		api.PATCH("/Systems/1/Bios", service.PatchBios)
 		api.GET("/Systems/1/Bios/Settings", service.GetBiosSettings)
 		api.PATCH("/Systems/1/Bios/Settings", service.PatchBiosSettings)
+		// The v1_1_0 client's consume path DELETEs the settings object to
+		// acknowledge it applied the staged attributes; without this route the
+		// stage never clears and re-applies every boot.
+		api.DELETE("/Systems/1/Bios/Settings", service.DeleteBiosSettings)
 		// The attribute registry hangs off Bios rather than /Registries:
 		// EDK2's client builds the URI as <parent of Bios>/<AttributeRegistry
 		// property>, so the wildcard catches whatever name it derived
@@ -136,10 +140,14 @@ func Register(r *gin.Engine, d *deps.Deps) {
 		api.GET("/SessionService/Sessions", service.GetSessionCollection)
 		api.DELETE("/SessionService/Sessions/:id", service.DeleteSession)
 
-		// UpdateService (FMP capsule staging; the host applies at next boot)
+		// UpdateService (FMP capsule staging; the host applies at next boot).
+		// The inventory members are host reports: RpiRedfishSyncDxe PATCHes
+		// SoftwareInventory member "BiosFirmware" once per boot ("BIOS" is the
+		// legacy spelling of the synthesized fallback member).
 		api.GET("/UpdateService", service.GetUpdateService)
 		api.GET("/UpdateService/FirmwareInventory", service.GetFirmwareInventoryCollection)
-		api.GET("/UpdateService/FirmwareInventory/BIOS", service.GetFirmwareInventoryBIOS)
+		api.GET("/UpdateService/FirmwareInventory/:id", service.GetFirmwareInventoryMember)
+		api.PATCH("/UpdateService/FirmwareInventory/:id", service.PatchFirmwareInventoryMember)
 		api.POST("/UpdateService/Actions/UpdateService.SimpleUpdate", service.SimpleUpdate)
 		api.POST("/UpdateService/update", service.PushCapsule)
 	}

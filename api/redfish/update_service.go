@@ -61,30 +61,54 @@ func (s *Service) GetUpdateService(c *gin.Context) {
 	})
 }
 
-// GetFirmwareInventoryCollection returns the firmware inventory collection.
+// GetFirmwareInventoryCollection returns the firmware inventory collection:
+// the members the host has PATCHed, or the synthesized BiosFirmware entry
+// before the first report so the branch is never empty.
 func (s *Service) GetFirmwareInventoryCollection(c *gin.Context) {
+	links := Links{}
+	for _, id := range hostCollectionIDs(firmwareOf) {
+		links = append(links, Link(firmwareInventoryPath+"/"+id))
+	}
+	if len(links) == 0 {
+		links = Links{Link(firmwareBiosFirmwarePath)}
+	}
 	c.JSON(http.StatusOK, newCollection(
 		"SoftwareInventoryCollection", "Firmware Inventory Collection", firmwareInventoryPath,
-		Link(firmwareBIOSPath),
+		links...,
 	))
 }
 
-// GetFirmwareInventoryBIOS returns the host boot firmware inventory entry.
-// The version is whatever the host last reported about itself — the BMC has
-// no other window into what the host is actually running.
-func (s *Service) GetFirmwareInventoryBIOS(c *gin.Context) {
+// GetFirmwareInventoryMember returns one firmware inventory entry: the
+// SoftwareInventory document the host PATCHed if there is one, else — for the
+// BiosFirmware member and its legacy "BIOS" spelling — a minimal entry built
+// from the BiosVersion the host reported on Systems/1. The BMC has no other
+// window into what the host is actually running.
+func (s *Service) GetFirmwareInventoryMember(c *gin.Context) {
+	id := c.Param("id")
+	path := firmwareInventoryPath + "/" + id
+
+	if stored, ok := hostCollectionGet(firmwareOf, id); ok {
+		writeHostResource(c, renderHostMember(stored, path, id,
+			"#SoftwareInventory.v1_2_3.SoftwareInventory",
+			"SoftwareInventory.SoftwareInventory", id))
+		return
+	}
+	if id != firmwareBiosMemberID && id != firmwareBiosLegacyID {
+		redfishErrorResponse(c, http.StatusNotFound, "no such firmware inventory member")
+		return
+	}
+
 	reported, _ := HostReported()
 	version := reported.BiosVersion
 	if version == "" {
 		version = "Unknown"
 	}
-
 	c.JSON(http.StatusOK, SoftwareInventory{
 		Resource: Resource{
 			ODataType:    "#SoftwareInventory.v1_8_0.SoftwareInventory",
-			ODataID:      firmwareBIOSPath,
+			ODataID:      path,
 			ODataContext: odataContext("SoftwareInventory.SoftwareInventory"),
-			ID:           "BIOS",
+			ID:           id,
 			Name:         "BIOS",
 			Description:  "Host boot firmware version, as reported by the host",
 		},
@@ -93,6 +117,42 @@ func (s *Service) GetFirmwareInventoryBIOS(c *gin.Context) {
 		Updateable: true,
 		Status:     &Status{State: schemas.EnabledState, Health: schemas.OKHealth},
 	})
+}
+
+// PatchFirmwareInventoryMember stores the host's SoftwareInventory report
+// (RpiRedfishSyncDxe PATCHes member "BiosFirmware" once per boot: version,
+// the ESRT class GUID as SoftwareId, and the FMP integers under Oem.PiBmc).
+// PATCH merges per DSP0266; the host re-reports the full document each boot
+// so the merged result tracks it, while a boot that omits LastAttempt* keeps
+// the last known attempt visible.
+func (s *Service) PatchFirmwareInventoryMember(c *gin.Context) {
+	if !hostWritable(c) {
+		return
+	}
+	id := c.Param("id")
+	path := firmwareInventoryPath + "/" + id
+	if current, ok := hostCollectionGet(firmwareOf, id); ok {
+		if !hostCheckIfMatch(c, renderHostMember(current, path, id,
+			"#SoftwareInventory.v1_2_3.SoftwareInventory",
+			"SoftwareInventory.SoftwareInventory", id)) {
+			return
+		}
+	}
+	body, ok := bindHostBody(c)
+	if !ok {
+		return
+	}
+	// Upsert: PATCH is the only verb the host uses here, so the first report
+	// of a boot creates the member (hostCollectionMerge only updates ones
+	// that already exist).
+	merged := hostCollectionMerge(firmwareOf, id, body)
+	if merged == nil {
+		hostCollectionPut(firmwareOf, id, body)
+		merged = body
+	}
+	writeHostResource(c, renderHostMember(merged, path, id,
+		"#SoftwareInventory.v1_2_3.SoftwareInventory",
+		"SoftwareInventory.SoftwareInventory", id))
 }
 
 // SimpleUpdate downloads the FMP capsule at ImageURI and stages it on the

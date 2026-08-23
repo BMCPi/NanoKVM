@@ -71,6 +71,11 @@ type hostState struct {
 	Processors  map[string]map[string]any `json:"processors"`
 	Drives      map[string]map[string]any `json:"drives"`
 
+	// Firmware is the UpdateService FirmwareInventory, keyed by member Id.
+	// RpiRedfishSyncDxe PATCHes one SoftwareInventory member ("BiosFirmware")
+	// per boot with the ESRT view of the running image.
+	Firmware map[string]map[string]any `json:"firmware"`
+
 	// BiosAttributes is what is in effect now (host-reported); BiosPending
 	// is what an operator staged for the next boot (the @Redfish.Settings
 	// pattern). BiosRegistry stays nil until the host PUTs one: "no
@@ -92,6 +97,7 @@ var host = &hostState{
 	Memory:         map[string]map[string]any{},
 	Processors:     map[string]map[string]any{},
 	Drives:         map[string]map[string]any{},
+	Firmware:       map[string]map[string]any{},
 	BiosAttributes: map[string]any{},
 	BiosPending:    map[string]any{},
 	SecureBoot: map[string]any{
@@ -283,6 +289,7 @@ func LoadHostState() {
 		&host.Memory:      restored.Memory,
 		&host.Processors:  restored.Processors,
 		&host.Drives:      restored.Drives,
+		&host.Firmware:    restored.Firmware,
 	} {
 		if src != nil {
 			*dst = src

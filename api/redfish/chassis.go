@@ -84,10 +84,20 @@ func (s *Service) GetChassisThermal(c *gin.Context) {
 		"#Thermal.v1_7_1.Thermal", "Thermal.Thermal", "Thermal"))
 }
 
-// PatchChassisThermal stores the host's thermal report (shallow merge, like
-// the other host-owned resources).
+// PatchChassisThermal carries both write directions on Thermal, split by
+// origin the way PATCH /Systems/1 is:
+//
+//   - The host's firmware reports temperatures and fan state (shallow
+//     top-level merge, like the other host-owned resources). Its Oem data is
+//     nested inside Fans[0], so the merge never touches the top-level Oem
+//     block the operator stages into.
+//   - An operator stages the fan override RpiRedfishSyncDxe polls for:
+//     Oem.PiBmc.FanOverrideLevel (integer 0..255 pins the fan; null — or any
+//     non-integer — releases it). Nothing else on the resource is
+//     operator-writable, because everything else is a host report.
 func (s *Service) PatchChassisThermal(c *gin.Context) {
-	if !hostWritable(c) {
+	if !IsHostInterfaceRequest(c) {
+		s.patchThermalFanOverride(c)
 		return
 	}
 	host.mu.RLock()
@@ -111,6 +121,86 @@ func (s *Service) PatchChassisThermal(c *gin.Context) {
 	merged := copyAnyMap(host.Thermal)
 	host.mu.Unlock()
 	hostStateSave()
+	writeHostResource(c, renderHostMember(merged, chassisThermalPath, "Thermal",
+		"#Thermal.v1_7_1.Thermal", "Thermal.Thermal", "Thermal"))
+}
+
+// patchThermalFanOverride is the operator lane of PATCH Chassis/1/Thermal.
+// The accepted body is exactly {"Oem":{"PiBmc":{"FanOverrideLevel": n|null}}}
+// — an integer 0..255 stages the override the host's sync driver applies
+// through RPI_FAN_PROTOCOL, null releases it (the host treats an absent or
+// non-integer value as "not steering"). Persisted immediately: it is an
+// operator instruction the host has not read yet.
+func (s *Service) patchThermalFanOverride(c *gin.Context) {
+	host.mu.RLock()
+	current := copyAnyMap(host.Thermal)
+	host.mu.RUnlock()
+	if !hostCheckIfMatch(c, renderHostMember(current, chassisThermalPath, "Thermal",
+		"#Thermal.v1_7_1.Thermal", "Thermal.Thermal", "Thermal")) {
+		return
+	}
+	patch, ok := bindHostBody(c)
+	if !ok {
+		return
+	}
+	reject := func() {
+		redfishErrorResponse(c, http.StatusForbidden,
+			"Thermal is reported by the managed host; operators may only stage Oem.PiBmc.FanOverrideLevel")
+	}
+	if len(patch) != 1 {
+		reject()
+		return
+	}
+	oemPatch, ok := patch["Oem"].(map[string]any)
+	if !ok || len(oemPatch) != 1 {
+		reject()
+		return
+	}
+	piBmcPatch, ok := oemPatch["PiBmc"].(map[string]any)
+	if !ok || len(piBmcPatch) != 1 {
+		reject()
+		return
+	}
+	raw, ok := piBmcPatch["FanOverrideLevel"]
+	if !ok {
+		reject()
+		return
+	}
+	// null releases the override; an integer 0..255 stages it.
+	var level *int64
+	if raw != nil {
+		f, isNum := raw.(float64)
+		if !isNum || f != float64(int64(f)) || f < 0 || f > 255 {
+			redfishErrorResponse(c, http.StatusBadRequest,
+				"FanOverrideLevel must be an integer 0..255, or null to release")
+			return
+		}
+		n := int64(f)
+		level = &n
+	}
+
+	host.mu.Lock()
+	if host.Thermal == nil {
+		host.Thermal = map[string]any{}
+	}
+	oem, _ := host.Thermal["Oem"].(map[string]any)
+	if oem == nil {
+		oem = map[string]any{}
+	}
+	piBmc, _ := oem["PiBmc"].(map[string]any)
+	if piBmc == nil {
+		piBmc = map[string]any{}
+	}
+	if level == nil {
+		delete(piBmc, "FanOverrideLevel")
+	} else {
+		piBmc["FanOverrideLevel"] = *level
+	}
+	oem["PiBmc"] = piBmc
+	host.Thermal["Oem"] = oem
+	merged := copyAnyMap(host.Thermal)
+	host.mu.Unlock()
+	hostStateFlush()
 	writeHostResource(c, renderHostMember(merged, chassisThermalPath, "Thermal",
 		"#Thermal.v1_7_1.Thermal", "Thermal.Thermal", "Thermal"))
 }

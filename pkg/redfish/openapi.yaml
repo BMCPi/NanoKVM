@@ -589,6 +589,34 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Sensor" }
         "404": { description: No such sensor. }
+  /redfish/v1/Chassis/1/Thermal:
+    get:
+      tags: [Chassis]
+      summary: |
+        The thermal report (Temperatures, Fans) the managed host's firmware
+        PATCHes during boot — empty-but-valid before the first report, since
+        a 404 would end the host driver's walk. A staged fan override
+        appears at Oem.PiBmc.FanOverrideLevel; the host polls for it and
+        pins the fan while it is an integer.
+      responses:
+        "200": { description: Thermal resource. }
+    patch:
+      tags: [Chassis]
+      summary: |
+        Two write directions, split by origin. From the host interface:
+        the firmware's thermal report (Temperatures and Fans, with the fan
+        controller's state under Fans[0].Oem.PiBmc), shallow-merged. From
+        an authenticated operator: exactly
+        {"Oem":{"PiBmc":{"FanOverrideLevel": n}}} stages the fan override
+        the host applies (integer 0..255), null releases it; any other
+        operator write is refused because the rest of the resource is a
+        host report.
+      responses:
+        "200": { description: Thermal resource after the write. }
+        "400": { description: FanOverrideLevel not an integer 0..255 or null. }
+        "403": { description: Operator write outside Oem.PiBmc.FanOverrideLevel. }
+        "412": { description: If-Match did not match. }
+
   /redfish/v1/Systems/1/Bios:
     get:
       tags: [Bios]
@@ -690,6 +718,18 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Bios" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "412": { description: If-Match did not match. }
+    delete:
+      tags: [Bios]
+      summary: |
+        (Host interface only) Acknowledge the staged attributes were
+        consumed — the v1_1_0 EDK2 client DELETEs the settings object after
+        applying it at boot (the v1_0_9 client cleared it by PATCHing an
+        empty set, which still works). Only the stage empties; the resource
+        itself keeps answering GET, which the next boot expects.
+      responses:
+        "204": { description: Stage cleared. }
+        "403": { description: Not the host interface. }
         "412": { description: If-Match did not match. }
 
   /redfish/v1/Systems/1/Bios/{registry}:
@@ -898,15 +938,25 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/Collection" }
 
-  /redfish/v1/UpdateService/FirmwareInventory/BIOS:
+  /redfish/v1/UpdateService/FirmwareInventory/{memberId}:
+    parameters:
+      - name: memberId
+        in: path
+        required: true
+        description: |
+          BiosFirmware is the member the host's sync driver PATCHes each
+          boot; BIOS is the legacy spelling of the synthesized fallback.
+        schema: { type: string, default: BiosFirmware }
     get:
       tags: [UpdateService]
       summary: |
-        Host boot firmware version, as the host itself reported it
-        ("Unknown" before the first report).
+        One firmware inventory entry: the SoftwareInventory document the
+        host PATCHed, or — before the first report, for BiosFirmware/BIOS —
+        a minimal entry built from the BiosVersion the host reported on
+        Systems/1 ("Unknown" before that).
       responses:
         "200":
-          description: SoftwareInventory document for the BIOS slot.
+          description: SoftwareInventory document.
           content:
             application/json:
               schema:
@@ -915,13 +965,35 @@ paths:
                   "@odata.type":
                     {
                       type: string,
-                      example: "#SoftwareInventory.v1_8_0.SoftwareInventory",
+                      example: "#SoftwareInventory.v1_2_3.SoftwareInventory",
                     }
                   "@odata.id": { type: string }
-                  Id: { type: string, example: BIOS }
+                  Id: { type: string, example: BiosFirmware }
                   Name: { type: string }
-                  Version: { type: string, example: "2026.07" }
+                  Version: { type: string, example: "202608" }
+                  SoftwareId:
+                    {
+                      type: string,
+                      description: ESRT firmware class GUID — what a capsule is built against.,
+                    }
                   Updateable: { type: boolean }
+                  Oem:
+                    {
+                      type: object,
+                      description: PiBmc carries the ESRT integers (FirmwareVersion, LowestSupportedVersion, LastAttemptVersion/Status).,
+                    }
+        "404": { description: Unknown member. }
+    patch:
+      tags: [UpdateService]
+      summary: |
+        (Host interface only) The host's firmware-inventory report. The
+        sync driver PATCHes the full SoftwareInventory document once per
+        boot; re-reports update the member rather than accumulating
+        duplicates, and the first report creates it.
+      responses:
+        "200": { description: Stored SoftwareInventory document. }
+        "403": { description: Not the host interface. }
+        "412": { description: If-Match did not match. }
 
   /redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate:
     post:

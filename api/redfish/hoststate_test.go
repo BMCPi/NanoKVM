@@ -45,6 +45,8 @@ func resetHostState(t *testing.T) {
 		host.BiosAttributes = map[string]any{}
 		host.BiosPending = map[string]any{}
 		host.BiosRegistry = nil
+		host.Firmware = map[string]map[string]any{}
+		host.Thermal = nil
 		host.mu.Unlock()
 	}
 	reset()
@@ -93,8 +95,14 @@ func hostRouter() *gin.Engine {
 	r.PATCH("/redfish/v1/Systems/1/Bios", svc.PatchBios)
 	r.GET("/redfish/v1/Systems/1/Bios/Settings", svc.GetBiosSettings)
 	r.PATCH("/redfish/v1/Systems/1/Bios/Settings", svc.PatchBiosSettings)
+	r.DELETE("/redfish/v1/Systems/1/Bios/Settings", svc.DeleteBiosSettings)
 	r.GET("/redfish/v1/Systems/1/SecureBoot", svc.GetSecureBoot)
 	r.PATCH("/redfish/v1/Systems/1/SecureBoot", svc.PatchSecureBoot)
+	r.GET("/redfish/v1/Chassis/1/Thermal", svc.GetChassisThermal)
+	r.PATCH("/redfish/v1/Chassis/1/Thermal", svc.PatchChassisThermal)
+	r.GET("/redfish/v1/UpdateService/FirmwareInventory", svc.GetFirmwareInventoryCollection)
+	r.GET("/redfish/v1/UpdateService/FirmwareInventory/:id", svc.GetFirmwareInventoryMember)
+	r.PATCH("/redfish/v1/UpdateService/FirmwareInventory/:id", svc.PatchFirmwareInventoryMember)
 	return r
 }
 
@@ -134,6 +142,8 @@ func TestHostWritesRejectedFromLAN(t *testing.T) {
 		{http.MethodPatch, "/redfish/v1/Systems/1/Bios"},
 		{http.MethodPost, "/redfish/v1/Systems/1/Bios"},
 		{http.MethodPut, "/redfish/v1/Systems/1/Bios"},
+		{http.MethodDelete, "/redfish/v1/Systems/1/Bios/Settings"},
+		{http.MethodPatch, "/redfish/v1/UpdateService/FirmwareInventory/BiosFirmware"},
 		{http.MethodPatch, "/redfish/v1/Systems/1/SecureBoot"},
 	} {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
@@ -406,6 +416,154 @@ func TestBiosV110ProvisionAndUpdate(t *testing.T) {
 	}
 }
 
+// The v1_1_0 client's consume acknowledgement: after applying the staged
+// attributes it DELETEs the settings object. The stage clears; the resource
+// keeps answering (the next boot's GetPendingSettings GETs it again).
+func TestBiosSettingsDeleteAcknowledgesConsume(t *testing.T) {
+	resetHostState(t)
+	r := hostRouter()
+	from := hostIP(t)
+
+	w := do(r, http.MethodPatch, "/redfish/v1/Systems/1/Bios/Settings", lanIP,
+		`{"Attributes":{"BootTimeout":10}}`, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("operator stage = %d, body %s", w.Code, w.Body.String())
+	}
+
+	w = do(r, http.MethodDelete, "/redfish/v1/Systems/1/Bios/Settings", from, "", nil)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("host DELETE Settings = %d, want 204: %s", w.Code, w.Body.String())
+	}
+	if pending := hostBiosPending(); len(pending) != 0 {
+		t.Errorf("pending not cleared by DELETE: %v", pending)
+	}
+
+	// The resource survives the DELETE — only the stage empties.
+	w = do(r, http.MethodGet, "/redfish/v1/Systems/1/Bios/Settings", lanIP, "", nil)
+	if w.Code != http.StatusOK {
+		t.Errorf("GET Settings after DELETE = %d, want 200", w.Code)
+	}
+}
+
+// RpiRedfishSyncDxe PATCHes SoftwareInventory member BiosFirmware once per
+// boot; the collection and member GETs must serve it back.
+func TestFirmwareInventoryHostReport(t *testing.T) {
+	resetHostState(t)
+	r := hostRouter()
+	from := hostIP(t)
+
+	// Before any report the synthesized member answers, under both the
+	// canonical and the legacy spelling.
+	for _, id := range []string{"BiosFirmware", "BIOS"} {
+		w := do(r, http.MethodGet, "/redfish/v1/UpdateService/FirmwareInventory/"+id, lanIP, "", nil)
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET synthesized %s = %d", id, w.Code)
+		}
+	}
+	w := do(r, http.MethodGet, "/redfish/v1/UpdateService/FirmwareInventory/NotAThing", lanIP, "", nil)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("GET unknown member = %d, want 404", w.Code)
+	}
+
+	// The exact body shape RpiRedfishBuildFirmwareInventoryPatch produces.
+	w = do(r, http.MethodPatch, "/redfish/v1/UpdateService/FirmwareInventory/BiosFirmware", from,
+		`{"@odata.type":"#SoftwareInventory.v1_2_3.SoftwareInventory","Id":"BiosFirmware",`+
+			`"Name":"Raspberry Pi 5 UEFI Firmware","Version":"202608","SoftwareId":"11111111-2222-3333-4444-555555555555",`+
+			`"Updateable":true,"Status":{"State":"Enabled","Health":"OK"},`+
+			`"Oem":{"PiBmc":{"FirmwareVersion":9,"LowestSupportedVersion":1}}}`, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("host PATCH BiosFirmware = %d, body %s", w.Code, w.Body.String())
+	}
+
+	w = do(r, http.MethodGet, "/redfish/v1/UpdateService/FirmwareInventory/BiosFirmware", lanIP, "", nil)
+	var inv map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &inv); err != nil {
+		t.Fatalf("member unmarshal: %v", err)
+	}
+	if inv["Version"] != "202608" || inv["@odata.type"] != "#SoftwareInventory.v1_2_3.SoftwareInventory" {
+		t.Errorf("stored member = %v, want the host report served back", inv)
+	}
+
+	w = do(r, http.MethodGet, "/redfish/v1/UpdateService/FirmwareInventory", lanIP, "", nil)
+	if !strings.Contains(w.Body.String(), "/redfish/v1/UpdateService/FirmwareInventory/BiosFirmware") {
+		t.Errorf("collection does not list the reported member: %s", w.Body.String())
+	}
+}
+
+// The Thermal fan-override wire contract: the operator stages
+// Oem.PiBmc.FanOverrideLevel at the resource top level; the host reports
+// Temperatures/Fans (its Oem block nested inside Fans[0]) without touching
+// it; PollFanOverride reads the staged integer back; null releases it.
+func TestThermalFanOverrideStaging(t *testing.T) {
+	resetHostState(t)
+	r := hostRouter()
+	from := hostIP(t)
+
+	hostReport := `{"Temperatures":[{"MemberId":"SoC","ReadingCelsius":48.123}],` +
+		`"Fans":[{"MemberId":"ActiveCooler","Reading":40,"ReadingUnits":"Percent",` +
+		`"Oem":{"PiBmc":{"Level":2,"MaxLevel":4,"OverrideActive":false}}}]}`
+
+	w := do(r, http.MethodPatch, "/redfish/v1/Chassis/1/Thermal", from, hostReport, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("host thermal report = %d, body %s", w.Code, w.Body.String())
+	}
+
+	// Operator stages the override from the LAN.
+	w = do(r, http.MethodPatch, "/redfish/v1/Chassis/1/Thermal", lanIP,
+		`{"Oem":{"PiBmc":{"FanOverrideLevel":3}}}`, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("operator stage override = %d, body %s", w.Code, w.Body.String())
+	}
+
+	// Anything else from the LAN is refused — Thermal is a host report.
+	w = do(r, http.MethodPatch, "/redfish/v1/Chassis/1/Thermal", lanIP,
+		`{"Fans":[{"Reading":0}]}`, nil)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("operator patching host fields = %d, want 403", w.Code)
+	}
+	w = do(r, http.MethodPatch, "/redfish/v1/Chassis/1/Thermal", lanIP,
+		`{"Oem":{"PiBmc":{"FanOverrideLevel":900}}}`, nil)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("out-of-range level = %d, want 400", w.Code)
+	}
+
+	// A later host report must not clobber the staged override.
+	w = do(r, http.MethodPatch, "/redfish/v1/Chassis/1/Thermal", from, hostReport, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("second host report = %d", w.Code)
+	}
+
+	w = do(r, http.MethodGet, "/redfish/v1/Chassis/1/Thermal", lanIP, "", nil)
+	var thermal struct {
+		Oem struct {
+			PiBmc struct {
+				FanOverrideLevel *int64 `json:"FanOverrideLevel"`
+			} `json:"PiBmc"`
+		} `json:"Oem"`
+		Fans []map[string]any `json:"Fans"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &thermal); err != nil {
+		t.Fatalf("thermal unmarshal: %v", err)
+	}
+	if thermal.Oem.PiBmc.FanOverrideLevel == nil || *thermal.Oem.PiBmc.FanOverrideLevel != 3 {
+		t.Errorf("staged override missing after host report: %s", w.Body.String())
+	}
+	if len(thermal.Fans) != 1 {
+		t.Errorf("host fan report lost: %s", w.Body.String())
+	}
+
+	// null releases: PollFanOverride sees no integer and clears the pin.
+	w = do(r, http.MethodPatch, "/redfish/v1/Chassis/1/Thermal", lanIP,
+		`{"Oem":{"PiBmc":{"FanOverrideLevel":null}}}`, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("release override = %d, body %s", w.Code, w.Body.String())
+	}
+	w = do(r, http.MethodGet, "/redfish/v1/Chassis/1/Thermal", lanIP, "", nil)
+	if strings.Contains(w.Body.String(), "FanOverrideLevel") {
+		t.Errorf("override not released: %s", w.Body.String())
+	}
+}
+
 // PATCH /Systems/1 carries both directions: boot override from anywhere,
 // identity reports only from the host interface.
 func TestPatchSystemDirections(t *testing.T) {
@@ -640,9 +798,6 @@ func TestBiosAttributeRegistryPutFromLANPersists(t *testing.T) {
 func TestChassisThermalHostReport(t *testing.T) {
 	resetHostState(t)
 	r := hostRouter()
-	svc := NewService(testDeps())
-	r.GET("/redfish/v1/Chassis/1/Thermal", svc.GetChassisThermal)
-	r.PATCH("/redfish/v1/Chassis/1/Thermal", svc.PatchChassisThermal)
 	from := hostIP(t)
 
 	w := do(r, http.MethodGet, "/redfish/v1/Chassis/1/Thermal", lanIP, "", nil)

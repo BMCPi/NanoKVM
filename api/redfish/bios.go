@@ -25,6 +25,13 @@ package redfish
 //   - GET  /Systems/1/Bios/Settings         the operator-staged pending set
 //   - PATCH /Systems/1/Bios/Settings        operator stages attributes for
 //                                           the host to apply on next boot
+//   - DELETE /Systems/1/Bios/Settings       host acknowledges it consumed the
+//                                           staged set (host interface only).
+//                                           v1_1_0's consume path DELETEs the
+//                                           settings URI; v1_0_9 cleared by
+//                                           PATCHing an empty set, still
+//                                           supported. The stage empties; the
+//                                           resource keeps being served.
 //   - GET  /Systems/1/Bios/AttributeRegistry  the registry the host PUT
 //   - PUT  /Systems/1/Bios/AttributeRegistry  publishes the registry (host
 //                                             interface, or an authenticated
@@ -219,6 +226,24 @@ func (s *Service) PatchBiosSettings(c *gin.Context) {
 		Severity:  "OK",
 	}}
 	writeHostResource(c, hostView(res))
+}
+
+// DeleteBiosSettings is the v1_1_0 client's consume acknowledgement: after
+// reading the staged attributes over the host interface, its consume path
+// DELETEs the settings resource to mark them consumed (BiosDxe logs and moves
+// on when a BMC lacks the route — but then re-applies the same stage every
+// boot). Only the stage is cleared, never the resource: the next boot's
+// GetPendingSettings expects the @Redfish.Settings URI to still answer, so
+// GET keeps serving the settings object with an empty Attributes set.
+func (s *Service) DeleteBiosSettings(c *gin.Context) {
+	if !hostWritable(c) {
+		return
+	}
+	if !hostCheckIfMatch(c, hostView(biosSettingsResource())) {
+		return
+	}
+	setHostBiosPending(map[string]any{})
+	c.Status(http.StatusNoContent)
 }
 
 // biosRegistryName is the default AttributeRegistry name. EDK2's client
