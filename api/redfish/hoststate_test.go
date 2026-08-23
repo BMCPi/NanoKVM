@@ -88,6 +88,8 @@ func hostRouter() *gin.Engine {
 	r.POST("/redfish/v1/Systems/1/Storage/:storage/Drives", svc.PostHostDrive)
 	r.GET("/redfish/v1/Systems/1/Storage/:storage/Drives/:drive", svc.GetDrive)
 	r.GET("/redfish/v1/Systems/1/Bios", svc.GetBios)
+	r.POST("/redfish/v1/Systems/1/Bios", svc.PostBios)
+	r.PUT("/redfish/v1/Systems/1/Bios", svc.PutBios)
 	r.PATCH("/redfish/v1/Systems/1/Bios", svc.PatchBios)
 	r.GET("/redfish/v1/Systems/1/Bios/Settings", svc.GetBiosSettings)
 	r.PATCH("/redfish/v1/Systems/1/Bios/Settings", svc.PatchBiosSettings)
@@ -130,6 +132,8 @@ func TestHostWritesRejectedFromLAN(t *testing.T) {
 		{http.MethodDelete, "/redfish/v1/Systems/1/Processors/CPU1"},
 		{http.MethodPost, "/redfish/v1/Systems/1/Storage/1/Drives"},
 		{http.MethodPatch, "/redfish/v1/Systems/1/Bios"},
+		{http.MethodPost, "/redfish/v1/Systems/1/Bios"},
+		{http.MethodPut, "/redfish/v1/Systems/1/Bios"},
 		{http.MethodPatch, "/redfish/v1/Systems/1/SecureBoot"},
 	} {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
@@ -342,6 +346,63 @@ func TestBiosReportAndStaging(t *testing.T) {
 	}
 	if pending := hostBiosPending(); len(pending) != 0 {
 		t.Errorf("pending not cleared: %v", pending)
+	}
+}
+
+// The v1_1_0 client's wire sequence: POST full-provisions when the resource
+// has none of its attributes (first boot), PUT writes the complete current
+// set back on every later pass. Both replace rather than merge — the client
+// always carries the full vocabulary — so a key absent from a PUT is
+// retired without an explicit null.
+func TestBiosV110ProvisionAndUpdate(t *testing.T) {
+	resetHostState(t)
+	r := hostRouter()
+	from := hostIP(t)
+
+	// First boot: the client finds Attributes empty and POSTs the full set.
+	w := do(r, http.MethodPost, "/redfish/v1/Systems/1/Bios", from,
+		`{"Attributes":{"BootTimeout":5,"SdBoot":true}}`, nil)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("host POST Bios = %d, body %s", w.Code, w.Body.String())
+	}
+	// The client records the Location header as the attributes' URI.
+	if loc := w.Header().Get("Location"); loc != biosPath {
+		t.Errorf("Location = %q, want %q", loc, biosPath)
+	}
+
+	// Update pass: PUT carries the complete current set; SdBoot is gone from
+	// the firmware's vocabulary and must be retired by its absence.
+	w = do(r, http.MethodPut, "/redfish/v1/Systems/1/Bios", from,
+		`{"Attributes":{"BootTimeout":3,"Pcie1Enabled":true}}`, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("host PUT Bios = %d, body %s", w.Code, w.Body.String())
+	}
+	w = do(r, http.MethodGet, "/redfish/v1/Systems/1/Bios", lanIP, "", nil)
+	var bios struct {
+		Attributes map[string]any `json:"Attributes"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &bios); err != nil {
+		t.Fatalf("bios unmarshal: %v", err)
+	}
+	if _, stale := bios.Attributes["SdBoot"]; stale {
+		t.Errorf("Attributes = %v, want SdBoot retired by replacement", bios.Attributes)
+	}
+	pcie, _ := bios.Attributes["Pcie1Enabled"].(bool)
+	if !pcie || bios.Attributes["BootTimeout"] != float64(3) {
+		t.Errorf("Attributes = %v, want the PUT set", bios.Attributes)
+	}
+
+	// A body without a top-level Attributes object is rejected.
+	w = do(r, http.MethodPut, "/redfish/v1/Systems/1/Bios", from, `{"Id":"Bios"}`, nil)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("PUT without Attributes = %d, want 400", w.Code)
+	}
+
+	// A stale If-Match is refused.
+	w = do(r, http.MethodPut, "/redfish/v1/Systems/1/Bios", from,
+		`{"Attributes":{"BootTimeout":9}}`, map[string]string{"If-Match": `W/"stale"`})
+	if w.Code != http.StatusPreconditionFailed {
+		t.Errorf("PUT with stale If-Match = %d, want 412", w.Code)
 	}
 }
 

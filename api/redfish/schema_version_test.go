@@ -6,7 +6,7 @@ package redfish
 // RedfishClientPkg, and each of its feature drivers is compiled against one
 // exact schema version, which is also the version its HII questions are
 // tagged with (x-UEFI-redfish-<Schema>.<version>). The RPi5 firmware builds
-// Features/ComputerSystem/v1_5_0 and Features/Bios/v1_0_9.
+// Features/ComputerSystem/v1_13_0 and Features/Bios/v1_1_0.
 //
 // Advertising a different version is not an outright failure — the client
 // rewrites @odata.type to its own when PcdRedfishCompatibleSchemaSupport is
@@ -28,8 +28,8 @@ import (
 // referring to the constants so that changing a constant without meaning to
 // fails here instead of silently agreeing with itself.
 var hostSchemaVersions = map[string]string{
-	"ComputerSystem":    "#ComputerSystem.v1_5_0.ComputerSystem",
-	"Bios":              "#Bios.v1_0_9.Bios",
+	"ComputerSystem":    "#ComputerSystem.v1_13_0.ComputerSystem",
+	"Bios":              "#Bios.v1_1_0.Bios",
 	"AttributeRegistry": "#AttributeRegistry.v1_3_6.AttributeRegistry",
 	"BootOption":        "#BootOption.v1_0_4.BootOption",
 	"SecureBoot":        "#SecureBoot.v1_1_0.SecureBoot",
@@ -96,26 +96,31 @@ func TestAdvertisedSchemaVersionsMatchHostClient(t *testing.T) {
 	}
 }
 
-// computerSystemV150Properties is the ComputerSystem v1.5.0 property set, as
+// computerSystemV1130Properties is the ComputerSystem v1.13.0 property set, as
 // spelled by the client's own generated structure
-// (RedfishClientPkg/ConverterLib/include/Redfish_ComputerSystem_v1_5_0_CS.h).
+// (RedfishClientPkg/ConverterLib/include/Redfish_ComputerSystem_v1_13_0_CS.h).
 // A property outside this set is one the declared version does not define.
-var computerSystemV150Properties = map[string]bool{
+var computerSystemV1130Properties = map[string]bool{
 	"@odata.context": true, "@odata.etag": true, "@odata.id": true, "@odata.type": true,
 	"Actions": true, "AssetTag": true, "Bios": true, "BiosVersion": true, "Boot": true,
-	"Description": true, "EthernetInterfaces": true, "HostName": true,
+	"BootProgress": true, "Description": true, "EthernetInterfaces": true,
+	"FabricAdapters": true, "GraphicalConsole": true, "HostName": true,
 	"HostWatchdogTimer": true, "HostedServices": true, "HostingRoles": true, "Id": true,
-	"IndicatorLED": true, "Links": true, "LogServices": true, "Manufacturer": true,
+	"IndicatorLED": true, "LastResetTime": true, "Links": true,
+	"LocationIndicatorActive": true, "LogServices": true, "Manufacturer": true,
 	"Memory": true, "MemoryDomains": true, "MemorySummary": true, "Model": true,
 	"Name": true, "NetworkInterfaces": true, "Oem": true, "PCIeDevices": true,
-	"PCIeFunctions": true, "PartNumber": true, "PowerState": true, "Processors": true,
+	"PCIeFunctions": true, "PartNumber": true, "PowerCycleDelaySeconds": true,
+	"PowerOffDelaySeconds": true, "PowerOnDelaySeconds": true,
+	"PowerRestorePolicy": true, "PowerState": true, "Processors": true,
 	"ProcessorSummary": true, "Redundancy": true, "SKU": true, "SecureBoot": true,
-	"SerialNumber": true, "SimpleStorage": true, "Status": true, "Storage": true,
-	"SubModel": true, "SystemType": true, "TrustedModules": true, "UUID": true,
+	"SerialConsole": true, "SerialNumber": true, "SimpleStorage": true, "Status": true,
+	"Storage": true, "SubModel": true, "SystemType": true, "TrustedModules": true,
+	"UUID": true, "VirtualMedia": true, "VirtualMediaConfig": true,
 }
 
 // A document has to conform to the version it declares. This catches the case
-// where a property from a newer ComputerSystem is emitted under the v1.5.0
+// where a property from a newer ComputerSystem is emitted under the v1.13.0
 // type — the client silently drops what its structure has no field for, so
 // the BMC would be publishing something no one reads.
 func TestComputerSystemConformsToDeclaredVersion(t *testing.T) {
@@ -146,11 +151,11 @@ func TestComputerSystemConformsToDeclaredVersion(t *testing.T) {
 
 	var extra []string
 	for k := range body {
-		if !computerSystemV150Properties[k] && !strings.Contains(k, "@Redfish.") {
+		if !computerSystemV1130Properties[k] && !strings.Contains(k, "@Redfish.") {
 			extra = append(extra, k)
 		}
 	}
 	if len(extra) > 0 {
-		t.Errorf("ComputerSystem declares v1_5_0 but emits properties it does not define: %v", extra)
+		t.Errorf("ComputerSystem declares v1_13_0 but emits properties it does not define: %v", extra)
 	}
 }

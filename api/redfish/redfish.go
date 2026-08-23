@@ -46,8 +46,13 @@ func Register(r *gin.Engine, d *deps.Deps) {
 
 		// Bios — host-reported attributes; operators stage changes on the
 		// SettingsObject and the host firmware applies them at boot. The
-		// registry is a host-published document.
+		// registry is a host-published document. The v1_1_0 client provisions
+		// with POST and writes current values back with PUT (its PATCH is
+		// reserved for the staging area per the Bios schema); PATCH stays for
+		// v1_0_9-era merge reports.
 		api.GET("/Systems/1/Bios", service.GetBios)
+		api.POST("/Systems/1/Bios", service.PostBios)
+		api.PUT("/Systems/1/Bios", service.PutBios)
 		api.PATCH("/Systems/1/Bios", service.PatchBios)
 		api.GET("/Systems/1/Bios/Settings", service.GetBiosSettings)
 		api.PATCH("/Systems/1/Bios/Settings", service.PatchBiosSettings)

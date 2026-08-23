@@ -602,12 +602,47 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Bios" }
+    post:
+      tags: [Bios]
+      summary: |
+        (Host interface only) Full provision of the live attribute set. The
+        v1_1_0 EDK2 client POSTs the complete set when it finds none of its
+        attributes on the resource (first boot, or a host reset to
+        defaults). The submitted Attributes replace the stored set; the
+        Location header names this resource, which the client records as
+        the attributes' canonical URI.
+      responses:
+        "201":
+          description: Bios resource, with a Location header.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Bios" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { description: Not the host interface. }
+    put:
+      tags: [Bios]
+      summary: |
+        (Host interface only) Write the live attribute set back. The v1_1_0
+        EDK2 client PUTs current values — its PATCH is reserved for the
+        pending-settings staging area per the Bios schema. The submitted
+        Attributes replace the stored set; the client builds the body on
+        top of the resource it just read, so the complete set arrives every
+        time.
+      responses:
+        "200":
+          description: Bios resource.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Bios" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { description: Not the host interface. }
+        "412": { description: If-Match did not match. }
     patch:
       tags: [Bios]
       summary: |
-        (Host interface only) Report the live attribute set. The submitted
-        Attributes replace the stored set — the host reports the complete
-        set it booted with.
+        (Host interface only) v1_0_9-era report of the live attribute set.
+        Merge, not replace: the submitted keys update the stored set, an
+        explicit null retires one, and omitted keys keep their value.
       responses:
         "200":
           description: Bios resource.

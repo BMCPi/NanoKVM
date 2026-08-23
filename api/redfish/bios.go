@@ -1,13 +1,26 @@
 package redfish
 
-// bios.go serves the Bios resource (DMTF DSP2046, Bios.v1_0_9) from the
+// bios.go serves the Bios resource (DMTF DSP2046, Bios.v1_1_0) from the
 // RHI-only host model. The version is pinned to the one the managed host's
 // Redfish client is built against
-// (RedfishClientPkg/Features/Bios/v1_0_9), so the documents this BMC serves
+// (RedfishClientPkg/Features/Bios/v1_1_0), so the documents this BMC serves
 // parse on the client's normal path rather than its compatibility fallback:
 //
 //   - GET  /Systems/1/Bios                  the attributes the host reported
-//   - PATCH /Systems/1/Bios                 host reports its live attributes
+//   - POST /Systems/1/Bios                  host full-provisions its live
+//                                           attributes (host interface only,
+//                                           replace) — fired on a first boot
+//                                           or after a reset-to-defaults,
+//                                           when the client finds none of its
+//                                           attributes on the resource
+//   - PUT  /Systems/1/Bios                  host writes its live attributes
+//                                           back (host interface only,
+//                                           replace). v1_1_0 stopped using
+//                                           PATCH for this: per the Bios
+//                                           schema a PATCH targets the
+//                                           pending-settings staging area, so
+//                                           the client PUTs current values
+//   - PATCH /Systems/1/Bios                 v1_0_9-era live-attribute report
 //                                           (host interface only, merge)
 //   - GET  /Systems/1/Bios/Settings         the operator-staged pending set
 //   - PATCH /Systems/1/Bios/Settings        operator stages attributes for
@@ -117,6 +130,59 @@ func (s *Service) PatchBios(c *gin.Context) {
 		return
 	}
 	mergeHostBiosAttributes(req.Attributes)
+	writeHostResource(c, hostView(biosResource()))
+}
+
+// PostBios is the host's full provision of its live attributes — the v1_1_0
+// client POSTs the complete set when it finds none of its attributes on the
+// resource (first boot, or a host reset to defaults). Replace, not merge:
+// the body is the whole vocabulary the firmware booted with. The client
+// seeds its URI map from the Location header, so one is always returned.
+func (s *Service) PostBios(c *gin.Context) {
+	if !hostWritable(c) {
+		return
+	}
+	var req struct {
+		Attributes map[string]any `json:"Attributes"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		redfishErrorResponse(c, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return
+	}
+	if req.Attributes == nil {
+		redfishErrorResponse(c, http.StatusBadRequest, "missing Attributes object")
+		return
+	}
+	setHostBiosAttributes(req.Attributes)
+	c.Header("Location", biosPath)
+	writeHostJSON(c, http.StatusCreated, hostView(biosResource()))
+}
+
+// PutBios is the host's write-back of its live attributes. The v1_1_0 client
+// stopped PATCHing the Bios resource — per the Bios schema a PATCH belongs to
+// the pending-settings staging area — and PUTs current values instead.
+// Replace, not merge: the client builds the body on top of the resource it
+// just GETd, so the complete set arrives every time, and replacement is what
+// retires attributes the firmware no longer has.
+func (s *Service) PutBios(c *gin.Context) {
+	if !hostWritable(c) {
+		return
+	}
+	if !hostCheckIfMatch(c, hostView(biosResource())) {
+		return
+	}
+	var req struct {
+		Attributes map[string]any `json:"Attributes"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		redfishErrorResponse(c, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return
+	}
+	if req.Attributes == nil {
+		redfishErrorResponse(c, http.StatusBadRequest, "missing Attributes object")
+		return
+	}
+	setHostBiosAttributes(req.Attributes)
 	writeHostResource(c, hostView(biosResource()))
 }
 

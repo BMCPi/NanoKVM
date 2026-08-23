@@ -128,6 +128,19 @@ func mergeHostBiosAttributes(attrs map[string]any) {
 	hostStateSave()
 }
 
+// setHostBiosAttributes replaces the live attribute set wholesale, which is
+// what the v1_1_0 client's writes mean: both its POST (full provision) and
+// its PUT (update) carry the complete set — the PUT body is built on top of
+// the resource the client just GETd — so replacement also retires attributes
+// the firmware no longer has, without needing the explicit nulls the PATCH
+// merge relies on.
+func setHostBiosAttributes(attrs map[string]any) {
+	host.mu.Lock()
+	host.BiosAttributes = copyAnyMap(attrs)
+	host.mu.Unlock()
+	hostStateSave()
+}
+
 func hostBiosPending() map[string]any {
 	host.mu.RLock()
 	defer host.mu.RUnlock()
