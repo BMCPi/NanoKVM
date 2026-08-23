@@ -105,6 +105,11 @@ func Register(r *gin.Engine, d *deps.Deps) {
 		// boot; a 404 here ends its walk.
 		api.GET("/Chassis/1/Thermal", service.GetChassisThermal)
 		api.PATCH("/Chassis/1/Thermal", service.PatchChassisThermal)
+		// Sensors the BMC reads itself, as opposed to Thermal, which is
+		// whatever the host published. Read-only: the host has no say in
+		// what this side measures.
+		api.GET("/Chassis/1/Sensors", service.GetSensorCollection)
+		api.GET("/Chassis/1/Sensors/:sensor", service.GetSensor)
 
 		// Managers
 		api.GET("/Managers", service.GetManagerCollection)

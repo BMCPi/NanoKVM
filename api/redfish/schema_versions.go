@@ -33,4 +33,10 @@ const (
 	odataTypeBootOption        = "#BootOption.v1_0_4.BootOption"
 	odataTypeSecureBoot        = "#SecureBoot.v1_1_0.SecureBoot"
 	odataTypeMemory            = "#Memory.v1_7_1.Memory"
+
+	// Sensor has no counterpart in RedfishClientPkg — the host does not
+	// consume it, this BMC only publishes it — so it is pinned to the
+	// schema the resource is actually written against rather than to a
+	// feature driver's version.
+	odataTypeSensor = "#Sensor.v1_2_0.Sensor"
 )

@@ -38,6 +38,9 @@ type ChassisLinks struct {
 type chassisWithThermal struct {
 	Chassis
 	Thermal Link `json:"Thermal"`
+	// Sensors is the BMC's own readings, kept separate from Thermal so
+	// host-reported and BMC-measured data stay distinguishable.
+	Sensors Link `json:"Sensors"`
 }
 
 func (s *Service) GetChassisCollection(c *gin.Context) {
@@ -47,23 +50,27 @@ func (s *Service) GetChassisCollection(c *gin.Context) {
 }
 
 func (s *Service) GetChassis(c *gin.Context) {
-	c.JSON(http.StatusOK, chassisWithThermal{Thermal: Link(chassisThermalPath), Chassis: Chassis{
-		Resource: Resource{
-			ODataType:    "#Chassis.v1_21_0.Chassis",
-			ODataID:      chassisItemPath,
-			ODataContext: odataContext("Chassis.Chassis"),
-			ID:           "1",
-			Name:         "Host Baseboard",
+	c.JSON(http.StatusOK, chassisWithThermal{
+		Thermal: Link(chassisThermalPath),
+		Sensors: Link(sensorsPath),
+		Chassis: Chassis{
+			Resource: Resource{
+				ODataType:    "#Chassis.v1_21_0.Chassis",
+				ODataID:      chassisItemPath,
+				ODataContext: odataContext("Chassis.Chassis"),
+				ID:           "1",
+				Name:         "Host Baseboard",
+			},
+			// The baseboard of the managed host; "Module" is the conventional
+			// ChassisType for a board exposed separately from its enclosure.
+			ChassisType: schemas.ModuleChassisType,
+			Status:      &Status{State: schemas.EnabledState, Health: schemas.OKHealth},
+			Links: ChassisLinks{
+				ComputerSystems: Links{Link(systemPath)},
+				ManagedBy:       Links{Link(managerPath)},
+			},
 		},
-		// The baseboard of the managed host; "Module" is the conventional
-		// ChassisType for a board exposed separately from its enclosure.
-		ChassisType: schemas.ModuleChassisType,
-		Status:      &Status{State: schemas.EnabledState, Health: schemas.OKHealth},
-		Links: ChassisLinks{
-			ComputerSystems: Links{Link(systemPath)},
-			ManagedBy:       Links{Link(managerPath)},
-		},
-	}})
+	})
 }
 
 // GetChassisThermal serves the thermal report the host published. Before the

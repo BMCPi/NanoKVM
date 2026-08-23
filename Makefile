@@ -14,7 +14,7 @@ KVM_PASS ?= admin
 # key rotation cannot silently break deploys (guarded in the deploy recipe).
 KVM_SECRET := $(shell sed -n 's/^const SecretKey = "\(.*\)"$$/\1/p' pkg/utils/encrypt.go)
 
-.PHONY: help templ app all clean snapshot deploy
+.PHONY: help templ app all clean snapshot deploy sensord
 
 # Default target
 all: app
@@ -31,6 +31,7 @@ help:
 	@echo "  clean         - Clean build artifacts"
 	@echo "  snapshot      - Build snapshot release with goreleaser (no publish)"
 	@echo "  deploy        - Upload built server to a device via offline update (KVM_HOST/KVM_USER/KVM_PASS)"
+	@echo "  sensord       - Build bmc-sensord for the managed host (arm64), not the BMC"
 	@echo ""
 	@echo "Prerequisites:"
 	@echo "  - Docker must be installed and running"
@@ -76,6 +77,17 @@ clean:
 		echo "Removed NanoKVM-Server"; \
 	fi
 	@echo "Clean completed."
+
+# bmc-sensord runs on the managed Raspberry Pi, not on the BMC: it talks to
+# OP-TEE through /dev/teeN, which only exists on the host. That is why it is
+# built for arm64 here and is deliberately absent from the deploy package
+# below, which replaces the BMC's riscv64 app directory wholesale.
+dist/host/bmc-sensord:
+	@mkdir -p dist/host
+	@CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o ./dist/host/bmc-sensord ./cmd/bmc-sensord
+
+sensord: dist/host/bmc-sensord
+	@echo "Built dist/host/bmc-sensord (linux/arm64)"
 
 # Build snapshot release using goreleaser (no publish)
 snapshot:

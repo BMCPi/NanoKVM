@@ -115,6 +115,7 @@ const (
 
 	chassisItemPath    = chassisPath + "/1"
 	chassisThermalPath = chassisItemPath + "/Thermal"
+	sensorsPath        = chassisItemPath + "/Sensors"
 
 	biosSettingsPath = biosPath + "/Settings"
 	// The registry lives under the Bios resource because EDK2's
@@ -159,3 +160,6 @@ const odataTypeKey = "@odata.type"
 // Named odataContext rather than context so it does not shadow the standard
 // library package of that name across this whole package.
 func odataContext(fragment string) string { return metadataPath + "#" + fragment }
+
+// sensorItemPath is the URI of one sensor under Chassis/1.
+func sensorItemPath(id string) string { return sensorsPath + "/" + id }

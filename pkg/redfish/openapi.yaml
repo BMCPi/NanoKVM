@@ -555,6 +555,40 @@ paths:
         carries them.
       responses:
         "200": { description: Chassis resource. }
+  /redfish/v1/Chassis/1/Sensors:
+    get:
+      tags: [Chassis]
+      summary: |
+        Sensors this BMC reads itself. Distinct from `Thermal`, which is
+        whatever the managed host published: everything here is measured on
+        the BMC side, so the collection is read-only. Empty when the board
+        has no slave EEPROM configured.
+      responses:
+        "200": { description: SensorCollection resource. }
+  /redfish/v1/Chassis/1/Sensors/{sensorId}:
+    get:
+      tags: [Chassis]
+      parameters:
+        - name: sensorId
+          in: path
+          required: true
+          schema: { type: string, example: SoCTemp }
+      summary: |
+        One BMC-read sensor. `SoCTemp` is the managed host's die
+        temperature, which the host's OP-TEE sensor service pushes into
+        this BMC's emulated I2C EEPROM from the secure world.
+
+        `Reading` is omitted whenever there is nothing trustworthy to
+        report — no record yet, a failed sample, or a sequence number that
+        has stopped advancing because the host went quiet. `Status.State`
+        says which, and `Oem.NanoKVM` carries the record's own metadata.
+      responses:
+        "200":
+          description: Sensor resource.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Sensor" }
+        "404": { description: No such sensor. }
   /redfish/v1/Systems/1/Bios:
     get:
       tags: [Bios]
@@ -1014,6 +1048,43 @@ components:
         Name: { type: string }
         UserName: { type: string }
 
+    Sensor:
+      type: object
+      properties:
+        "@odata.type": { type: string, example: "#Sensor.v1_2_0.Sensor" }
+        "@odata.id": { type: string, example: "/redfish/v1/Chassis/1/Sensors/SoCTemp" }
+        Id: { type: string, example: SoCTemp }
+        Name: { type: string, example: Host SoC Temperature }
+        ReadingType: { type: string, example: Temperature }
+        ReadingUnits: { type: string, example: Cel }
+        # Omitted when there is no trustworthy value; absent is not zero.
+        Reading: { type: number, format: double, example: 47.25 }
+        Status:
+          type: object
+          properties:
+            State: { type: string, enum: [Enabled, UnavailableOffline] }
+            Health: { type: string, example: OK }
+        Oem:
+          type: object
+          properties:
+            NanoKVM:
+              type: object
+              properties:
+                Sequence:
+                  type: integer
+                  description: The sensor service's sample counter.
+                HostUptimeSeconds:
+                  type: integer
+                  description: Seconds since the host's secure-world boot at sample time.
+                Stale:
+                  type: boolean
+                  description: The sequence number has stopped advancing.
+                TemperatureValid:
+                  type: boolean
+                  description: The underlying die-temperature read succeeded.
+                LastPushOK:
+                  type: boolean
+                  description: The host's previous EEPROM write succeeded.
     ComputerSystem:
       type: object
       properties:
