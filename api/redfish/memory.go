@@ -30,5 +30,5 @@ func (s *Service) GetMemoryModule(c *gin.Context) {
 		return
 	}
 	writeHostResource(c, renderHostMember(stored, memoryPath+"/"+id, id,
-		"#Memory.v1_16_0.Memory", "Memory.Memory", "Memory Module"))
+		odataTypeMemory, "Memory.Memory", "Memory Module"))
 }

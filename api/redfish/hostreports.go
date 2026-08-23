@@ -335,7 +335,7 @@ func (s *Service) PostBootOption(c *gin.Context) {
 	path := bootOptionsPath + "/" + id
 	c.Header("Location", path)
 	writeHostJSON(c, http.StatusCreated,
-		renderHostMember(body, path, id, "#BootOption.v1_0_4.BootOption", "BootOption.BootOption", id))
+		renderHostMember(body, path, id, odataTypeBootOption, "BootOption.BootOption", id))
 }
 
 func (s *Service) GetBootOption(c *gin.Context) {
@@ -346,7 +346,7 @@ func (s *Service) GetBootOption(c *gin.Context) {
 		return
 	}
 	writeHostResource(c, renderHostMember(stored, bootOptionsPath+"/"+id, id,
-		"#BootOption.v1_0_4.BootOption", "BootOption.BootOption", id))
+		odataTypeBootOption, "BootOption.BootOption", id))
 }
 
 func (s *Service) PatchBootOption(c *gin.Context) {
@@ -360,7 +360,7 @@ func (s *Service) PatchBootOption(c *gin.Context) {
 		return
 	}
 	if !hostCheckIfMatch(c, renderHostMember(current, bootOptionsPath+"/"+id, id,
-		"#BootOption.v1_0_4.BootOption", "BootOption.BootOption", id)) {
+		odataTypeBootOption, "BootOption.BootOption", id)) {
 		return
 	}
 	patch, ok := bindHostBody(c)
@@ -369,7 +369,7 @@ func (s *Service) PatchBootOption(c *gin.Context) {
 	}
 	merged := hostCollectionMerge(bootOptionsOf, id, patch)
 	writeHostResource(c, renderHostMember(merged, bootOptionsPath+"/"+id, id,
-		"#BootOption.v1_0_4.BootOption", "BootOption.BootOption", id))
+		odataTypeBootOption, "BootOption.BootOption", id))
 }
 
 func (s *Service) DeleteBootOption(c *gin.Context) {
@@ -383,7 +383,7 @@ func (s *Service) DeleteBootOption(c *gin.Context) {
 		return
 	}
 	if !hostCheckIfMatch(c, renderHostMember(current, bootOptionsPath+"/"+id, id,
-		"#BootOption.v1_0_4.BootOption", "BootOption.BootOption", id)) {
+		odataTypeBootOption, "BootOption.BootOption", id)) {
 		return
 	}
 	hostCollectionDelete(bootOptionsOf, id)
@@ -406,7 +406,7 @@ func (s *Service) PostMemoryModule(c *gin.Context) {
 	path := memoryPath + "/" + id
 	c.Header("Location", path)
 	writeHostJSON(c, http.StatusCreated,
-		renderHostMember(body, path, id, "#Memory.v1_16_0.Memory", "Memory.Memory", "Memory Module"))
+		renderHostMember(body, path, id, odataTypeMemory, "Memory.Memory", "Memory Module"))
 }
 
 func (s *Service) PatchMemoryModule(c *gin.Context) {
@@ -420,7 +420,7 @@ func (s *Service) PatchMemoryModule(c *gin.Context) {
 		return
 	}
 	if !hostCheckIfMatch(c, renderHostMember(current, memoryPath+"/"+id, id,
-		"#Memory.v1_16_0.Memory", "Memory.Memory", "Memory Module")) {
+		odataTypeMemory, "Memory.Memory", "Memory Module")) {
 		return
 	}
 	patch, ok := bindHostBody(c)
@@ -429,7 +429,7 @@ func (s *Service) PatchMemoryModule(c *gin.Context) {
 	}
 	merged := hostCollectionMerge(memoryOf, id, patch)
 	writeHostResource(c, renderHostMember(merged, memoryPath+"/"+id, id,
-		"#Memory.v1_16_0.Memory", "Memory.Memory", "Memory Module"))
+		odataTypeMemory, "Memory.Memory", "Memory Module"))
 }
 
 // --- Processors --------------------------------------------------------------
@@ -542,7 +542,7 @@ func (s *Service) PatchHostDrive(c *gin.Context) {
 
 func secureBootResource() map[string]any {
 	m := renderHostMember(hostSecureBoot(), secureBootPath, "SecureBoot",
-		"#SecureBoot.v1_1_0.SecureBoot", "SecureBoot.SecureBoot", "UEFI Secure Boot")
+		odataTypeSecureBoot, "SecureBoot.SecureBoot", "UEFI Secure Boot")
 	return m
 }
 

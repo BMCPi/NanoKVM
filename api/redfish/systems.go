@@ -211,7 +211,15 @@ func buildSystemResource(ctx context.Context, pw *power.Controller) ComputerSyst
 
 	sys := ComputerSystem{
 		Resource: Resource{
-			ODataType:    "#ComputerSystem.v1_13_0.ComputerSystem",
+			// Pinned to the version the managed host's Redfish client is
+			// built against (RedfishClientPkg/Features/ComputerSystem/v1_5_0,
+			// whose HII questions are tagged
+			// x-UEFI-redfish-ComputerSystem.v1_5_0). Advertising a newer
+			// version does not fail outright — the client rewrites
+			// @odata.type to its own under PcdRedfishCompatibleSchemaSupport
+			// — but it takes a "Compatible mode" fallback path to do it.
+			// Matching exactly keeps the client on its normal path.
+			ODataType:    odataTypeComputerSystem,
 			ODataID:      systemPath,
 			ODataContext: odataContext("ComputerSystem.ComputerSystem"),
 			ID:           "1",

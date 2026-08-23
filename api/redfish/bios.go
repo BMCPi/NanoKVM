@@ -1,7 +1,10 @@
 package redfish
 
-// bios.go serves the Bios resource (DMTF DSP2046, Bios.v1_2_0) from the
-// RHI-only host model:
+// bios.go serves the Bios resource (DMTF DSP2046, Bios.v1_0_9) from the
+// RHI-only host model. The version is pinned to the one the managed host's
+// Redfish client is built against
+// (RedfishClientPkg/Features/Bios/v1_0_9), so the documents this BMC serves
+// parse on the client's normal path rather than its compatibility fallback:
 //
 //   - GET  /Systems/1/Bios                  the attributes the host reported
 //   - PATCH /Systems/1/Bios                 host reports its live attributes
@@ -31,7 +34,7 @@ func biosResource() Bios {
 	reported, _ := HostReported()
 	res := Bios{
 		Resource: Resource{
-			ODataType:    "#Bios.v1_0_9.Bios",
+			ODataType:    odataTypeBios,
 			ODataID:      biosPath,
 			ODataContext: odataContext("Bios.Bios"),
 			ID:           "Bios",
@@ -74,7 +77,7 @@ func biosSettingsResource() Bios {
 	}
 	return Bios{
 		Resource: Resource{
-			ODataType:    "#Bios.v1_0_9.Bios",
+			ODataType:    odataTypeBios,
 			ODataID:      biosSettingsPath,
 			ODataContext: odataContext("Bios.Bios"),
 			ID:           "Settings",
@@ -169,7 +172,7 @@ func biosRegistryNameOK(name string) bool {
 // agree with it.
 func registryResource(reg map[string]any, name string) map[string]any {
 	return renderHostMember(reg, biosPath+"/"+name, name,
-		"#AttributeRegistry.v1_3_8.AttributeRegistry", "AttributeRegistry.AttributeRegistry",
+		odataTypeAttributeRegistry, "AttributeRegistry.AttributeRegistry",
 		"BIOS Attribute Registry")
 }
 

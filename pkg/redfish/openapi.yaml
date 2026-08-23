@@ -1018,7 +1018,7 @@ components:
       type: object
       properties:
         "@odata.type":
-          { type: string, example: "#ComputerSystem.v1_13_0.ComputerSystem" }
+          { type: string, example: "#ComputerSystem.v1_5_0.ComputerSystem" }
         "@odata.id": { type: string, example: "/redfish/v1/Systems/1" }
         "@odata.etag": { type: string }
         Id: { type: string, example: "1" }
