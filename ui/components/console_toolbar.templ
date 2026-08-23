@@ -97,6 +97,11 @@ templ ConsoleToolbar() {
 					@consoleIconButton("btn-expand", "toggleExpand()", "Expand console") {
 						@icon.Maximize2()
 					}
+					// The group welds its children by dropping the left border
+					// of every button after the first, so two adjacent icon
+					// buttons render as one wide box with no seam between the
+					// targets. The separator puts the division back.
+					@buttongroup.Separator()
 					@consoleIconButton("btn-fullscreen", "toggleFullscreen()", "Fullscreen") {
 						@icon.Expand()
 					}

@@ -159,9 +159,55 @@
     document.body.style.paddingRight = "";
   }
 
-  function open(content, trigger, focusFirst) {
+  // ancestorContents returns the menus a trigger lives inside, nearest first.
+  //
+  // Menu content is portaled to <body>, so a nested menu's content is not a
+  // DOM descendant of its parent's and the relationship cannot be recovered
+  // by walking up from it. The trigger is not portaled, though, so the chain
+  // is walked from there: trigger -> its containing content -> that content's
+  // own trigger -> and so on.
+  function ancestorContents(trigger) {
+    const chain = [];
+    let node = trigger;
+    while (node) {
+      const content = node.closest("[data-tui-dropdownmenu-content]");
+      if (!content || chain.includes(content)) break;
+      chain.push(content);
+      node = triggerFor(content);
+    }
+    return chain;
+  }
+
+  // isDescendantOf reports whether content was opened from inside ancestor.
+  function isDescendantOf(content, ancestor) {
+    const trigger = triggerFor(content);
+    return !!trigger && ancestorContents(trigger).includes(ancestor);
+  }
+
+  // innermostOpen is the deepest menu currently showing — what Escape and a
+  // press on an ancestor should act on first.
+  function innermostOpen() {
+    let best = null;
+    let bestDepth = -1;
     allContents().forEach((c) => {
-      if (c !== content) close(c);
+      if (c.getAttribute("data-state") !== "open") return;
+      const trigger = triggerFor(c);
+      const depth = trigger ? ancestorContents(trigger).length : 0;
+      if (depth > bestDepth) {
+        best = c;
+        bestDepth = depth;
+      }
+    });
+    return best;
+  }
+
+  function open(content, trigger, focusFirst) {
+    // One menu at a time — except for the menus this one was opened from.
+    // A menu whose trigger sits inside another menu's content has to leave
+    // that one up, or opening it takes its own trigger off the screen.
+    const keep = ancestorContents(trigger);
+    allContents().forEach((c) => {
+      if (c !== content && !keep.includes(c)) close(c);
     });
     clearTimeout(content._tuiHide);
     portal(content);
@@ -421,7 +467,20 @@
     // the select is used, which is why these were plain <select> elements
     // before.
     if (e.target.closest("[data-tui-select-content]")) return;
-    if (!e.target.closest("[data-tui-dropdownmenu-content]")) closeAll(false);
+    const pressed = e.target.closest("[data-tui-dropdownmenu-content]");
+    if (!pressed) {
+      closeAll(false);
+      return;
+    }
+    // Pressing back on a menu that a nested one was opened from dismisses the
+    // nested one; without this it stays up, overlapping the control that was
+    // just clicked. The trigger branch above returns before here, so a press
+    // on the nested menu's own trigger still toggles it.
+    allContents().forEach((c) => {
+      if (c !== pressed && c.getAttribute("data-state") === "open" && isDescendantOf(c, pressed)) {
+        close(c);
+      }
+    });
   });
 
   document.addEventListener("click", (e) => {
@@ -505,9 +564,12 @@
 
     if (e.key === "Escape") {
       // An open Select popup owns Escape: the first press closes the select
-      // and leaves the menu up, which is what a nested layer should do.
+      // and leaves the menu up, which is what a nested layer should do. A
+      // nested menu is the same case — close the deepest one and leave the
+      // menu it was opened from standing.
       if (selectPopupOpen()) return;
-      closeAll(true);
+      const innermost = innermostOpen();
+      if (innermost) close(innermost, true);
       return;
     }
     if (e.key === "Tab") {

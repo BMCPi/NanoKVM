@@ -14,8 +14,6 @@
 //     duration, then releasing (float back to HIGH).
 //   - Short press (~300 ms): power-on or graceful/soft shutdown.
 //   - Long press  (≥5 s):   forced hard shutdown (ATX-style hold).
-//   - Held press through power-on (~3 s from standby): forces the Raspberry
-//     Pi 5 BootROM into rpiboot (USB device) mode — see Rpiboot.
 //
 // # Legacy / fallback mode
 //
@@ -58,9 +56,9 @@ import (
 
 // ActionTimeout is a safe upper bound for any single power action, for callers
 // that need to put one on a clock. It covers the longest real sequence —
-// rpiboot's force-off, its wait for the host to drop (offTimeout), and its
-// multi-second hold — with margin, so it never cuts a legitimate operation
-// short while still guaranteeing the caller is not blocked forever.
+// reset's force-off, its wait for the host to drop (offTimeout), and the
+// power-on press that follows — with margin, so it never cuts a legitimate
+// operation short while still guaranteeing the caller is not blocked forever.
 const ActionTimeout = 90 * time.Second
 
 // ErrNoEdgeEvents is returned by Watch when the controller cannot deliver
@@ -77,13 +75,6 @@ const (
 
 	// longPressDuration is the hold time for a forced power-off (ATX spec ≥4 s).
 	longPressDuration = 5500 * time.Millisecond
-
-	// rpibootHoldDuration is how long the power button stays held to force the
-	// Raspberry Pi 5 BootROM into rpiboot mode. The press wakes the PMIC from
-	// standby and the BootROM samples the button within the first moments of
-	// boot, so a few seconds is plenty; it is kept well under the ≥4 s
-	// forced-off threshold in case the host turns out to be running normally.
-	rpibootHoldDuration = 3 * time.Second
 
 	// toggleDelay is the pause between steps in the legacy boot sequence.
 	toggleDelay = 200 * time.Millisecond
@@ -354,57 +345,11 @@ func (c *Controller) Reset(ctx context.Context) (retErr error) {
 	return c.legacyBootSequence()
 }
 
-// Rpiboot forces the Raspberry Pi 5 into rpiboot (BootROM USB device) mode,
-// where it enumerates as VID:PID 0a5c:2712 and waits for a payload over USB
-// (see cmd/rpiboot).
-//
-// The documented combination is "hold the power button whilst applying
-// power". The BMC cannot cut the 5 V rail, but the same combination is
-// reachable from PMIC standby: pressing the button is itself what wakes the
-// PMIC, so a press held through the resulting power-on is sampled by the
-// BootROM exactly like a press held while inserting the supply.
-//
-// Sequence: if the host is running, force it off first (long press, then wait
-// for the power LED to drop), then press and hold the button for
-// rpibootHoldDuration and release.
-//
-// Button-press mode only: legacy mode drives the supply rail directly and has
-// no button to hold, so there is no combination to send.
-func (c *Controller) Rpiboot(ctx context.Context) (retErr error) {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	defer func() { telemetry.PowerOperation(ctx, "rpiboot", retErr) }()
-
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	if c.legacyMode {
-		return fmt.Errorf("rpiboot requires button-press mode (legacy mode has no power button to hold)")
-	}
-
-	on, err := c.readState()
-	if err != nil {
-		return fmt.Errorf("read state: %w", err)
-	}
-	if on {
-		if err := c.forceOffAndWait(ctx, "rpiboot"); err != nil {
-			return err
-		}
-	}
-
-	log.Info("power: rpiboot — holding power button through power-on")
-	return c.buttonPress(rpibootHoldDuration)
-}
-
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 // forceOffAndWait holds the power button down long enough to cut the host, then
-// waits for the power LED to confirm it went down. Reset and Rpiboot both need
-// the host off before their next step; what labels the operation in messages.
+// waits for the power LED to confirm it went down. Reset needs the host off
+// before its next step; what labels the operation in messages.
 //
 // A timeout waiting for off is logged and tolerated: the LED may not be wired
 // on this board, and the caller's next step is still the right thing to do.

@@ -271,7 +271,7 @@ func overviewSidebarStyles() templ.Component {
 			templ_7745c5c3_Var9 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<style>\n\t\t.ov-sidebar {\n\t\t\twidth: 0;\n\t\t\tflex-shrink: 0;\n\t\t\toverflow: hidden;\n\t\t\tborder-left: 1px solid var(--border);\n\t\t\tbackground: var(--card);\n\t\t\tdisplay: flex;\n\t\t\tflex-direction: column;\n\t\t\ttransition: width 0.2s ease;\n\t\t}\n\t\t.ov-sidebar[data-state=\"open\"] { width: 24rem; }\n\t\t@media (max-width: 640px) {\n\t\t\t.ov-sidebar[data-state=\"open\"] { width: 100%; }\n\t\t}\n\t\t/* Inner wrapper keeps content at a stable width during the width\n\t\t   animation so nothing reflows mid-transition. */\n\t\t.ov-sidebar-inner {\n\t\t\twidth: 24rem;\n\t\t\tmax-width: 100vw;\n\t\t\theight: 100%;\n\t\t\tdisplay: flex;\n\t\t\tflex-direction: column;\n\t\t}\n\t</style>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<style>\n\t\t/* The width belongs to the resizable panel this sits in (see\n\t\t   home.templ), not to the sidebar: it used to animate its own width\n\t\t   between 0 and 24rem, which would now fight the drag handle. What is\n\t\t   left here is the surface — fill the panel, draw the edge, stack the\n\t\t   cards. */\n\t\t.ov-sidebar {\n\t\t\twidth: 100%;\n\t\t\theight: 100%;\n\t\t\toverflow: hidden;\n\t\t\tborder-left: 1px solid var(--border);\n\t\t\tbackground: var(--card);\n\t\t\tdisplay: flex;\n\t\t\tflex-direction: column;\n\t\t}\n\t\t/* Collapsed the panel is zero-width, and a 1px border on a zero-width\n\t\t   box still paints as a stray rule down the edge of the console. */\n\t\t.ov-sidebar[data-state=\"closed\"] { border-left-width: 0; }\n\t\t/* min-width:0 lets the cards inside reflow as the panel narrows\n\t\t   instead of forcing a horizontal scrollbar. */\n\t\t.ov-sidebar-inner {\n\t\t\twidth: 100%;\n\t\t\tmin-width: 0;\n\t\t\theight: 100%;\n\t\t\tdisplay: flex;\n\t\t\tflex-direction: column;\n\t\t}\n\t</style>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -664,7 +664,7 @@ func OverviewServerBody(m OverviewServer) templ.Component {
 				var templ_7745c5c3_Var24 string
 				templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(m.InventorySource)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 171, Col: 41}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 174, Col: 41}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 				if templ_7745c5c3_Err != nil {
@@ -1014,7 +1014,7 @@ func OverviewAppUpdateBody(m OverviewUpdateCheck) templ.Component {
 				var templ_7745c5c3_Var38 string
 				templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(versionDisplay(m.Latest))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 239, Col: 40}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 242, Col: 40}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 				if templ_7745c5c3_Err != nil {
@@ -1854,6 +1854,13 @@ func bootOverrideSelect(value string) templ.Component {
 // overviewToggleScript exposes openOverview / closeOverview / toggleOverview
 // globally. The navbar button calls toggleOverview(); ESC closes. Pure
 // open/close UI state — deliberately not htmx.
+//
+// The width now belongs to a resizable panel (home.templ), so open and close
+// are collapse and expand on that panel rather than a class flip. data-state
+// on the <aside> stays the thing everything else reads — the Activity card's
+// hx-trigger fires on the open event, and the border rule keys off it — so it
+// is kept in step with the panel from both directions: these functions push
+// it, and the drag handle pushes it back through resizable-layout-changed.
 func overviewToggleScript() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -1875,7 +1882,7 @@ func overviewToggleScript() templ.Component {
 			templ_7745c5c3_Var70 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 80, "<script>\n\t\t(function() {\n\t\t\tconst el = () => document.getElementById('overview-sidebar');\n\t\t\t// Every state change goes through here so the open event fires\n\t\t\t// however the drawer was opened — navbar button, toggle, or a\n\t\t\t// direct openOverview() call. The Activity card's hx-trigger\n\t\t\t// listens for it; the other cards load with the page.\n\t\t\tconst setState = (s) => {\n\t\t\t\tconst a = el();\n\t\t\t\tif (!a || a.dataset.state === s) return;\n\t\t\t\ta.dataset.state = s;\n\t\t\t\tif (s === 'open') {\n\t\t\t\t\tdocument.body.dispatchEvent(new CustomEvent('overview-opened'));\n\t\t\t\t}\n\t\t\t};\n\t\t\twindow.openOverview  = () => setState('open');\n\t\t\twindow.closeOverview = () => setState('closed');\n\t\t\twindow.toggleOverview = () => {\n\t\t\t\tconst a = el();\n\t\t\t\tif (!a) return;\n\t\t\t\tsetState(a.dataset.state === 'open' ? 'closed' : 'open');\n\t\t\t};\n\t\t\tdocument.addEventListener('keydown', (e) => {\n\t\t\t\tif (e.key === 'Escape') {\n\t\t\t\t\tconst a = el();\n\t\t\t\t\tif (a && a.dataset.state === 'open') closeOverview();\n\t\t\t\t}\n\t\t\t});\n\t\t})();\n\t</script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 80, "<script>\n\t\t(function() {\n\t\t\tconst aside = () => document.getElementById('overview-sidebar');\n\t\t\tconst panel = () => document.getElementById('overview-panel');\n\t\t\tconst api = () => window.tui && window.tui.resizable;\n\n\t\t\t// Every state change goes through here so the open event fires\n\t\t\t// however the drawer was opened — navbar button, toggle, a direct\n\t\t\t// openOverview() call, or a drag of the handle.\n\t\t\tconst setState = (s) => {\n\t\t\t\tconst a = aside();\n\t\t\t\tif (!a || a.dataset.state === s) return;\n\t\t\t\ta.dataset.state = s;\n\t\t\t\tif (s === 'open') {\n\t\t\t\t\tdocument.body.dispatchEvent(new CustomEvent('overview-opened'));\n\t\t\t\t}\n\t\t\t};\n\n\t\t\t// The panel remembers a width across collapse only when it was\n\t\t\t// collapsed through its own API. Dragging the handle shut stores\n\t\t\t// the previous size somewhere expand() does not read, so it\n\t\t\t// reopens at MinSize and the width an operator just chose is\n\t\t\t// lost. Keeping it here covers both routes without patching the\n\t\t\t// vendored component.\n\t\t\tlet lastOpenPx = 0;\n\n\t\t\tconst collapsed = () => {\n\t\t\t\tconst r = api(), p = panel();\n\t\t\t\t// With no panel to ask, fall back to what the markup says:\n\t\t\t\t// the drawer is closed until something opens it.\n\t\t\t\tif (!r || !p) return aside()?.dataset.state !== 'open';\n\t\t\t\treturn r.isCollapsed(p);\n\t\t\t};\n\n\t\t\twindow.openOverview = () => {\n\t\t\t\tconst r = api(), p = panel();\n\t\t\t\tif (r && p && r.isCollapsed(p)) {\n\t\t\t\t\t// Read the remembered width first: expand() emits a\n\t\t\t\t\t// layout change synchronously, and the listener below\n\t\t\t\t\t// would overwrite it with the width expand just landed on\n\t\t\t\t\t// before this line got to use it.\n\t\t\t\t\tconst want = lastOpenPx;\n\t\t\t\t\tr.expand(p);\n\t\t\t\t\tif (want > 0) r.resize(p, want + 'px');\n\t\t\t\t}\n\t\t\t\tsetState('open');\n\t\t\t};\n\t\t\twindow.closeOverview = () => {\n\t\t\t\tconst r = api(), p = panel();\n\t\t\t\tif (r && p && !r.isCollapsed(p)) r.collapse(p);\n\t\t\t\tsetState('closed');\n\t\t\t};\n\t\t\twindow.toggleOverview = () => {\n\t\t\t\tcollapsed() ? openOverview() : closeOverview();\n\t\t\t};\n\n\t\t\t// Dragging the handle all the way shut is a close, and dragging it\n\t\t\t// open is an open — including the first one, which has to fire the\n\t\t\t// event the Activity card waits for.\n\t\t\tdocument.addEventListener('resizable-layout-changed', () => {\n\t\t\t\tconst r = api(), p = panel();\n\t\t\t\tconst shut = collapsed();\n\t\t\t\tif (!shut && r && p) {\n\t\t\t\t\tconst size = r.getSize(p);\n\t\t\t\t\tif (size && size.inPixels > 0) lastOpenPx = size.inPixels;\n\t\t\t\t}\n\t\t\t\tsetState(shut ? 'closed' : 'open');\n\t\t\t});\n\n\t\t\tdocument.addEventListener('keydown', (e) => {\n\t\t\t\tif (e.key === 'Escape' && !collapsed()) closeOverview();\n\t\t\t});\n\t\t})();\n\t</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

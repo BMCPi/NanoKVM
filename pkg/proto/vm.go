@@ -20,7 +20,7 @@ type GetHardwareRsp struct {
 }
 
 type SetGpioReq struct {
-	Action string `validate:"required"` // on / off / reset / forceoff / rpiboot
+	Action string `validate:"required"` // on / off / reset / forceoff
 }
 
 type GetGpioRsp struct {

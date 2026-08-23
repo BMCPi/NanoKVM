@@ -433,7 +433,7 @@ func metricsTrendChart(id, unit, key string, height int, trend []telemetry.Point
 // the two trends, without the counter bar charts.
 //
 // The bar charts are omitted rather than narrowed. Each reserves a 92px gutter
-// for word labels ("bad-password", "rpiboot"), which inside the drawer's 24rem
+// for word labels ("bad-password", "forceoff"), which inside the drawer's 24rem
 // leaves under 250px of plot — and five of them would turn a glance panel into a
 // scrolling chart gallery. They stay in Settings, where the panel is 5xl and
 // lays them out two-up.
@@ -972,7 +972,7 @@ func metricsCountTile(label string, count int) templ.Component {
 
 // metricsBarCard draws one counter family. Horizontal bars (Recharts calls the
 // layout "vertical") because the categories are words — "bad-password",
-// "rpiboot" — and a horizontal bar gives them a full-width label instead of a
+// "forceoff" — and a horizontal bar gives them a full-width label instead of a
 // rotated stub under an x-axis.
 //
 // A family with no data is omitted rather than drawn empty: see nonZero in

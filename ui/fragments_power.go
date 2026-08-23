@@ -14,6 +14,7 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/power"
+	"github.com/pi-bmc/nanokvm-app/ui/components"
 )
 
 // powerActionLabels turns an action into the past-tense label used in the
@@ -23,12 +24,27 @@ var powerActionLabels = map[string]string{
 	"off":      "Power off",
 	"reset":    "Reset",
 	"forceoff": "Force off",
-	"rpiboot":  "Recovery (rpiboot)",
 }
 
 func powerFragmentRoutes(g *gin.RouterGroup, d *deps.Deps) {
 	p := g.Group("/power")
+	// The boot-override section is fetched when the menu opens so it shows
+	// what is actually staged — that state also moves from the overview
+	// card, the Redfish API and other sessions. Registered before the
+	// wildcard, and on GET where the action route (POST) cannot shadow it.
+	p.GET("/boot-override", getPowerBootOverride(d))
 	p.POST("/:action", postPowerAction(d))
+}
+
+// getPowerBootOverride renders the power menu's boot-override section from
+// the same staged state the overview card reads — the Boot block of the
+// Redfish system inventory, which is what PATCH /redfish/v1/Systems/1 writes
+// and the host firmware applies at its next boot.
+func getPowerBootOverride(d *deps.Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		renderFragment(c, components.PowerBootOverride(
+			stagedBootOverride(c.Request.Context(), d)))
+	}
 }
 
 func postPowerAction(d *deps.Deps) gin.HandlerFunc {
@@ -59,8 +75,6 @@ func postPowerAction(d *deps.Deps) gin.HandlerFunc {
 			err = ctrl.ForceOff(ctx)
 		case "reset":
 			err = ctrl.Reset(ctx)
-		case "rpiboot":
-			err = ctrl.Rpiboot(ctx)
 		}
 
 		if err != nil {

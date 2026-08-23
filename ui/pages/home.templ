@@ -3,14 +3,25 @@ package pages
 import (
 	"github.com/pi-bmc/nanokvm-app/ui/components"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
+	"github.com/pi-bmc/nanokvm-app/ui/components/buttongroup"
+	"github.com/pi-bmc/nanokvm-app/ui/components/dropdownmenu"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
+	"github.com/pi-bmc/nanokvm-app/ui/components/resizable"
 	"github.com/pi-bmc/nanokvm-app/ui/components/tabs"
 	"github.com/pi-bmc/nanokvm-app/ui/layouts"
+	"github.com/pi-bmc/nanokvm-app/ui/utils"
 )
 
 // consoleTabsID names the dashboard's tab group. Fixed rather than generated
 // so the switch script and tabs.js can address it.
 const consoleTabsID = "console-tabs"
+
+// Panel ids for the dashboard split. Fixed rather than generated so the
+// overview's open/close script can address its panel.
+const (
+	dashboardPanelsID = "dashboard-panels"
+	overviewPanelID   = "overview-panel"
+)
 
 // Tab values. These are the same sentinels config.Console.PrimaryView stores,
 // which is what lets the persisted setting select the initial tab directly.
@@ -48,8 +59,24 @@ templ Home(m HomeModel) {
 			#console-tabs { flex: 1; min-height: 0; height: 100%; }
 			#console-tabs [data-tui-tabs-content] { min-height: 0; }
 		</style>
-		<div class="flex h-full min-h-0 w-full">
-			<div class="flex-1 min-w-0 flex flex-col h-full min-h-0">
+		// The console and the overview share the width, with a drag handle
+		// between them. The overview is a collapsible panel rather than a
+		// fixed drawer: an operator comparing a boot screen against the
+		// firmware state it came from wants both, at whatever split suits the
+		// screen. Collapsed is still the default — it opens on request.
+		@resizable.PanelGroup(resizable.PanelGroupProps{
+			ID:          dashboardPanelsID,
+			Orientation: resizable.OrientationHorizontal,
+			Class:       "flex h-full min-h-0 w-full",
+		}) {
+			// Style overrides the panel content's default overflow:auto: the
+			// console panes manage their own scrolling and a second scroll
+			// container around them would let the toolbar slide away.
+			@resizable.Panel(resizable.PanelProps{
+				MinSize: "24rem",
+				Class:   "flex min-w-0 flex-col h-full min-h-0",
+				Style:   "overflow:hidden;",
+			}) {
 				@tabs.Tabs(tabs.Props{
 					ID:           consoleTabsID,
 					DefaultValue: consoleDefaultTab(m),
@@ -57,17 +84,8 @@ templ Home(m HomeModel) {
 				}) {
 					// Contextual Secondary Sub-Navbar (JetKVM 2-Tier Pattern)
 					<div class="flex items-center justify-between border-b border-border bg-card/60 backdrop-blur-xs px-2.5 py-1.5 gap-2 shrink-0">
-						// Left: Segmented View Switcher Pill
-						@tabs.List(tabs.ListProps{Class: "h-8 p-0.5 rounded-md border border-border/40 bg-muted/60 gap-0.5"}) {
-							@tabs.Trigger(tabs.TriggerProps{Value: tabHDMI, Class: "h-7 px-3 text-xs gap-1.5 rounded-sm data-[active]:shadow-xs"}) {
-								@icon.Monitor(icon.Props{Class: "size-3.5"})
-								<span>HDMI</span>
-							}
-							@tabs.Trigger(tabs.TriggerProps{Value: tabSerial, Class: "h-7 px-3 text-xs gap-1.5 rounded-sm data-[active]:shadow-xs"}) {
-								@icon.Terminal(icon.Props{Class: "size-3.5"})
-								<span>Serial Console</span>
-							}
-						}
+						// Left: the view switcher.
+						@consoleViewSwitch()
 						// Right: Session Action Controls (Virtual Media, Macros, Virtual Keyboard)
 						<div class="flex items-center gap-1 shrink-0">
 							@components.VirtualMediaMenu()
@@ -103,9 +121,25 @@ templ Home(m HomeModel) {
 						}
 					</div>
 				}
-			</div>
-			@components.OverviewSidebar()
-		</div>
+			}
+			@resizable.Handle(resizable.HandleProps{WithHandle: true})
+			// Starts at 0% — collapsed — so the dashboard opens on the
+			// console alone, as it always has. The first expand lands on
+			// MinSize; the width chosen after that is carried across close
+			// and reopen by overviewToggleScript, which tracks it because
+			// the panel only remembers a width it collapsed itself.
+			@resizable.Panel(resizable.PanelProps{
+				ID:            overviewPanelID,
+				Collapsible:   true,
+				CollapsedSize: "0%",
+				DefaultSize:   "0%",
+				MinSize:       "20rem",
+				MaxSize:       "48rem",
+				Style:         "overflow:hidden;",
+			}) {
+				@components.OverviewSidebar()
+			}
+		}
 		@xtermScripts()
 		// The HID input client: keycode table, input socket, and the capture
 		// handlers the HDMI pane and the virtual keyboard both send through.
@@ -181,3 +215,77 @@ templ xtermScripts() {
 	<script src="/js/xterm-addon-attach.min.js"></script>
 	<script src="/js/xterm-addon-search.min.js"></script>
 }
+
+// consoleViewSwitch chooses which console is in the main pane, and carries the
+// third console — the shell on the BMC itself — behind the chevron.
+//
+// The two panes stay tabs.Triggers rather than becoming plain buttons that
+// call into tabs.js: the trigger is what tabs.js marks data-active on, so the
+// group shows which pane is front for free. Its List-oriented base classes
+// (flex-1, full-height, transparent border) are overridden here because the
+// group, not a tabs.List, is providing the frame now.
+//
+// The BMC shell is a dropdown item rather than a fourth button because it is
+// not a view of the main pane at all — it opens a drawer over the bottom of
+// the page. Grouping it here anyway keeps every console in one control.
+templ consoleViewSwitch() {
+	@dropdownmenu.DropdownMenu() {
+		@buttongroup.ButtonGroup() {
+			@tabs.Trigger(tabs.TriggerProps{
+				Value: tabHDMI,
+				Class: consoleSwitchTabClass,
+			}) {
+				@icon.Monitor(icon.Props{Class: "size-3.5"})
+				<span>HDMI</span>
+			}
+			@buttongroup.ButtonGroup() {
+				@tabs.Trigger(tabs.TriggerProps{
+					Value: tabSerial,
+					Class: consoleSwitchTabClass,
+				}) {
+					@icon.Terminal(icon.Props{Class: "size-3.5"})
+					<span>Serial Console</span>
+				}
+				// Welding drops the left border of every child after the
+				// first, so without this the chevron reads as part of the
+				// Serial Console button rather than its own target.
+				@buttongroup.Separator()
+				@button.Button(button.Props{
+					Variant: button.VariantOutline,
+					Size:    button.SizeSm,
+					Class:   "h-8 px-2!",
+					Attributes: utils.MergeAttributes(
+						dropdownmenu.Trigger(ctx),
+						templ.Attributes{
+							"aria-label": "More consoles",
+							"title":      "Other consoles",
+						},
+					),
+				}) {
+					@icon.ChevronDown()
+				}
+			}
+		}
+		@dropdownmenu.Content(dropdownmenu.ContentProps{Class: "w-52"}) {
+			// Keeps the id the drawer script marks active and sets
+			// aria-expanded on (see bmc_terminal.templ setNavActive).
+			@dropdownmenu.Item(dropdownmenu.ItemProps{
+				ID: "btn-bmc-terminal",
+				Attributes: templ.Attributes{
+					"onclick":       "toggleBmcTerminal()",
+					"aria-expanded": "false",
+					"title":         "Shell on the BMC",
+				},
+			}) {
+				@icon.SquareTerminal()
+				BMC Terminal
+			}
+		}
+	}
+}
+
+// consoleSwitchTabClass renders a tab trigger as a button inside the group.
+// The trigger's own base is written for a tabs.List — it stretches to the
+// list's height and draws a transparent border — so the height, the border
+// and the flex-1 all have to be restated here.
+const consoleSwitchTabClass = "h-8 flex-none px-3 text-xs gap-1.5 border-border data-active:bg-accent data-active:text-accent-foreground"

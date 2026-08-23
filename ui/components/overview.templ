@@ -74,25 +74,28 @@ templ OverviewSidebar() {
 
 templ overviewSidebarStyles() {
 	<style>
+		/* The width belongs to the resizable panel this sits in (see
+		   home.templ), not to the sidebar: it used to animate its own width
+		   between 0 and 24rem, which would now fight the drag handle. What is
+		   left here is the surface — fill the panel, draw the edge, stack the
+		   cards. */
 		.ov-sidebar {
-			width: 0;
-			flex-shrink: 0;
+			width: 100%;
+			height: 100%;
 			overflow: hidden;
 			border-left: 1px solid var(--border);
 			background: var(--card);
 			display: flex;
 			flex-direction: column;
-			transition: width 0.2s ease;
 		}
-		.ov-sidebar[data-state="open"] { width: 24rem; }
-		@media (max-width: 640px) {
-			.ov-sidebar[data-state="open"] { width: 100%; }
-		}
-		/* Inner wrapper keeps content at a stable width during the width
-		   animation so nothing reflows mid-transition. */
+		/* Collapsed the panel is zero-width, and a 1px border on a zero-width
+		   box still paints as a stray rule down the edge of the console. */
+		.ov-sidebar[data-state="closed"] { border-left-width: 0; }
+		/* min-width:0 lets the cards inside reflow as the panel narrows
+		   instead of forcing a horizontal scrollbar. */
 		.ov-sidebar-inner {
-			width: 24rem;
-			max-width: 100vw;
+			width: 100%;
+			min-width: 0;
 			height: 100%;
 			display: flex;
 			flex-direction: column;
@@ -382,34 +385,85 @@ templ bootOverrideSelect(value string) {
 // overviewToggleScript exposes openOverview / closeOverview / toggleOverview
 // globally. The navbar button calls toggleOverview(); ESC closes. Pure
 // open/close UI state — deliberately not htmx.
+//
+// The width now belongs to a resizable panel (home.templ), so open and close
+// are collapse and expand on that panel rather than a class flip. data-state
+// on the <aside> stays the thing everything else reads — the Activity card's
+// hx-trigger fires on the open event, and the border rule keys off it — so it
+// is kept in step with the panel from both directions: these functions push
+// it, and the drag handle pushes it back through resizable-layout-changed.
 templ overviewToggleScript() {
 	<script>
 		(function() {
-			const el = () => document.getElementById('overview-sidebar');
+			const aside = () => document.getElementById('overview-sidebar');
+			const panel = () => document.getElementById('overview-panel');
+			const api = () => window.tui && window.tui.resizable;
+
 			// Every state change goes through here so the open event fires
-			// however the drawer was opened — navbar button, toggle, or a
-			// direct openOverview() call. The Activity card's hx-trigger
-			// listens for it; the other cards load with the page.
+			// however the drawer was opened — navbar button, toggle, a direct
+			// openOverview() call, or a drag of the handle.
 			const setState = (s) => {
-				const a = el();
+				const a = aside();
 				if (!a || a.dataset.state === s) return;
 				a.dataset.state = s;
 				if (s === 'open') {
 					document.body.dispatchEvent(new CustomEvent('overview-opened'));
 				}
 			};
-			window.openOverview  = () => setState('open');
-			window.closeOverview = () => setState('closed');
-			window.toggleOverview = () => {
-				const a = el();
-				if (!a) return;
-				setState(a.dataset.state === 'open' ? 'closed' : 'open');
+
+			// The panel remembers a width across collapse only when it was
+			// collapsed through its own API. Dragging the handle shut stores
+			// the previous size somewhere expand() does not read, so it
+			// reopens at MinSize and the width an operator just chose is
+			// lost. Keeping it here covers both routes without patching the
+			// vendored component.
+			let lastOpenPx = 0;
+
+			const collapsed = () => {
+				const r = api(), p = panel();
+				// With no panel to ask, fall back to what the markup says:
+				// the drawer is closed until something opens it.
+				if (!r || !p) return aside()?.dataset.state !== 'open';
+				return r.isCollapsed(p);
 			};
-			document.addEventListener('keydown', (e) => {
-				if (e.key === 'Escape') {
-					const a = el();
-					if (a && a.dataset.state === 'open') closeOverview();
+
+			window.openOverview = () => {
+				const r = api(), p = panel();
+				if (r && p && r.isCollapsed(p)) {
+					// Read the remembered width first: expand() emits a
+					// layout change synchronously, and the listener below
+					// would overwrite it with the width expand just landed on
+					// before this line got to use it.
+					const want = lastOpenPx;
+					r.expand(p);
+					if (want > 0) r.resize(p, want + 'px');
 				}
+				setState('open');
+			};
+			window.closeOverview = () => {
+				const r = api(), p = panel();
+				if (r && p && !r.isCollapsed(p)) r.collapse(p);
+				setState('closed');
+			};
+			window.toggleOverview = () => {
+				collapsed() ? openOverview() : closeOverview();
+			};
+
+			// Dragging the handle all the way shut is a close, and dragging it
+			// open is an open — including the first one, which has to fire the
+			// event the Activity card waits for.
+			document.addEventListener('resizable-layout-changed', () => {
+				const r = api(), p = panel();
+				const shut = collapsed();
+				if (!shut && r && p) {
+					const size = r.getSize(p);
+					if (size && size.inPixels > 0) lastOpenPx = size.inPixels;
+				}
+				setState(shut ? 'closed' : 'open');
+			});
+
+			document.addEventListener('keydown', (e) => {
+				if (e.key === 'Escape' && !collapsed()) closeOverview();
 			});
 		})();
 	</script>

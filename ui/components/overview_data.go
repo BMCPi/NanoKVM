@@ -63,6 +63,24 @@ func (m OverviewBootOverride) SelectValue() string {
 	return "None"
 }
 
+// ModeValue is the persistence the power menu's Apply button submits:
+// whatever is staged, so reopening the menu offers to re-apply what is
+// already in effect rather than silently resetting to Once.
+func (m OverviewBootOverride) ModeValue() string {
+	if m.Enabled == "Continuous" {
+		return "continuous"
+	}
+	return "once"
+}
+
+// ModeLabel is ModeValue for display, on the split button's face.
+func (m OverviewBootOverride) ModeLabel() string {
+	if m.ModeValue() == "continuous" {
+		return "Continuous"
+	}
+	return "Once"
+}
+
 // StagedLabel renders the staged state for display: "Pxe · Once",
 // "Hdd · Continuous", or "None · Disabled".
 func (m OverviewBootOverride) StagedLabel() string {

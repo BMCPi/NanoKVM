@@ -250,18 +250,3 @@ func TestWatchRejectsLegacyMode(t *testing.T) {
 		t.Fatalf("Watch in legacy mode = %v, want ErrNoEdgeEvents", err)
 	}
 }
-
-// TestRpibootRejectsLegacyMode: the rpiboot combination is a held button
-// press, which legacy direct-rail mode cannot express — it must refuse rather
-// than glitch the supply. The guard fires before any GPIO access, so no sim
-// chip is needed.
-func TestRpibootRejectsLegacyMode(t *testing.T) {
-	c := &Controller{
-		legacyMode: true,
-		lines:      make(map[config.GPIOPin]*gpiocdev.Line),
-		subs:       make(map[chan bool]struct{}),
-	}
-	if err := c.Rpiboot(t.Context()); err == nil {
-		t.Fatal("Rpiboot in legacy mode succeeded, want error")
-	}
-}

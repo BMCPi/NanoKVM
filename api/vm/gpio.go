@@ -53,8 +53,6 @@ func (s *Service) SetGpio(c *gin.Context) {
 		err = ctrl.ForceOff(ctx)
 	case "reset":
 		err = ctrl.Reset(ctx)
-	case "rpiboot":
-		err = ctrl.Rpiboot(ctx)
 	default:
 		rsp.ErrRsp(c, -2, fmt.Sprintf("invalid action: %s", req.Action))
 		return

@@ -10,7 +10,7 @@ import (
 // contextual second bar (mirrors JetKVM / PiKVM's dual-bar pattern).
 //
 // Left cluster:  brand → Power ▾ → Virtual Media ▾ → divider → Server Overview
-// Right cluster: API Docs → Settings → Logout
+// Right cluster: BIOS → API Docs → Settings → Logout
 templ Navbar(onDocsPage bool) {
 	// h-11 rather than an inline height: 2.75rem is exactly h-11, and this was
 	// the only inline style left in the app.
@@ -63,21 +63,6 @@ templ Navbar(onDocsPage bool) {
 					<span class="hidden sm:inline">Dashboard</span>
 				}
 			} else {
-				// Slide-up BMC shell drawer toggle
-				@button.Button(button.Props{
-					ID:      "btn-bmc-terminal",
-					Variant: button.VariantGhost,
-					Size:    button.SizeSm,
-					Attributes: templ.Attributes{
-						"onclick":       "toggleBmcTerminal()",
-						"aria-label":    "BMC Terminal",
-						"aria-expanded": "false",
-						"title":         "Shell on the BMC",
-					},
-				}) {
-					@icon.SquareTerminal()
-					<span class="hidden sm:inline">BMC Terminal</span>
-				}
 				@BiosDialogTrigger()
 				@button.Button(button.Props{
 					Variant: button.VariantGhost,
@@ -116,3 +101,4 @@ templ navbarScript() {
 		}
 	</script>
 }
+

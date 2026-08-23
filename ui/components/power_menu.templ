@@ -6,17 +6,28 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/power"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
+	"github.com/pi-bmc/nanokvm-app/ui/components/buttongroup"
 	"github.com/pi-bmc/nanokvm-app/ui/components/dropdownmenu"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
 	selectcomp "github.com/pi-bmc/nanokvm-app/ui/components/select"
 	"github.com/pi-bmc/nanokvm-app/ui/utils"
 )
 
+// Fixed ids: the SSE script addresses these, and the boot-override region is
+// an htmx swap target.
+const (
+	powerMenuTriggerID  = "power-menu-trigger"
+	powerToggleID       = "power-toggle"
+	powerBootOverrideID = "power-boot-override"
+	bootApplyID         = "boot-apply"
+	bootModeLabelID     = "boot-mode-label"
+)
+
 // initialPowerState reads the host power state at render time so the navbar
-// pill paints correctly on first load; the SSE stream keeps it fresh after.
-// known is false when the controller cannot read the state (e.g. dev host),
-// in which case the pill falls back to the neutral "Checking…" look until
-// the stream delivers.
+// pill and the power toggle paint correctly on first load; the SSE stream
+// keeps both fresh after. known is false when the controller cannot read the
+// state (e.g. dev host), in which case the pill falls back to the neutral
+// "Checking…" look until the stream delivers.
 func initialPowerState(ctx context.Context, ctrl *power.Controller) (on bool, known bool) {
 	s, err := ctrl.State(ctx)
 	return s, err == nil
@@ -27,8 +38,12 @@ func initialPowerState(ctx context.Context, ctrl *power.Controller) (on bool, kn
 // the pill itself is fed by the GPIO SSE stream (see powerMenuScript) —
 // deliberately not htmx: the server pushes transitions, nothing polls.
 templ PowerMenu() {
+	// Read once at the top: the pill and the power toggle must agree, and
+	// both are painted from this single answer.
+	{{ pwrOn, pwrKnown := initialPowerState(ctx, deps.FromContext(ctx).Power) }}
 	@dropdownmenu.DropdownMenu() {
 		@button.Button(button.Props{
+			ID:      powerMenuTriggerID,
 			Variant: button.VariantGhost,
 			Size:    button.SizeSm,
 			Attributes: utils.MergeAttributes(
@@ -36,7 +51,6 @@ templ PowerMenu() {
 				templ.Attributes{"aria-label": "Power menu"},
 			),
 		}) {
-			{{ pwrOn, pwrKnown := initialPowerState(ctx, deps.FromContext(ctx).Power) }}
 			if pwrKnown && pwrOn {
 				<span id="power-dot" class="inline-block size-2 rounded-full bg-green-500 shrink-0"></span>
 				<span id="power-text" class="hidden sm:inline">Power On</span>
@@ -49,92 +63,237 @@ templ PowerMenu() {
 			}
 			@icon.ChevronDown()
 		}
-		@dropdownmenu.Content(dropdownmenu.ContentProps{Class: "w-72 panel-fit"}) {
+		// Wide enough for the power group's intrinsic width: three labelled
+		// buttons welded in a row do not compress, and a narrower panel
+		// clipped "Force Off" off its right edge. Labels stay rather than
+		// collapsing to icons because the destructive one has to be
+		// unambiguous. panel-fit caps the height only, so the viewport cap
+		// here is what keeps the panel on screen on a phone.
+		@dropdownmenu.Content(dropdownmenu.ContentProps{Class: "w-[26rem] max-w-[calc(100vw-1.5rem)] panel-fit"}) {
 			// Spacing follows the settings dialog's rhythm on the 4px grid, at
 			// popup density: p-3 panel, space-y-3 sections, space-y-2 / gap-2
 			// within a section, and the field.Legend header type (text-xs
 			// font-semibold uppercase) — no off-scale sizes or stray indents.
 			<div class="p-3 space-y-3">
-				// Power actions: 2×2 compact grid + full-width recovery row.
 				<div>
 					<p class={ SectionLabelClass, "mb-2" }>Power</p>
-					<div class="grid grid-cols-2 gap-2">
-						@powerGridBtn("on", "", icon.Power, "Power On", nil)
-						@powerGridBtn("off", "", icon.PowerOff, "Power Off", nil)
-						@powerGridBtn("reset", "", icon.RefreshCw, "Reset", nil)
-						@powerGridBtn("forceoff", "text-destructive hover:text-destructive", icon.CircleX, "Force Off", templ.Attributes{
-							"hx-confirm":               "The host loses power immediately without a clean shutdown.",
-							"data-confirm-title":       "Force power off?",
-							"data-confirm-label":       "Force Off",
-							"data-confirm-destructive": true,
-						})
-						@powerGridBtn("rpiboot", "col-span-2", icon.Usb, "Recovery (rpiboot)", templ.Attributes{
-							"hx-confirm":               "Forces the host into rpiboot (USB recovery). A running host is powered off first.",
-							"data-confirm-title":       "Enter USB recovery mode?",
-							"data-confirm-label":       "Enter recovery",
-							"data-confirm-destructive": true,
-						})
-					</div>
+					@powerActionGroup(pwrOn && pwrKnown)
 				</div>
 				<div class="h-px bg-border"></div>
-				// Boot override: same fragment endpoint, target list, and three
-				// actions as the overview card. The override is staged BMC state
-				// that the host firmware applies at its next boot. The clicked
-				// submit button supplies mode (once/continuous/clear), so Clear
-				// is unambiguous — no competing mode field in the form.
-				<form class="space-y-2" hx-post="/ui/overview/boot-override" hx-swap="none">
-					<p class={ SectionLabelClass }>Boot Override</p>
-					@bootDeviceSelect()
-					<div class="flex flex-wrap gap-2">
-						@button.Button(button.Props{
-							Size:       button.SizeSm,
-							Class:      "flex-1",
-							Type:       button.TypeSubmit,
-							Attributes: templ.Attributes{"name": "mode", "value": "once"},
-						}) {
-							Apply once
-						}
-						@button.Button(button.Props{
-							Variant:    button.VariantOutline,
-							Size:       button.SizeSm,
-							Class:      "flex-1",
-							Type:       button.TypeSubmit,
-							Attributes: templ.Attributes{"name": "mode", "value": "continuous"},
-						}) {
-							Apply persistent
-						}
-						@button.Button(button.Props{
-							Variant:    button.VariantGhost,
-							Size:       button.SizeSm,
-							Type:       button.TypeSubmit,
-							Attributes: templ.Attributes{"name": "mode", "value": "clear"},
-						}) {
-							Clear
-						}
-					</div>
-				</form>
+				// The staged override is BMC state that can change from the
+				// overview card, the Redfish API or another session, so it is
+				// fetched when the menu opens rather than baked in at page
+				// render — and re-fetched on fw-changed, which the shared
+				// boot-override handler fires after every apply.
+				<div
+					id={ powerBootOverrideID }
+					hx-get="/ui/power/boot-override"
+					hx-trigger={ "click from:#" + powerMenuTriggerID + ", fw-changed from:body" }
+					hx-swap="innerHTML"
+				>
+					@PowerBootOverride(OverviewBootOverride{})
+				</div>
 			</div>
 		}
 	}
 	@powerMenuScript()
 }
 
-// powerGridBtn renders a compact icon+label button that posts one power
-// action; extra carries the hx-confirm attributes for destructive actions.
-templ powerGridBtn(action, class string, ico func(...icon.Props) templ.Component, label string, extra templ.Attributes) {
+// powerActionGroup is the three power controls, welded into one group.
+//
+// Power on and power off are one button rather than two, because they are not
+// two things an operator chooses between: exactly one of them is meaningful
+// at any moment, and the other would either be a no-op or a mistake. Which
+// one it is comes from the same source as the navbar pill — the GPIO power
+// LED — so the button and the pill can never disagree.
+templ powerActionGroup(on bool) {
+	@buttongroup.ButtonGroup(buttongroup.Props{Class: "w-full"}) {
+		@powerToggleBtn(on)
+		// Welding drops the left border of every button after the first, so
+		// without these three destructive-adjacent targets share one unbroken
+		// outline. On this row that is worth more than tidiness: Force Off
+		// sits next to Reset.
+		@buttongroup.Separator()
+		@powerActionBtn("reset", "Reset", "", nil) {
+			@icon.RefreshCw()
+		}
+		@buttongroup.Separator()
+		@powerActionBtn("forceoff", "Force Off", "text-destructive hover:text-destructive", templ.Attributes{
+			"hx-confirm":               "The host loses power immediately without a clean shutdown.",
+			"data-confirm-title":       "Force power off?",
+			"data-confirm-label":       "Force Off",
+			"data-confirm-destructive": true,
+		}) {
+			@icon.CircleX()
+		}
+	}
+}
+
+// powerToggleBtn is the on/off half of the group.
+//
+// Both icons are rendered and one is hidden, rather than the script swapping
+// SVG markup: the icons are inline <svg> the server already knows how to
+// draw, and flipping a `hidden` property is something a five-line stream
+// handler can do correctly. The `hidden` ATTRIBUTE is load-bearing —
+// preflight's `[hidden] { display: none !important }` beats the icon's own
+// display, which a utility class would lose to.
+templ powerToggleBtn(on bool) {
+	@button.Button(button.Props{
+		ID:      powerToggleID,
+		Variant: button.VariantOutline,
+		Size:    button.SizeSm,
+		Class:   "flex-1 gap-2",
+		Attributes: templ.Attributes{
+			"hx-post":         powerTogglePath(on),
+			"hx-swap":         "none",
+			"hx-disabled-elt": "this",
+		},
+	}) {
+		<span
+			id="power-toggle-icon-on"
+			class="contents"
+			if on {
+				hidden
+			}
+		>
+			@icon.Power()
+		</span>
+		<span
+			id="power-toggle-icon-off"
+			class="contents"
+			if !on {
+				hidden
+			}
+		>
+			@icon.PowerOff()
+		</span>
+		<span id="power-toggle-label">{ powerToggleLabel(on) }</span>
+	}
+}
+
+// powerTogglePath is the action the toggle posts: the one that changes the
+// state it is currently in.
+func powerTogglePath(on bool) string {
+	if on {
+		return "/ui/power/off"
+	}
+	return "/ui/power/on"
+}
+
+func powerToggleLabel(on bool) string {
+	if on {
+		return "Power Off"
+	}
+	return "Power On"
+}
+
+// powerActionBtn renders one power action in the group; extra carries the
+// hx-confirm attributes for destructive actions.
+templ powerActionBtn(action, label, class string, extra templ.Attributes) {
 	@button.Button(button.Props{
 		Variant: button.VariantOutline,
 		Size:    button.SizeSm,
-		Class:   "w-full justify-start gap-2 " + class,
+		Class:   "flex-1 gap-2 " + class,
 		Attributes: utils.MergeAttributes(templ.Attributes{
 			"hx-post":         "/ui/power/" + action,
 			"hx-swap":         "none",
 			"hx-disabled-elt": "this",
 		}, extra),
 	}) {
-		@ico()
+		{ children... }
 		<span>{ label }</span>
 	}
+}
+
+// PowerBootOverride is the menu's boot-override section, served as a fragment
+// so it reflects what is actually staged at the moment the menu opens.
+//
+// The controls are one button group of three welded segments — apply, the
+// persistence to apply with, and clear. The middle segment is a split button:
+// its label shows the persistence and both halves open the same menu, so the
+// chevron is a real affordance rather than decoration.
+//
+// mode reaches the handler from whichever submit button was clicked, which is
+// why Apply carries it as its own value and the dropdown rewrites that value
+// rather than maintaining a separate hidden field. One field, one source: a
+// hidden input plus a named submit button would send mode twice and leave the
+// handler picking.
+templ PowerBootOverride(m OverviewBootOverride) {
+	<form class="space-y-2" hx-post="/ui/overview/boot-override" hx-swap="none">
+		<p class={ SectionLabelClass }>Boot Override</p>
+		@bootDeviceSelect(m.SelectValue())
+		@dropdownmenu.DropdownMenu() {
+			@buttongroup.ButtonGroup(buttongroup.Props{Class: "w-full"}) {
+				@buttongroup.ButtonGroup() {
+					@button.Button(button.Props{
+						ID:    bootApplyID,
+						Size:  button.SizeSm,
+						Type:  button.TypeSubmit,
+						Class: "flex-1",
+						Attributes: templ.Attributes{
+							"name":  "mode",
+							"value": m.ModeValue(),
+						},
+					}) {
+						Apply
+					}
+				}
+				@buttongroup.ButtonGroup() {
+					@button.Button(button.Props{
+						ID:      bootModeLabelID,
+						Variant: button.VariantOutline,
+						Size:    button.SizeSm,
+						Attributes: utils.MergeAttributes(
+							dropdownmenu.Trigger(ctx),
+							templ.Attributes{"aria-label": "Boot override persistence"},
+						),
+					}) {
+						{ m.ModeLabel() }
+					}
+					@buttongroup.Separator()
+					@button.Button(button.Props{
+						Variant: button.VariantOutline,
+						Size:    button.SizeIcon,
+						Class:   "size-8",
+						Attributes: utils.MergeAttributes(
+							dropdownmenu.Trigger(ctx),
+							templ.Attributes{"aria-label": "Choose boot override persistence"},
+						),
+					}) {
+						@icon.ChevronDown()
+					}
+				}
+				@buttongroup.ButtonGroup() {
+					@button.Button(button.Props{
+						Variant: button.VariantGhost,
+						Size:    button.SizeSm,
+						Type:    button.TypeSubmit,
+						Attributes: templ.Attributes{
+							"name":  "mode",
+							"value": "clear",
+						},
+					}) {
+						Clear
+					}
+				}
+			}
+			// Outside the groups: Content renders inline until the script
+			// portals it to <body>, and a popup counted as a group child
+			// would take the welding rules meant for buttons.
+			@dropdownmenu.Content(dropdownmenu.ContentProps{Class: "w-44"}) {
+				@dropdownmenu.Item(dropdownmenu.ItemProps{
+					Attributes: templ.Attributes{"onclick": "setBootMode('once','Once')"},
+				}) {
+					Once
+				}
+				@dropdownmenu.Item(dropdownmenu.ItemProps{
+					Attributes: templ.Attributes{"onclick": "setBootMode('continuous','Continuous')"},
+				}) {
+					Continuous
+				}
+			}
+		}
+	</form>
 }
 
 // bootDeviceSelect picks the boot-override target. Same target list as the
@@ -144,8 +303,8 @@ templ powerGridBtn(action, class string, ico func(...icon.Props) templ.Component
 // <select>: the menu read a press on a portaled option as an outside click and
 // dismissed itself. The menu now recognises a Select popup as its own (see
 // dropdownmenu.js), so the composed control works here.
-templ bootDeviceSelect() {
-	@selectcomp.Select(selectcomp.Props{ID: "boot-device", Name: "boot-override", Value: "None"}) {
+templ bootDeviceSelect(value string) {
+	@selectcomp.Select(selectcomp.Props{ID: "boot-device", Name: "boot-override", Value: value}) {
 		@selectcomp.Trigger(selectcomp.TriggerProps{Class: "h-8 w-full min-w-0"}) {
 			@selectcomp.Value(selectcomp.ValueProps{Placeholder: "None (default)"})
 		}
@@ -172,18 +331,40 @@ templ bootDeviceSelect() {
 	}
 }
 
-// powerMenuScript is the SSE half of the pill: the server pushes a `power`
-// event on every GPIO transition (nothing polls), and a reconnect re-sends
-// the current state. Auth rides the nano-kvm-token cookie.
+// powerMenuScript is the SSE half of the pill and the toggle: the server
+// pushes a `power` event on every GPIO transition (nothing polls), and a
+// reconnect re-sends the current state. Auth rides the nano-kvm-token cookie.
+//
+// setBootMode lives here rather than in the fragment because the fragment is
+// swapped by htmx on every open; a handler defined inside it would be
+// redefined on each swap, and any listener bound to the old copy lost.
 templ powerMenuScript() {
 	<script>
 		(function () {
 			function renderPower(on) {
 				const dot = document.getElementById('power-dot');
-				dot.className = 'inline-block size-2 rounded-full ' + (on ? 'bg-green-500' : 'bg-destructive');
+				if (dot) dot.className = 'inline-block size-2 rounded-full ' + (on ? 'bg-green-500' : 'bg-destructive');
 				const txt = document.getElementById('power-text');
-				txt.textContent = on ? 'Power On' : 'Power Off';
+				if (txt) txt.textContent = on ? 'Power On' : 'Power Off';
+
+				// The toggle offers the action that changes the current state.
+				const btn = document.getElementById('power-toggle');
+				if (btn) btn.setAttribute('hx-post', on ? '/ui/power/off' : '/ui/power/on');
+				const label = document.getElementById('power-toggle-label');
+				if (label) label.textContent = on ? 'Power Off' : 'Power On';
+				const iconOn = document.getElementById('power-toggle-icon-on');
+				const iconOff = document.getElementById('power-toggle-icon-off');
+				if (iconOn) iconOn.hidden = on;
+				if (iconOff) iconOff.hidden = !on;
 			}
+
+			window.setBootMode = function (mode, label) {
+				const apply = document.getElementById('boot-apply');
+				if (apply) apply.value = mode;
+				const shown = document.getElementById('boot-mode-label');
+				if (shown) shown.textContent = label;
+			};
+
 			const powerEvents = new EventSource('/api/vm/gpio/events');
 			powerEvents.addEventListener('power', (e) => {
 				try {
