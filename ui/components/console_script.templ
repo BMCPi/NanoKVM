@@ -175,26 +175,45 @@ templ ConsoleScript() {
 		// ── Search ─────────────────────────────────────────────────────────
 		let _searchOpen = false;
 		window.toggleSearch = function() { _searchOpen ? closeSearch() : openSearch(); };
+		// Search expands in place: the icon button and the input group are
+		// siblings in the same button group, and opening swaps which one is
+		// hidden. The `hidden` PROPERTY is what moves — the components set
+		// their own display, so a utility class would lose to it.
 		window.openSearch = function() {
 			_searchOpen = true;
-			const bar = document.getElementById('search-bar');
-			bar.classList.remove('hidden');
-			bar.classList.add('flex');
-			document.getElementById('btn-search').classList.add('bg-accent');
-			document.getElementById('search-input').focus();
-			document.getElementById('search-input').select();
+			document.getElementById('btn-search').hidden = true;
+			document.getElementById('search-inputgroup').hidden = false;
+			const input = document.getElementById('search-input');
+			input.focus();
+			input.select();
+			// The controls can wrap to a second row once the input takes the
+			// icon button's place, which changes the terminal's height.
 			if (fitAddon) fitAddon.fit();
 		};
 		window.closeSearch = function() {
 			_searchOpen = false;
-			const bar = document.getElementById('search-bar');
-			bar.classList.add('hidden');
-			bar.classList.remove('flex');
-			document.getElementById('btn-search').classList.remove('bg-accent');
+			document.getElementById('search-inputgroup').hidden = true;
+			document.getElementById('btn-search').hidden = false;
 			document.getElementById('search-count').textContent = '';
 			if (searchAddon) searchAddon.clearDecorations();
 			if (fitAddon) fitAddon.fit();
 		};
+		// Case and regex are icon buttons rather than checkboxes, so their
+		// state lives in aria-pressed: one value that assistive tech
+		// announces and buildSearchOpts reads back.
+		window.toggleSearchOption = function(id) {
+			const el = document.getElementById(id);
+			if (!el) return;
+			const on = el.getAttribute('aria-pressed') !== 'true';
+			el.setAttribute('aria-pressed', String(on));
+			el.classList.toggle('bg-accent', on);
+			el.classList.toggle('text-accent-foreground', on);
+			onSearchInput();
+		};
+		function searchOptionOn(id) {
+			const el = document.getElementById(id);
+			return !!el && el.getAttribute('aria-pressed') === 'true';
+		}
 		window.onSearchInput = function() {
 			const q = document.getElementById('search-input').value;
 			if (!searchAddon || !q) {
@@ -216,8 +235,8 @@ templ ConsoleScript() {
 		};
 		function buildSearchOpts() {
 			return {
-				caseSensitive: document.getElementById('search-case').checked,
-				regex: document.getElementById('search-regex').checked,
+				caseSensitive: searchOptionOn('search-case'),
+				regex: searchOptionOn('search-regex'),
 				wholeWord: false,
 				decorations: {
 					matchBackground: '#3b3b00',

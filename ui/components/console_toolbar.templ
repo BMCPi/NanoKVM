@@ -3,30 +3,40 @@ package components
 import (
 	"github.com/pi-bmc/nanokvm-app/ui/components/badge"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
-	"github.com/pi-bmc/nanokvm-app/ui/components/checkbox"
+	"github.com/pi-bmc/nanokvm-app/ui/components/buttongroup"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
-	"github.com/pi-bmc/nanokvm-app/ui/components/input"
+	"github.com/pi-bmc/nanokvm-app/ui/components/inputgroup"
+	"github.com/pi-bmc/nanokvm-app/ui/components/tooltip"
+	"github.com/pi-bmc/nanokvm-app/ui/utils"
 )
 
 // ConsoleToolbar is the strip above the serial terminal — connection state,
-// connect/disconnect, search, expand, fullscreen. Icon-buttons use SizeIcon
-// so the icon centres correctly; Button auto-sizes <svg> children to size-4.
+// connect/disconnect, search, expand, fullscreen.
+//
+// The controls are one button group of three welded sub-groups
+// (connection · search · view), which is what gives the row a single seam
+// instead of a line of separate outlined buttons. Search does not open a
+// second row: its icon button and the input group that replaces it are
+// siblings in the same sub-group, so expanding swaps one for the other and
+// the surrounding controls stay exactly where they were.
+//
+// Visibility is toggled through the `hidden` ATTRIBUTE, never a `hidden`
+// utility class. preflight's `[hidden] { display: none !important }` beats a
+// component's own display utility; a `hidden` class both loses that fight at
+// runtime (the components set inline-flex/flex themselves) and gets stripped
+// by TwMerge at render.
 templ ConsoleToolbar() {
 	// flex-wrap below sm: the info group (title + device + status badge) and
-	// the controls group (Connect + 4 icon buttons) together need ~490px,
-	// more than fits beside each other under ~530px wide. Below that they
-	// drop to their own rows instead of the controls group spilling past
-	// <main>'s overflow-hidden and clipping the Fullscreen button off-screen.
+	// the controls group together need more width than fits beside each
+	// other on a narrow viewport. Below that they drop to their own rows
+	// instead of the controls spilling past <main>'s overflow-hidden and
+	// clipping the trailing buttons off-screen.
 	<div class="flex flex-wrap items-center justify-between gap-y-1.5 rounded-t-md border border-border bg-card px-3 py-1.5 sm:flex-nowrap">
 		<div class="flex items-center gap-3">
 			<span class="text-xs font-medium">Serial Console</span>
 			<span class="text-xs text-muted-foreground">/dev/ttyS1 @ 115200 8N1</span>
 			// One badge per connection state, server-styled; setConnStatus
-			// swaps the `hidden` DOM property between them. The hidden
-			// ATTRIBUTE (not the utility class) is load-bearing: preflight's
-			// `[hidden] { display: none !important }` beats the component's
-			// own display utility, whereas a `hidden` class both loses that
-			// fight at runtime and gets stripped by TwMerge at render.
+			// swaps the `hidden` DOM property between them.
 			@badge.Badge(badge.Props{
 				ID:      "conn-status-disconnected",
 				Variant: badge.VariantDestructive,
@@ -50,99 +60,194 @@ templ ConsoleToolbar() {
 				Connected
 			}
 		</div>
-		// ml-auto keeps this group pinned to the row's trailing edge whether
-		// it shares the line with the info group (desktop) or wraps to its
-		// own row (mobile) — justify-between alone only positions items
-		// within a shared line, and a lone wrapped item would otherwise
-		// collapse to the leading edge.
-		<div class="ml-auto flex items-center gap-1">
-			// Connect / Disconnect are separate server-styled buttons; the
-			// script swaps the `hidden` DOM property instead of rebuilding
-			// innerHTML (see the badge comment above for why the attribute).
-			@button.Button(button.Props{
-				ID:         "btn-serial-connect",
-				Variant:    button.VariantOutline,
-				Size:       button.SizeSm,
-				Class:      "border-green-700 text-green-500",
-				Attributes: templ.Attributes{"onclick": "connectSerial()"},
-			}) {
-				@icon.Plug()
-				<span>Connect</span>
-			}
-			@button.Button(button.Props{
-				ID:         "btn-serial-disconnect",
-				Variant:    button.VariantDestructive,
-				Size:       button.SizeSm,
-				Attributes: templ.Attributes{"onclick": "disconnectSerial()", "hidden": true},
-			}) {
-				@icon.X()
-				<span>Disconnect</span>
-			}
-			@button.Button(button.Props{
-				ID:         "btn-search",
-				Variant:    button.VariantOutline,
-				Size:       button.SizeIcon,
-				Class:      "size-8",
-				Attributes: templ.Attributes{"onclick": "toggleSearch()", "title": "Search (Ctrl+F)"},
-			}) {
-				@icon.Search()
-			}
-			@button.Button(button.Props{
-				ID:         "btn-expand",
-				Variant:    button.VariantOutline,
-				Size:       button.SizeIcon,
-				Class:      "size-8",
-				Attributes: templ.Attributes{"onclick": "toggleExpand()", "title": "Expand console"},
-			}) {
-				@icon.Maximize2()
-			}
-			@button.Button(button.Props{
-				ID:         "btn-fullscreen",
-				Variant:    button.VariantOutline,
-				Size:       button.SizeIcon,
-				Class:      "size-8",
-				Attributes: templ.Attributes{"onclick": "toggleFullscreen()", "title": "Fullscreen"},
-			}) {
-				@icon.Expand()
+		// ml-auto keeps the controls pinned to the row's trailing edge
+		// whether they share the line with the info group (desktop) or wrap
+		// to their own row (mobile) — justify-between alone only positions
+		// items within a shared line, and a lone wrapped item would
+		// otherwise collapse to the leading edge.
+		<div class="ml-auto flex min-w-0 items-center">
+			@buttongroup.ButtonGroup(buttongroup.Props{Class: "min-w-0 shrink"}) {
+				@buttongroup.ButtonGroup() {
+					// Connect / Disconnect are separate server-styled
+					// buttons; the script swaps the `hidden` DOM property
+					// instead of rebuilding innerHTML.
+					@button.Button(button.Props{
+						ID:         "btn-serial-connect",
+						Variant:    button.VariantOutline,
+						Size:       button.SizeSm,
+						Class:      "h-8 border-green-700 text-green-500",
+						Attributes: templ.Attributes{"onclick": "connectSerial()"},
+					}) {
+						@icon.Plug()
+						<span>Connect</span>
+					}
+					@button.Button(button.Props{
+						ID:         "btn-serial-disconnect",
+						Variant:    button.VariantDestructive,
+						Size:       button.SizeSm,
+						Class:      "h-8",
+						Attributes: templ.Attributes{"onclick": "disconnectSerial()", "hidden": true},
+					}) {
+						@icon.X()
+						<span>Disconnect</span>
+					}
+				}
+				@consoleSearchGroup()
+				@buttongroup.ButtonGroup() {
+					@consoleIconButton("btn-expand", "toggleExpand()", "Expand console") {
+						@icon.Maximize2()
+					}
+					@consoleIconButton("btn-fullscreen", "toggleFullscreen()", "Fullscreen") {
+						@icon.Expand()
+					}
+				}
 			}
 		</div>
 	</div>
 }
 
-// ConsoleSearchBar appears under the toolbar when the user opens search.
-// Hidden by default; the ConsoleScript toggles `hidden` / `flex` utilities.
-templ ConsoleSearchBar() {
-	<div id="search-bar" class="hidden items-center gap-2 border-x border-b border-border bg-card px-3 py-1.5">
-		<div class="flex-1 max-w-xs">
-			@input.Input(input.Props{
+// consoleSearchGroup is the search control in both its states: the collapsed
+// icon button, and the input group that takes its place. Only one of the two
+// is ever un-hidden, and because they are siblings the group keeps its
+// position in the row either way.
+templ consoleSearchGroup() {
+	@buttongroup.ButtonGroup(buttongroup.Props{ID: "search-group", Class: "min-w-0 shrink"}) {
+		@consoleIconButton("btn-search", "toggleSearch()", "Search (Ctrl+F)") {
+			@icon.Search()
+		}
+		// Width is a preference, not a promise. w-* rather than the
+		// component's default w-full because the enclosing button group is
+		// w-fit, against which a percentage has nothing to resolve and
+		// collapses to the input's intrinsic size; the trailing addon (count
+		// plus five buttons) takes a little over 150px of whatever is set,
+		// so the text field gets the rest.
+		//
+		// shrink + min-w-0 up the whole chain is what keeps that safe. The
+		// toolbar is sm:flex-nowrap, so between sm and the width where the
+		// preferred size fits there is nowhere for the row to wrap to — and
+		// an unshrinkable group pushes the expand and fullscreen buttons
+		// past <main>'s overflow-hidden and off-screen. Shrinking instead
+		// costs the text field some room and keeps every control reachable.
+		// min-w-40 stops the shrink before the field becomes unusable.
+		//
+		// An input group on its own is transparent on three sides with one
+		// emphasised underline (border-transparent + border-b-input). Welded
+		// into a button group beside outlined buttons that reads as a stray
+		// coloured line under a segment with no box, so all four edges are
+		// pinned to the same token the buttons use — border-b-border has to
+		// be spelled out separately or the component's own border-b-input
+		// still wins on that edge. No radius class: the group's welding
+		// rules zero the inner corners either way.
+		@inputgroup.InputGroup(inputgroup.Props{
+			ID:         "search-inputgroup",
+			Class:      "h-8 w-72 md:w-[28rem] min-w-40 shrink border-border border-b-border",
+			Attributes: templ.Attributes{"hidden": true},
+		}) {
+			@inputgroup.Addon() {
+				@icon.Search()
+			}
+			@inputgroup.Input(inputgroup.InputProps{
 				ID:          "search-input",
-				Placeholder: "Search terminal…",
+				Placeholder: "Search…",
 				Class:       "h-8 text-xs",
-				Attributes:  templ.Attributes{"autocomplete": "off", "spellcheck": "false", "oninput": "onSearchInput()", "onkeydown": "onSearchKeydown(event)"},
+				Attributes: templ.Attributes{
+					"autocomplete": "off",
+					"spellcheck":   "false",
+					"oninput":      "onSearchInput()",
+					"onkeydown":    "onSearchKeydown(event)",
+				},
 			})
-		</div>
-		<span id="search-count" class="min-w-12 text-center text-xs text-muted-foreground select-none"></span>
-		<div class="ml-auto flex items-center gap-2">
-			// change fires on the checkbox's hidden input and bubbles to the
-			// label; the ids stay on the inputs so buildSearchOpts reads
-			// .checked unchanged.
-			<label class="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer select-none" title="Case sensitive" onchange="onSearchInput()">
-				@checkbox.Checkbox(checkbox.Props{ID: "search-case"})
-				Aa
-			</label>
-			<label class="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer select-none" title="Regular expression" onchange="onSearchInput()">
-				@checkbox.Checkbox(checkbox.Props{ID: "search-regex"})
-				.*
-			</label>
-			@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeIcon, Class: "size-7", Attributes: templ.Attributes{"onclick": "findPrevious()", "title": "Previous match (Shift+Enter)"}}) {
-				@icon.ChevronUp()
+			@inputgroup.Addon(inputgroup.AddonProps{Align: inputgroup.AlignInlineEnd, Class: "gap-0.5"}) {
+				@inputgroup.Text(inputgroup.TextProps{
+					ID:    "search-count",
+					Class: "min-w-10 justify-end text-[11px] tabular-nums select-none",
+				})
+				// Case and regex were checkboxes with "Aa" / ".*" labels;
+				// as icon buttons their state has to be readable some other
+				// way, so aria-pressed carries it — announced by assistive
+				// tech and read back by buildSearchOpts.
+				@consoleSearchToggle("search-case", "Case sensitive") {
+					@icon.CaseSensitive()
+				}
+				@consoleSearchToggle("search-regex", "Regular expression") {
+					@icon.Regex()
+				}
+				@consoleSearchButton("findPrevious()", "Previous match (Shift+Enter)") {
+					@icon.ChevronUp()
+				}
+				@consoleSearchButton("findNext()", "Next match (Enter)") {
+					@icon.ChevronDown()
+				}
+				@consoleSearchButton("closeSearch()", "Close (Esc)") {
+					@icon.X()
+				}
 			}
-			@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeIcon, Class: "size-7", Attributes: templ.Attributes{"onclick": "findNext()", "title": "Next match (Enter)"}}) {
-				@icon.ChevronDown()
-			}
-			@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeIcon, Class: "size-7", Attributes: templ.Attributes{"onclick": "closeSearch()", "title": "Close (Esc)"}}) {
-				@icon.X()
-			}
-		</div>
-	</div>
+		}
+	}
+}
+
+// consoleIconButton is one icon-only control in the toolbar's button group.
+// The label is both the tooltip and the accessible name — an icon-only
+// button has no text for a screen reader to fall back on.
+templ consoleIconButton(id, onclick, label string) {
+	@tooltip.Tooltip() {
+		@button.Button(button.Props{
+			ID:      id,
+			Variant: button.VariantOutline,
+			Size:    button.SizeIcon,
+			Class:   "size-8",
+			Attributes: utils.MergeAttributes(
+				tooltip.Trigger(ctx),
+				templ.Attributes{"onclick": onclick, "aria-label": label},
+			),
+		}) {
+			{ children... }
+		}
+		@tooltip.Content() {
+			{ label }
+		}
+	}
+}
+
+// consoleSearchButton is a one-shot control inside the search input group.
+templ consoleSearchButton(onclick, label string) {
+	@tooltip.Tooltip() {
+		@inputgroup.Button(inputgroup.ButtonProps{
+			Size: inputgroup.ButtonSizeIconXs,
+			Attributes: utils.MergeAttributes(
+				tooltip.Trigger(ctx),
+				templ.Attributes{"onclick": onclick, "aria-label": label},
+			),
+		}) {
+			{ children... }
+		}
+		@tooltip.Content() {
+			{ label }
+		}
+	}
+}
+
+// consoleSearchToggle is a sticky on/off search option. inputgroup.Button
+// drops the ID from its props, so the id travels as an attribute instead —
+// buildSearchOpts looks these up by id.
+templ consoleSearchToggle(id, label string) {
+	@tooltip.Tooltip() {
+		@inputgroup.Button(inputgroup.ButtonProps{
+			Size: inputgroup.ButtonSizeIconXs,
+			Attributes: utils.MergeAttributes(
+				tooltip.Trigger(ctx),
+				templ.Attributes{
+					"id":           id,
+					"onclick":      "toggleSearchOption('" + id + "')",
+					"aria-label":   label,
+					"aria-pressed": "false",
+				},
+			),
+		}) {
+			{ children... }
+		}
+		@tooltip.Content() {
+			{ label }
+		}
+	}
 }
