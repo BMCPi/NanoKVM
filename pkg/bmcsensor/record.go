@@ -29,19 +29,25 @@ import (
 const (
 	// RecordMagic is "SNSR" read as a little-endian u32.
 	RecordMagic uint32 = 0x52534E53
-	// RecordVersion is the only layout this package understands.
-	RecordVersion uint16 = 1
-	// RecordSize is sizeof(struct bmc_sensor_record). The pTA asserts at
-	// build time that this fits one 64-byte EEPROM page, so a record is
-	// always written atomically from the bus's point of view.
-	RecordSize = 32
+	// RecordVersion is the current record layout this package writes and
+	// expects. Older versions whose prefix still validates are read too
+	// (see ParseRecord): the trailing CRC is located from the record's own
+	// declared length, so a v1 writer and this reader interoperate.
+	RecordVersion uint16 = 2
+	// RecordSizeV1 is the original layout — the common head plus one
+	// reserved word, temperature only.
+	RecordSizeV1 = 32
+	// RecordSize is sizeof(struct bmc_sensor_record) at the current
+	// version: the v1 head plus the fan block and reserved words. The pTA
+	// asserts at build time that this fits one 64-byte EEPROM page, so a
+	// record is always written atomically from the bus's point of view.
+	RecordSize = 48
+	// RecordMaxSize bounds a record's declared length: one EEPROM page.
+	RecordMaxSize = 64
 	// RecordOffset is where in the EEPROM the record lives: the spare
 	// region of the pi-bmc EEPROM map (0x0000 vars / 0x4000 env /
 	// 0x6000 SMBIOS / 0x6800 blkinfo / 0x7800 spare).
 	RecordOffset = 0x7800
-	// crcCovered is how much of the record the trailing CRC is taken over:
-	// everything up to but excluding the CRC field itself.
-	crcCovered = 28
 )
 
 // Status flags (PTA_BMC_SENSOR_STATUS_*).
@@ -56,6 +62,13 @@ const (
 	// describes the push before this one, so a record can arrive with it
 	// clear.
 	StatusLastPushOK uint32 = 1 << 2
+)
+
+// Fan flags (BMC_SENSOR_FAN_*), valid from record version 2.
+const (
+	// FanValidFlag means the record's fan block holds a real reading rather
+	// than a placeholder.
+	FanValidFlag uint8 = 1 << 0
 )
 
 // Errors a malformed or absent record produces. They are distinguished
@@ -92,6 +105,21 @@ type Record struct {
 	UptimeSeconds uint32
 	// Status is the StatusXxx flags.
 	Status uint32
+	// FanLevel is the commanded cooling level (0..FanMaxLevel). Present from
+	// record version 2; zero on a version-1 record.
+	FanLevel uint8
+	// FanMaxLevel is the highest cooling level the host exposes.
+	FanMaxLevel uint8
+	// FanDutyPct is the PWM duty of the commanded level, 0..100.
+	FanDutyPct uint8
+	// FanFlags is the FanXxxFlag bits.
+	FanFlags uint8
+	// FanRPM is the measured tachometer speed; 0 means not measured (the
+	// host has no tach capture yet).
+	FanRPM uint16
+	// hasFan records whether this record actually carried a fan block, so a
+	// version-1 record is distinguishable from a v2 one reporting level 0.
+	hasFan bool
 }
 
 // TempValid reports whether the temperature in this record is a fresh read
@@ -103,6 +131,10 @@ func (r Record) I2CReady() bool { return r.Status&StatusI2CReady != 0 }
 
 // LastPushOK reports whether the pTA's previous push succeeded.
 func (r Record) LastPushOK() bool { return r.Status&StatusLastPushOK != 0 }
+
+// FanValid reports whether this record carried a usable fan block. It is
+// false for a version-1 record, which had no fan fields at all.
+func (r Record) FanValid() bool { return r.hasFan && r.FanFlags&FanValidFlag != 0 }
 
 // Celsius renders the temperature in degrees.
 func (r Record) Celsius() float64 { return float64(r.SoCTempMilliC) / 1000 }
@@ -119,11 +151,10 @@ func (r Record) String() string {
 // backing memory starts as zeroes — so a record is only believed once its
 // magic, version and CRC all agree.
 func ParseRecord(b []byte) (Record, error) {
-	if len(b) < RecordSize {
+	if len(b) < RecordSizeV1 {
 		return Record{}, fmt.Errorf("bmcsensor: record is %d bytes, want at least %d",
-			len(b), RecordSize)
+			len(b), RecordSizeV1)
 	}
-	b = b[:RecordSize]
 
 	magic := binary.LittleEndian.Uint32(b[0:4])
 	if magic != RecordMagic {
@@ -136,25 +167,51 @@ func ParseRecord(b []byte) (Record, error) {
 		return Record{}, fmt.Errorf("%w: got 0x%08x, want 0x%08x", ErrBadMagic, magic, RecordMagic)
 	}
 
+	version := binary.LittleEndian.Uint16(b[4:6])
+	length := int(binary.LittleEndian.Uint16(b[6:8]))
+	// The declared length locates the trailing CRC. Trusting it before the
+	// CRC is checked is safe — a wrong length simply fails the CRC below —
+	// but it must still name a window that fits one page and the bytes we
+	// were given.
+	if length < RecordSizeV1 || length > RecordMaxSize || length > len(b) {
+		return Record{}, fmt.Errorf("bmcsensor: record declares length %d, out of range [%d,%d]",
+			length, RecordSizeV1, RecordMaxSize)
+	}
+
+	// CRC before version or length are believed: a mismatch means the bytes
+	// cannot be trusted to say what they are.
+	want := binary.LittleEndian.Uint32(b[length-4 : length])
+	if got := crc32.ChecksumIEEE(b[:length-4]); got != want {
+		return Record{}, fmt.Errorf("%w: computed 0x%08x, record says 0x%08x", ErrBadCRC, got, want)
+	}
+
+	// Only a version this reader predates is unreadable. v1 and v2 share the
+	// common head; v2+ additionally carries the fan block, which older
+	// readers skip via the length-driven CRC above.
+	if version < 1 {
+		return Record{}, fmt.Errorf("%w: got %d, understand up to %d", ErrUnsupportedVersion, version, RecordVersion)
+	}
+
 	rec := Record{
-		Version:       binary.LittleEndian.Uint16(b[4:6]),
-		Length:        binary.LittleEndian.Uint16(b[6:8]),
+		Version:       version,
+		Length:        uint16(length), //nolint:gosec // bounded to RecordMaxSize above
 		Seq:           binary.LittleEndian.Uint32(b[8:12]),
 		SoCTempMilliC: int32(binary.LittleEndian.Uint32(b[12:16])), //nolint:gosec // two's-complement millidegrees
 		UptimeSeconds: binary.LittleEndian.Uint32(b[16:20]),
 		Status:        binary.LittleEndian.Uint32(b[20:24]),
 	}
-	// b[24:28] is the reserved word; it is not surfaced.
 
-	// CRC before version: a mismatched CRC means the bytes cannot be
-	// trusted to say what version they are.
-	want := binary.LittleEndian.Uint32(b[28:32])
-	if got := crc32.ChecksumIEEE(b[:crcCovered]); got != want {
-		return Record{}, fmt.Errorf("%w: computed 0x%08x, record says 0x%08x", ErrBadCRC, got, want)
+	// Fan block (version 2+), bytes 24..29. On a v1 record bytes 24..27 are
+	// a reserved word and are not surfaced.
+	if version >= 2 && length >= RecordSize {
+		rec.FanLevel = b[24]
+		rec.FanMaxLevel = b[25]
+		rec.FanDutyPct = b[26]
+		rec.FanFlags = b[27]
+		rec.FanRPM = binary.LittleEndian.Uint16(b[28:30])
+		rec.hasFan = true
 	}
-	if rec.Version != RecordVersion {
-		return Record{}, fmt.Errorf("%w: got %d, understand %d", ErrUnsupportedVersion, rec.Version, RecordVersion)
-	}
+
 	return rec, nil
 }
 

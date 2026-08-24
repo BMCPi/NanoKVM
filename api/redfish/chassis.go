@@ -73,55 +73,81 @@ func (s *Service) GetChassis(c *gin.Context) {
 	})
 }
 
-// GetChassisThermal serves the thermal report the host published. Before the
-// first report it answers with an empty-but-valid resource rather than 404:
-// the host's own driver GETs before it PATCHes, and a 404 ends its walk.
-func (s *Service) GetChassisThermal(c *gin.Context) {
+// thermalBody renders Chassis/1/Thermal from the BMC-measured sources: the SoC
+// temperature and fan state OP-TEE pushes into this BMC's emulated EEPROM over
+// I2C (pkg/bmcsensor), plus any operator-staged fan override this service holds
+// for the host's sync driver to poll. The host no longer PATCHes Thermal — it
+// reports these over I2C now — so this one function backs both the GET and the
+// operator-override If-Match, keeping their ETags in step.
+func thermalBody() map[string]any {
+	body := map[string]any{}
+
+	if reading, err := socReader.Read(); err == nil {
+		// A stale or invalid sample withholds the temperature the same way
+		// the SoC sensor does: a die temperature for a host that has gone
+		// quiet would be a live-looking lie.
+		if !reading.Stale && reading.TempValid() {
+			body["Temperatures"] = []any{map[string]any{
+				"MemberId":       "SoC",
+				"ReadingCelsius": reading.Celsius(),
+			}}
+		}
+		if reading.FanValid() {
+			body["Fans"] = []any{map[string]any{
+				"MemberId":     "ActiveCooler",
+				"Reading":      reading.FanDutyPct,
+				"ReadingUnits": "Percent",
+				"Oem": map[string]any{"PiBmc": map[string]any{
+					"Level":    reading.FanLevel,
+					"MaxLevel": reading.FanMaxLevel,
+				}},
+			}}
+		}
+	}
+
+	// Merge the operator-staged fan override, kept at top-level
+	// Oem.PiBmc.FanOverrideLevel — exactly where RpiRedfishSyncDxe polls it.
 	host.mu.RLock()
 	stored := copyAnyMap(host.Thermal)
 	host.mu.RUnlock()
-	writeHostResource(c, renderHostMember(stored, chassisThermalPath, "Thermal",
+	if oem, ok := stored["Oem"]; ok {
+		body["Oem"] = oem
+	}
+
+	return body
+}
+
+// GetChassisThermal serves the thermal view the BMC renders from the host's
+// I2C sensor push (SoC temperature and fan state), plus any operator-staged
+// fan override. Before the first push it is an empty-but-valid resource rather
+// than a 404: the host's own driver GETs it, and a 404 ends its walk.
+func (s *Service) GetChassisThermal(c *gin.Context) {
+	writeHostResource(c, renderHostMember(thermalBody(), chassisThermalPath, "Thermal",
 		"#Thermal.v1_7_1.Thermal", "Thermal.Thermal", "Thermal"))
 }
 
-// PatchChassisThermal carries both write directions on Thermal, split by
-// origin the way PATCH /Systems/1 is:
+// PatchChassisThermal handles writes to Thermal. Temperature and fan state are
+// no longer host-writable — the host reports them over I2C and the BMC renders
+// them (see thermalBody) — so only two things can happen here:
 //
-//   - The host's firmware reports temperatures and fan state (shallow
-//     top-level merge, like the other host-owned resources). Its Oem data is
-//     nested inside Fans[0], so the merge never touches the top-level Oem
-//     block the operator stages into.
 //   - An operator stages the fan override RpiRedfishSyncDxe polls for:
 //     Oem.PiBmc.FanOverrideLevel (integer 0..255 pins the fan; null — or any
-//     non-integer — releases it). Nothing else on the resource is
-//     operator-writable, because everything else is a host report.
+//     non-integer — releases it). This is the only operator-writable field.
+//   - An older host firmware still PATCHes its thermal report over the host
+//     interface. That report is now redundant, so it is accepted and ignored
+//     rather than faulted, and the rendered view is returned unchanged.
 func (s *Service) PatchChassisThermal(c *gin.Context) {
 	if !IsHostInterfaceRequest(c) {
 		s.patchThermalFanOverride(c)
 		return
 	}
-	host.mu.RLock()
-	current := copyAnyMap(host.Thermal)
-	host.mu.RUnlock()
-	if !hostCheckIfMatch(c, renderHostMember(current, chassisThermalPath, "Thermal",
-		"#Thermal.v1_7_1.Thermal", "Thermal.Thermal", "Thermal")) {
+	// Accept-and-ignore a legacy host thermal report: the reading now arrives
+	// over I2C, so there is nothing to store, but faulting the PATCH would
+	// trip an older firmware's sync walk.
+	if _, ok := bindHostBody(c); !ok {
 		return
 	}
-	patch, ok := bindHostBody(c)
-	if !ok {
-		return
-	}
-	host.mu.Lock()
-	if host.Thermal == nil {
-		host.Thermal = map[string]any{}
-	}
-	for k, v := range patch {
-		host.Thermal[k] = v
-	}
-	merged := copyAnyMap(host.Thermal)
-	host.mu.Unlock()
-	hostStateSave()
-	writeHostResource(c, renderHostMember(merged, chassisThermalPath, "Thermal",
+	writeHostResource(c, renderHostMember(thermalBody(), chassisThermalPath, "Thermal",
 		"#Thermal.v1_7_1.Thermal", "Thermal.Thermal", "Thermal"))
 }
 
@@ -132,10 +158,7 @@ func (s *Service) PatchChassisThermal(c *gin.Context) {
 // non-integer value as "not steering"). Persisted immediately: it is an
 // operator instruction the host has not read yet.
 func (s *Service) patchThermalFanOverride(c *gin.Context) {
-	host.mu.RLock()
-	current := copyAnyMap(host.Thermal)
-	host.mu.RUnlock()
-	if !hostCheckIfMatch(c, renderHostMember(current, chassisThermalPath, "Thermal",
+	if !hostCheckIfMatch(c, renderHostMember(thermalBody(), chassisThermalPath, "Thermal",
 		"#Thermal.v1_7_1.Thermal", "Thermal.Thermal", "Thermal")) {
 		return
 	}
@@ -198,9 +221,8 @@ func (s *Service) patchThermalFanOverride(c *gin.Context) {
 	}
 	oem["PiBmc"] = piBmc
 	host.Thermal["Oem"] = oem
-	merged := copyAnyMap(host.Thermal)
 	host.mu.Unlock()
 	hostStateFlush()
-	writeHostResource(c, renderHostMember(merged, chassisThermalPath, "Thermal",
+	writeHostResource(c, renderHostMember(thermalBody(), chassisThermalPath, "Thermal",
 		"#Thermal.v1_7_1.Thermal", "Thermal.Thermal", "Thermal"))
 }

@@ -30,7 +30,14 @@ func writeEEPROM(t *testing.T, seq uint32, tempMilliC int32, status uint32) {
 	binary.LittleEndian.PutUint32(rec[12:16], uint32(tempMilliC))
 	binary.LittleEndian.PutUint32(rec[16:20], 1234)
 	binary.LittleEndian.PutUint32(rec[20:24], status)
-	binary.LittleEndian.PutUint32(rec[28:32], crc32.ChecksumIEEE(rec[:28]))
+	// Fan block (version 2): level 2 of 4 at 49% duty, valid. rec[28:44]
+	// (fan_rpm + reserved) stay zero.
+	rec[24] = 2
+	rec[25] = 4
+	rec[26] = 49
+	rec[27] = byte(bmcsensor.FanValidFlag)
+	crcOff := bmcsensor.RecordSize - 4
+	binary.LittleEndian.PutUint32(rec[crcOff:bmcsensor.RecordSize], crc32.ChecksumIEEE(rec[:crcOff]))
 
 	buf := make([]byte, 64*1024)
 	copy(buf[bmcsensor.RecordOffset:], rec)

@@ -5,15 +5,14 @@ package redfish
 //
 // There is currently one: the host SoC die temperature, which an OP-TEE
 // pseudo-TA on the Pi pushes into this BMC's emulated I2C EEPROM from the
-// secure world (see pkg/bmcsensor). It is deliberately *not* merged into
-// Chassis/1/Thermal, which is a host-owned pass-through:
-//
-//   - Thermal's ETag is computed over the document this service stores, and
-//     the host round-trips that ETag as If-Match on its own writes. Folding a
-//     value that changes every sample period into it would make the ETag move
-//     under the host and turn its conditional PATCHes into intermittent 412s.
-//   - Ownership would stop being legible. Everything under Thermal is
-//     something the host said; everything here is something the BMC measured.
+// secure world (see pkg/bmcsensor). The same record now also backs
+// Chassis/1/Thermal (see thermalBody in chassis.go): once the host stopped
+// PATCHing Thermal and began reporting temperature and fan state over I2C,
+// Thermal became BMC-rendered too, and the ETag hazard that once kept them
+// apart — the host round-tripping Thermal's ETag as If-Match while a
+// per-sample value moved it — no longer exists. This resource stays the
+// canonical, purpose-built home for the reading; Thermal is the conventional
+// thermal-schema view a client expects to find it under.
 //
 // Sensor is the schema Redfish added for exactly this, so the reading lands
 // where a client already looks for BMC-observed telemetry.

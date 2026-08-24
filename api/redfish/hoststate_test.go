@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/bmcsensor"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 )
 
@@ -499,13 +500,17 @@ func TestThermalFanOverrideStaging(t *testing.T) {
 	r := hostRouter()
 	from := hostIP(t)
 
-	hostReport := `{"Temperatures":[{"MemberId":"SoC","ReadingCelsius":48.123}],` +
-		`"Fans":[{"MemberId":"ActiveCooler","Reading":40,"ReadingUnits":"Percent",` +
-		`"Oem":{"PiBmc":{"Level":2,"MaxLevel":4,"OverrideActive":false}}}]}`
+	// Temperature and fan state now arrive over I2C and the BMC renders them;
+	// lay a record down so Thermal has a fan to report.
+	writeEEPROM(t, 1, 48123, bmcsensor.StatusTempValid|bmcsensor.StatusI2CReady|bmcsensor.StatusLastPushOK)
 
-	w := do(r, http.MethodPatch, "/redfish/v1/Chassis/1/Thermal", from, hostReport, nil)
+	// A legacy host thermal report is accepted and ignored (200) now, not
+	// stored — the reading comes from the record above.
+	legacyReport := `{"Temperatures":[{"MemberId":"SoC","ReadingCelsius":99}],` +
+		`"Fans":[{"MemberId":"ActiveCooler","Reading":40}]}`
+	w := do(r, http.MethodPatch, "/redfish/v1/Chassis/1/Thermal", from, legacyReport, nil)
 	if w.Code != http.StatusOK {
-		t.Fatalf("host thermal report = %d, body %s", w.Code, w.Body.String())
+		t.Fatalf("legacy host thermal report = %d, body %s", w.Code, w.Body.String())
 	}
 
 	// Operator stages the override from the LAN.
@@ -515,11 +520,12 @@ func TestThermalFanOverrideStaging(t *testing.T) {
 		t.Fatalf("operator stage override = %d, body %s", w.Code, w.Body.String())
 	}
 
-	// Anything else from the LAN is refused — Thermal is a host report.
+	// Anything else from the LAN is refused — only the override is
+	// operator-writable; everything else is BMC-rendered.
 	w = do(r, http.MethodPatch, "/redfish/v1/Chassis/1/Thermal", lanIP,
 		`{"Fans":[{"Reading":0}]}`, nil)
 	if w.Code != http.StatusForbidden {
-		t.Errorf("operator patching host fields = %d, want 403", w.Code)
+		t.Errorf("operator patching rendered fields = %d, want 403", w.Code)
 	}
 	w = do(r, http.MethodPatch, "/redfish/v1/Chassis/1/Thermal", lanIP,
 		`{"Oem":{"PiBmc":{"FanOverrideLevel":900}}}`, nil)
@@ -527,8 +533,8 @@ func TestThermalFanOverrideStaging(t *testing.T) {
 		t.Errorf("out-of-range level = %d, want 400", w.Code)
 	}
 
-	// A later host report must not clobber the staged override.
-	w = do(r, http.MethodPatch, "/redfish/v1/Chassis/1/Thermal", from, hostReport, nil)
+	// A later (legacy) host report must not clobber the staged override.
+	w = do(r, http.MethodPatch, "/redfish/v1/Chassis/1/Thermal", from, legacyReport, nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("second host report = %d", w.Code)
 	}
@@ -548,8 +554,9 @@ func TestThermalFanOverrideStaging(t *testing.T) {
 	if thermal.Oem.PiBmc.FanOverrideLevel == nil || *thermal.Oem.PiBmc.FanOverrideLevel != 3 {
 		t.Errorf("staged override missing after host report: %s", w.Body.String())
 	}
+	// The fan is rendered from the I2C record, and rides alongside the override.
 	if len(thermal.Fans) != 1 {
-		t.Errorf("host fan report lost: %s", w.Body.String())
+		t.Errorf("fan not rendered from the sensor record: %s", w.Body.String())
 	}
 
 	// null releases: PollFanOverride sees no integer and clears the pin.
@@ -795,32 +802,56 @@ func TestBiosAttributeRegistryPutFromLANPersists(t *testing.T) {
 // The host's thermal driver GETs then PATCHes Chassis/1/Thermal on every
 // boot; the GET must be a valid resource even before the first report, and
 // writes are host-interface-only like every other host-owned resource.
-func TestChassisThermalHostReport(t *testing.T) {
+// Thermal is rendered by the BMC from the host's I2C sensor push (SoC
+// temperature and fan state), not from a host PATCH. A legacy host PATCH is
+// accepted and ignored; the record is what a client sees.
+func TestChassisThermalFromSensorRecord(t *testing.T) {
 	resetHostState(t)
 	r := hostRouter()
 	from := hostIP(t)
 
+	// Before any push the resource is empty-but-valid, not a 404 (a 404 ends
+	// the host driver's walk).
 	w := do(r, http.MethodGet, "/redfish/v1/Chassis/1/Thermal", lanIP, "", nil)
 	if w.Code != http.StatusOK {
-		t.Fatalf("GET before report = %d, want 200 (a 404 ends the driver's walk)", w.Code)
+		t.Fatalf("GET before record = %d, want 200", w.Code)
 	}
 
-	if w = do(r, http.MethodPatch, "/redfish/v1/Chassis/1/Thermal", lanIP, `{"Temperatures":[]}`, nil); w.Code != http.StatusForbidden {
-		t.Errorf("PATCH from LAN = %d, want 403", w.Code)
-	}
-
-	body := `{"Temperatures":[{"Name":"SoC","ReadingCelsius":48}]}`
-	if w = do(r, http.MethodPatch, "/redfish/v1/Chassis/1/Thermal", from, body, nil); w.Code != http.StatusOK {
-		t.Fatalf("PATCH from host = %d, body %s", w.Code, w.Body.String())
-	}
-
+	// Lay a record down; the BMC should render its temperature and fan.
+	writeEEPROM(t, 1, 48123, bmcsensor.StatusTempValid|bmcsensor.StatusI2CReady|bmcsensor.StatusLastPushOK)
 	w = do(r, http.MethodGet, "/redfish/v1/Chassis/1/Thermal", lanIP, "", nil)
 	var got struct {
 		Temperatures []map[string]any `json:"Temperatures"`
+		Fans         []map[string]any `json:"Fans"`
 	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("thermal unmarshal: %v", err)
+	}
+	if len(got.Temperatures) != 1 {
+		t.Fatalf("temperature not rendered from record: %s", w.Body.String())
+	}
+	if c, _ := got.Temperatures[0]["ReadingCelsius"].(float64); c != 48.123 {
+		t.Errorf("ReadingCelsius = %v, want 48.123", got.Temperatures[0]["ReadingCelsius"])
+	}
+	if len(got.Fans) != 1 {
+		t.Fatalf("fan not rendered from record: %s", w.Body.String())
+	}
+
+	// Rendered fields are not host- or operator-writable.
+	if w = do(r, http.MethodPatch, "/redfish/v1/Chassis/1/Thermal", lanIP, `{"Temperatures":[]}`, nil); w.Code != http.StatusForbidden {
+		t.Errorf("PATCH rendered field from LAN = %d, want 403", w.Code)
+	}
+
+	// A legacy host thermal PATCH is accepted (200) and ignored: it does not
+	// override what the record says.
+	if w = do(r, http.MethodPatch, "/redfish/v1/Chassis/1/Thermal", from,
+		`{"Temperatures":[{"Name":"SoC","ReadingCelsius":99}]}`, nil); w.Code != http.StatusOK {
+		t.Fatalf("legacy host PATCH = %d, body %s", w.Code, w.Body.String())
+	}
+	w = do(r, http.MethodGet, "/redfish/v1/Chassis/1/Thermal", lanIP, "", nil)
 	_ = json.Unmarshal(w.Body.Bytes(), &got)
-	if len(got.Temperatures) != 1 || got.Temperatures[0]["Name"] != "SoC" {
-		t.Errorf("thermal report not served back: %s", w.Body.String())
+	if c, _ := got.Temperatures[0]["ReadingCelsius"].(float64); c != 48.123 {
+		t.Errorf("legacy host PATCH clobbered the rendered record: %v", got.Temperatures[0]["ReadingCelsius"])
 	}
 }
 
