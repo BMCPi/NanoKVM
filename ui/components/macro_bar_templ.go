@@ -153,42 +153,6 @@ func MacroBar() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = dropdownmenu.Separator().Render(ctx, templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, " ")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Var6 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-					if !templ_7745c5c3_IsBuffer {
-						defer func() {
-							templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-							if templ_7745c5c3_Err == nil {
-								templ_7745c5c3_Err = templ_7745c5c3_BufErr
-							}
-						}()
-					}
-					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = icon.SquarePen().Render(ctx, templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, " <span>Edit macros…</span>")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					return nil
-				})
-				templ_7745c5c3_Err = dropdownmenu.Item(dropdownmenu.ItemProps{
-					Attributes: templ.Attributes{"onclick": "openMacroEditor()"},
-				}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var6), templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
 				return nil
 			})
 			templ_7745c5c3_Err = dropdownmenu.Content(dropdownmenu.ContentProps{Class: "w-64", Align: dropdownmenu.AlignStart}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
@@ -227,19 +191,19 @@ func MacroList() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var7 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var7 == nil {
-			templ_7745c5c3_Var7 = templ.NopComponent
+		templ_7745c5c3_Var6 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var6 == nil {
+			templ_7745c5c3_Var6 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		if macros := storedMacros(ctx); len(macros) == 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<p class=\"px-2 py-1.5 text-xs text-muted-foreground\">No macros yet. Add one to send a key sequence to the host in a single click.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<p class=\"px-2 py-1.5 text-xs text-muted-foreground\">No macros yet. Add one to send a key sequence to the host in a single click.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
 			for _, macro := range macros {
-				templ_7745c5c3_Var8 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+				templ_7745c5c3_Var7 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 					if !templ_7745c5c3_IsBuffer {
@@ -255,20 +219,20 @@ func MacroList() templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, " <span class=\"truncate\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, " <span class=\"truncate\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					var templ_7745c5c3_Var9 string
-					templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(macro.Name)
+					var templ_7745c5c3_Var8 string
+					templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(macro.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/macro_bar.templ`, Line: 77, Col: 39}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/macro_bar.templ`, Line: 70, Col: 39}
 					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</span>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</span>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -283,7 +247,7 @@ func MacroList() templ.Component {
 						"title":           macroSummary(macro),
 						"data-macro-name": macro.Name,
 					},
-				}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var8), templ_7745c5c3_Buffer)
+				}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var7), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -329,12 +293,12 @@ func macroBarScript() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var10 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var10 == nil {
-			templ_7745c5c3_Var10 = templ.NopComponent
+		templ_7745c5c3_Var9 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var9 == nil {
+			templ_7745c5c3_Var9 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<script>\n\t\t// Firing a macro is fire-and-forget from the page's point of view, so\n\t\t// the only feedback worth surfacing is failure — a macro that could not\n\t\t// be sent looks identical to one the host ignored otherwise.\n\t\tdocument.addEventListener('htmx:responseError', (ev) => {\n\t\t\tconst path = ev.detail?.pathInfo?.requestPath || '';\n\t\t\tif (!path.includes('/api/vm/macros/')) return;\n\t\t\tconst name = ev.detail?.elt?.dataset?.macroName || 'macro';\n\t\t\tlet detail = '';\n\t\t\ttry { detail = JSON.parse(ev.detail.xhr.responseText).error || ''; } catch (e) {}\n\t\t\twindow.tui?.toast?.add({\n\t\t\t\ttitle: 'Could not send ' + name,\n\t\t\t\tdescription: detail,\n\t\t\t\tvariant: 'error',\n\t\t\t});\n\t\t});\n\n\t\twindow.openMacroEditor = function () {\n\t\t\twindow.dispatchEvent(new CustomEvent('macro-editor:open'));\n\t\t};\n\t</script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<script>\n\t\t// Firing a macro is fire-and-forget from the page's point of view, so\n\t\t// the only feedback worth surfacing is failure — a macro that could not\n\t\t// be sent looks identical to one the host ignored otherwise.\n\t\t//\n\t\t// uiToastHandled tells HTMXScript's generic responseError fallback that\n\t\t// this failure already has its toast — the run endpoint is the JSON API\n\t\t// (it has non-htmx consumers), so there is no HX-Trigger header to\n\t\t// suppress the fallback the way /ui fragments do. This script renders\n\t\t// inside <main> and HTMXScript at the end of <body>, so this listener\n\t\t// registers first and the flag is set before the fallback reads it.\n\t\tdocument.addEventListener('htmx:responseError', (ev) => {\n\t\t\tconst path = ev.detail?.pathInfo?.requestPath || '';\n\t\t\tif (!path.includes('/api/vm/macros/')) return;\n\t\t\tev.detail.uiToastHandled = true;\n\t\t\tconst name = ev.detail?.elt?.dataset?.macroName || 'macro';\n\t\t\tlet detail = '';\n\t\t\ttry { detail = JSON.parse(ev.detail.xhr.responseText).error || ''; } catch (e) {}\n\t\t\twindow.tui?.toast?.add({\n\t\t\t\ttitle: 'Could not send ' + name,\n\t\t\t\tdescription: detail,\n\t\t\t\tvariant: 'error',\n\t\t\t});\n\t\t});\n\t</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

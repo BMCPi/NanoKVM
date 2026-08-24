@@ -69,7 +69,9 @@
     if (!evt.detail || !evt.detail.lengthComputable) return;
     var bar = document.getElementById('vm-upload-progress');
     if (!bar) return;
-    bar.classList.remove('hidden');
+    // The hidden PROPERTY, matching the server-rendered hidden attribute —
+    // see the note beside the Progress in virtual_media.templ.
+    bar.hidden = false;
     bar.setAttribute('aria-valuemax', String(evt.detail.total));
     bar.setAttribute('aria-valuenow', String(evt.detail.loaded));
   });
@@ -79,7 +81,7 @@
     if (!evt.target || evt.target.id !== 'vm-upload-form') return;
     var bar = document.getElementById('vm-upload-progress');
     if (!bar) return;
-    bar.classList.add('hidden');
+    bar.hidden = true;
     bar.setAttribute('aria-valuenow', '0');
   });
 })();

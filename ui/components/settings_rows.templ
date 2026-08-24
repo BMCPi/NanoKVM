@@ -1,0 +1,205 @@
+package components
+
+import (
+	"github.com/pi-bmc/nanokvm-app/ui/components/button"
+	"github.com/pi-bmc/nanokvm-app/ui/components/field"
+	"github.com/pi-bmc/nanokvm-app/ui/components/input"
+	"github.com/pi-bmc/nanokvm-app/ui/components/item"
+	selectcomp "github.com/pi-bmc/nanokvm-app/ui/components/select"
+	switchcomp "github.com/pi-bmc/nanokvm-app/ui/components/switch"
+)
+
+// The settings dialog's row vocabulary. Split out of settings_menu.templ so
+// the shell (settings_menu.templ) and the panels (settings_panels.templ) read
+// against a fixed set of row shapes instead of scrolling past them.
+
+// settingsOption is one entry in a settingsSelectRow's list. Declared beside
+// the row that renders it; the option sets themselves live next to the panels
+// that pass them (settings_panels.templ).
+type settingsOption struct {
+	Value string
+	Label string
+}
+
+// settingsRow is the reference pane's row shape: title over a one-line
+// description on the left, the control on the right. forID associates the
+// title with the control; pass "" when the control is not labelable.
+templ settingsRow(forID, title, description string) {
+	@field.Field(field.Props{Orientation: field.OrientationHorizontal}) {
+		@field.Content() {
+			if forID != "" {
+				@field.Label(field.LabelProps{For: forID}) {
+					{ title }
+				}
+			} else {
+				@field.Title() {
+					{ title }
+				}
+			}
+			@field.Description() {
+				{ description }
+			}
+		}
+		<div class="flex shrink-0 items-center gap-2">
+			{ children... }
+		</div>
+	}
+}
+
+// settingsRowWide is settingsRow for the free-text address/MAC rows: their
+// descriptions run long enough (e.g. "Link-local CIDR the BMC takes on the
+// USB link to the managed host.") that sharing a horizontal row with even a
+// modest input leaves the label+description column too narrow on mobile —
+// confirmed at 500px: MAC Address wrapped to 128.5px tall in a 128px-wide
+// column. Responsive orientation stacks label/description above the control
+// below the field-group's own @md container-query breakpoint (~448px) and
+// stays side-by-side above it, so desktop is unchanged.
+templ settingsRowWide(forID, title, description string) {
+	@field.Field(field.Props{Orientation: field.OrientationResponsive}) {
+		@field.Content() {
+			if forID != "" {
+				@field.Label(field.LabelProps{For: forID}) {
+					{ title }
+				}
+			} else {
+				@field.Title() {
+					{ title }
+				}
+			}
+			@field.Description() {
+				{ description }
+			}
+		}
+		<div class="flex shrink-0 items-center gap-2">
+			{ children... }
+		</div>
+	}
+}
+
+// settingsSwitchRow is a row whose control is a switch. name is the form field
+// the enclosing form submits; an unchecked switch submits nothing, which the
+// handlers read as false.
+templ settingsSwitchRow(id, name, title, description string, checked bool) {
+	@settingsRow(id, title, description) {
+		@switchcomp.Switch(switchcomp.Props{ID: id, Name: name, Value: "true", Checked: checked})
+	}
+}
+
+// settingsSelectRow is a row whose control is a select over a fixed option set.
+// The trigger carries its own id (suffixed "-trigger") because select.Select
+// renders the labelable element on the trigger, not on the root — the same
+// split the existing IPv4 Mode and Primary view rows spell out by hand.
+templ settingsSelectRow(id, name, title, description, value, width string, options []settingsOption) {
+	@settingsRow(id+"-trigger", title, description) {
+		@selectcomp.Select(selectcomp.Props{ID: id, Name: name, Value: value}) {
+			@selectcomp.Trigger(selectcomp.TriggerProps{ID: id + "-trigger", Class: width}) {
+				@selectcomp.Value(selectcomp.ValueProps{})
+			}
+			@selectcomp.Content() {
+				for _, o := range options {
+					@selectcomp.Item(selectcomp.ItemProps{Value: o.Value}) {
+						{ o.Label }
+					}
+				}
+			}
+		}
+	}
+}
+
+// settingsNumberRow is a row whose control is a bounded number input. min is
+// enforced by the browser and re-checked server-side, because a hand-crafted
+// POST bypasses the attribute entirely.
+templ settingsNumberRow(id, name, title, description, value, min string) {
+	@settingsRow(id, title, description) {
+		@input.Input(input.Props{
+			ID:         id,
+			Name:       name,
+			Type:       "number",
+			Value:      value,
+			Class:      "w-24",
+			Attributes: templ.Attributes{"min": min},
+		})
+	}
+}
+
+// settingsTextRow is settingsRowWide plus the monospace input, for the
+// free-text fields (hostnames, endpoints, device paths) that read as data
+// rather than prose.
+templ settingsTextRow(id, name, title, description, value, placeholder string) {
+	@settingsRowWide(id, title, description) {
+		@settingsTextInput(id, name, value, placeholder)
+	}
+}
+
+// settingsFieldsetNote is a one-line note under a fieldset legend, for what
+// applies to the whole group rather than any one row — most often that its
+// fields are only read when the subsystem is built at startup. Saying that once
+// per fieldset beats repeating it in every description, and saying it at all
+// beats a switch that silently appears to do nothing.
+templ settingsFieldsetNote(what string) {
+	@field.Description() {
+		{ what }
+	}
+}
+
+// settingsTextInput is the monospace text field the addressing rows use.
+// Only ever placed inside settingsRowWide, so the width tracks that same
+// field-group container query: full width once the row has stacked (no
+// label column competing for space), fixed width once it hasn't.
+templ settingsTextInput(id, name, value, placeholder string) {
+	@input.Input(input.Props{
+		ID:          id,
+		Name:        name,
+		Value:       value,
+		Placeholder: placeholder,
+		Class:       "w-full @md/field-group:w-48 font-mono",
+		Attributes:  templ.Attributes{"spellcheck": "false", "autocomplete": "off"},
+	})
+}
+
+// settingsSubmitButton is a panel header's Save control. It submits a form in
+// the swapped body below via the form= attribute, so re-rendering the body
+// never replaces the button.
+templ settingsSubmitButton(formID, label string) {
+	@button.Button(button.Props{
+		Type: button.TypeSubmit,
+		Size: button.SizeSm,
+		Form: formID,
+	}) {
+		{ label }
+	}
+}
+
+// settingsActionRow is settingsRow's item-based sibling for rows whose
+// trailing element is an action or readout rather than a form control —
+// field.Field is strictly for form controls, item.Item for content
+// presentation. The overrides keep the field rhythm (gap, top alignment,
+// uppercase title) so both row kinds interleave in one field.Group.
+templ settingsActionRow(title, description string) {
+	@item.Item(item.Props{Class: "items-start gap-3 p-0"}) {
+		@item.Content() {
+			@item.Title(item.TitleProps{Class: "text-xs font-semibold uppercase"}) {
+				{ title }
+			}
+			@item.Description(item.DescriptionProps{Class: "line-clamp-none"}) {
+				{ description }
+			}
+		}
+		@item.Actions() {
+			{ children... }
+		}
+	}
+}
+
+// settingsValueRow is a read-only row.
+templ settingsValueRow(title, description, value string) {
+	@settingsActionRow(title, description) {
+		<span class="font-mono text-xs">
+			if value != "" {
+				{ value }
+			} else {
+				—
+			}
+		</span>
+	}
+}

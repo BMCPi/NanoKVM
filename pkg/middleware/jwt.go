@@ -60,7 +60,7 @@ func ResolveAuth() gin.HandlerFunc {
 
 		if _, err := ParseJWT(cookie); err != nil {
 			// Clear stale cookie so the browser stops sending it.
-			clearAuthCookie(c)
+			ClearAuthCookie(c)
 			c.Next()
 			return
 		}
@@ -109,7 +109,7 @@ func CheckPageAuth() gin.HandlerFunc {
 		if _, err := ParseJWT(cookie); err != nil {
 			// Token invalid or expired — clear it so the browser stops
 			// sending the stale value on every request.
-			clearAuthCookie(c)
+			ClearAuthCookie(c)
 			c.Redirect(http.StatusFound, "/auth/login")
 			c.Abort()
 			return
@@ -150,8 +150,8 @@ func abortUnauthorized(c *gin.Context) {
 	c.Abort()
 }
 
-// clearAuthCookie expires the nano-kvm-token cookie.
-func clearAuthCookie(c *gin.Context) {
+// ClearAuthCookie expires the nano-kvm-token cookie.
+func ClearAuthCookie(c *gin.Context) {
 	c.SetCookie(cookieName, "", -1, "/", "", false, false)
 }
 

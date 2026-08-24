@@ -1,0 +1,838 @@
+package components
+
+import (
+	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
+	"github.com/pi-bmc/nanokvm-app/ui/components/button"
+	"github.com/pi-bmc/nanokvm-app/ui/components/card"
+	"github.com/pi-bmc/nanokvm-app/ui/components/field"
+	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
+	"github.com/pi-bmc/nanokvm-app/ui/components/input"
+	"github.com/pi-bmc/nanokvm-app/ui/components/item"
+	selectcomp "github.com/pi-bmc/nanokvm-app/ui/components/select"
+	"github.com/pi-bmc/nanokvm-app/ui/components/textarea"
+	"github.com/pi-bmc/nanokvm-app/ui/utils"
+)
+
+// The settings dialog's seven panels and their swappable bodies. The dialog
+// shell and nav live in settings_menu.templ; the row primitives these panels
+// are written in live in settings_rows.templ.
+
+// settingsSelectW is the shared width for the framing selects. They read as one
+// set, so they get one width — sized for the longest option ("Software
+// (XON/XOFF)") rather than each select shrinking to its own content.
+const settingsSelectW = "w-48"
+
+// Option sets shared by the serial framing rows. These mirror what
+// pkg/serial's mapParity/mapStopBits accept and what the Redfish
+// SerialInterface resource advertises, so the three cannot drift.
+var (
+	settingsBaudRates = []settingsOption{
+		{"9600", "9600"}, {"19200", "19200"}, {"38400", "38400"},
+		{"57600", "57600"}, {"115200", "115200"}, {"230400", "230400"},
+	}
+	settingsDataBits    = []settingsOption{{"5", "5"}, {"6", "6"}, {"7", "7"}, {"8", "8"}}
+	settingsParities    = []settingsOption{{"none", "None"}, {"even", "Even"}, {"odd", "Odd"}}
+	settingsStopBits    = []settingsOption{{"1", "1"}, {"2", "2"}}
+	settingsFlowControl = []settingsOption{{"none", "None"}, {"hardware", "Hardware (RTS/CTS)"}, {"software", "Software (XON/XOFF)"}}
+	settingsLogLevels   = []settingsOption{
+		{"trace", "Trace"}, {"debug", "Debug"}, {"info", "Info"},
+		{"warn", "Warning"}, {"error", "Error"},
+	}
+)
+
+templ settingsGeneralPanel() {
+	@settingsPanel("general", "General", "Device identity and automatic updates.", true, nil) {
+		@settingsBody("settings-general-body", "/ui/settings/general") {
+			@SettingsGeneralBody(SettingsGeneral{})
+		}
+	}
+}
+
+// SettingsGeneralBody is the General panel's swappable region. The
+// auto-update form has no Save button: hx-trigger="change" writes on every
+// toggle and answers with this same body re-rendered from the saved config.
+templ SettingsGeneralBody(m SettingsGeneral) {
+	@field.Group() {
+		@field.Set() {
+			@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+				Device
+			}
+			@settingsValueRow("Application", "BMC application build currently running.", m.AppVersion)
+			@settingsValueRow("System image", "Base image the BMC booted from.", m.ImageVersion)
+			@settingsValueRow("Hardware", "Detected NanoKVM hardware revision.", m.Hardware)
+		}
+		<form
+			hx-patch="/ui/settings/console"
+			hx-trigger="change"
+			hx-target="#settings-general-body"
+			hx-swap="innerHTML"
+			class="contents"
+		>
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Console
+				}
+				@settingsRow("console-primary-trigger", "Primary view",
+					"Which view the dashboard opens on. Both stay available as tabs.") {
+					@selectcomp.Select(selectcomp.Props{
+						ID:    "console-primary",
+						Name:  "primaryView",
+						Value: m.ConsolePrimaryView,
+					}) {
+						@selectcomp.Trigger(selectcomp.TriggerProps{ID: "console-primary-trigger", Class: "w-40"}) {
+							@selectcomp.Value(selectcomp.ValueProps{Placeholder: "Serial Console"})
+						}
+						@selectcomp.Content() {
+							@selectcomp.Item(selectcomp.ItemProps{Value: "serial"}) {
+								Serial Console
+							}
+							@selectcomp.Item(selectcomp.ItemProps{Value: "hdmi"}) {
+								HDMI
+							}
+						}
+					}
+				}
+			}
+		</form>
+		<form
+			hx-patch="/ui/settings/autoupdate"
+			hx-trigger="change"
+			hx-target="#settings-general-body"
+			hx-swap="innerHTML"
+			class="contents"
+		>
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Automatic updates
+				}
+				@settingsSwitchRow("au-enabled", "enabled", "Enable auto-update",
+					"Check GitHub for newer releases in the background and apply them.", m.AutoUpdateEnabled)
+				@settingsRow("au-interval", "Check interval",
+					"Minutes between checks. Values below 5 are clamped at runtime.") {
+					@input.Input(input.Props{
+						ID:         "au-interval",
+						Name:       "intervalMinutes",
+						Type:       "number",
+						Value:      m.AutoUpdateInterval,
+						Class:      "w-24",
+						Attributes: templ.Attributes{"min": "5", "step": "5"},
+					})
+				}
+				@settingsSwitchRow("au-application", "application", "Update application",
+					"Apply new NanoKVM application releases. The service restarts.", m.AutoUpdateApplication)
+			}
+		</form>
+		<form
+			hx-patch="/ui/settings/timesync"
+			hx-trigger="change"
+			hx-target="#settings-general-body"
+			hx-swap="innerHTML"
+			class="contents"
+		>
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Time synchronisation
+				}
+				@settingsFieldsetNote("SNTP client with an HTTP-date fallback. DHCP-supplied and well-known servers are tried after the ones listed here.")
+				@settingsSwitchRow("ts-enabled", "enabled", "Sync the clock",
+					"Keep the BMC clock correct. When off the clock is never touched.", m.TimeSyncEnabled)
+				@settingsTextRow("ts-servers", "servers", "NTP Servers",
+					"Preferred servers, comma separated. Blank falls back to DHCP and well-known sources.",
+					m.TimeSyncServers, "pool.ntp.org, 10.0.0.1")
+				@settingsNumberRow("ts-interval", "intervalMinutes", "Sync interval",
+					"Minutes between re-syncs once the first one succeeds.", m.TimeSyncInterval, "1")
+			}
+		</form>
+	}
+}
+
+templ settingsNetworkPanel() {
+	@settingsPanel(
+		"network", "Network", "Configure your network settings.", false,
+		settingsSubmitButton("settings-network-form", "Save Settings"),
+	) {
+		@settingsBody("settings-network-body", "/ui/settings/network") {
+			@SettingsNetworkBody(SettingsNetwork{Mode: "dhcp"})
+		}
+	}
+}
+
+// SettingsNetworkBody is the Network panel's swappable region: one form for
+// the whole addressing config, submitted by the Save button in the panel
+// header (associated by the form= attribute, since the header sits outside
+// the swapped region). The response is this body re-rendered from the config
+// the server actually persisted, so a rejected value never lingers on screen.
+templ SettingsNetworkBody(m SettingsNetwork) {
+	@field.Group() {
+		// display:contents on the forms (the General panel's idiom) lets the
+		// batched addressing form and the apply-on-change mDNS form sit as
+		// siblings in one field.Group without nesting — nested forms are
+		// invalid HTML, and mDNS must restart on its own rather than riding a
+		// Save that re-applies addressing and drops the session.
+		<form
+			id="settings-network-form"
+			hx-patch="/ui/settings/network"
+			hx-target="#settings-network-body"
+			hx-swap="innerHTML"
+			hx-confirm="Re-applies addressing immediately and may interrupt this session."
+			data-confirm-title="Save network settings?"
+			data-confirm-label="Save"
+			class="contents"
+		>
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Wired uplink (eth0)
+				}
+				@settingsSwitchRow("net-enabled", "enabled", "Managed networking",
+					"Let the BMC configure eth0 over netlink instead of leaving it to the boot scripts.", m.Enabled)
+				@settingsRowWide("net-mac", "MAC Address",
+					"Hardware identifier for the network interface. Blank keeps the kernel MAC.") {
+					@input.Input(input.Props{
+						ID:          "net-mac",
+						Name:        "mac",
+						Value:       m.MAC,
+						Placeholder: "aa:bb:cc:dd:ee:ff",
+						Class:       "w-full @md/field-group:w-48 font-mono",
+						Attributes:  templ.Attributes{"spellcheck": "false", "autocomplete": "off"},
+					})
+					@button.Button(button.Props{
+						Variant:    button.VariantOutline,
+						Size:       button.SizeIcon,
+						Attributes: templ.Attributes{"onclick": "copySettingsValue('net-mac')", "title": "Copy", "aria-label": "Copy MAC address"},
+					}) {
+						@icon.Copy()
+					}
+				}
+				@settingsRow("net-mode-trigger", "IPv4 Mode", "Configure the IPv4 mode.") {
+					@selectcomp.Select(selectcomp.Props{ID: "net-mode", Name: "mode", Value: m.Mode}) {
+						@selectcomp.Trigger(selectcomp.TriggerProps{ID: "net-mode-trigger", Class: "w-32"}) {
+							@selectcomp.Value(selectcomp.ValueProps{Placeholder: "DHCP"})
+						}
+						@selectcomp.Content() {
+							@selectcomp.Item(selectcomp.ItemProps{Value: "dhcp"}) {
+								DHCP
+							}
+							@selectcomp.Item(selectcomp.ItemProps{Value: "static"}) {
+								Static
+							}
+						}
+					}
+				}
+				// Static-only fields. data-active drives the visibility so the
+				// attribute selector wins over the row's own display utility;
+				// the reveal is local view state, not a server round trip.
+				<div
+					id="net-static"
+					data-active={ utils.IfElse(m.IsStatic(), "true", "false") }
+					class="flex flex-col gap-4 data-[active=false]:hidden"
+				>
+					@settingsRowWide("net-address", "IPv4 Address", "Static address in CIDR notation, e.g. 192.168.1.50/24.") {
+						@settingsTextInput("net-address", "address", m.Address, "192.168.1.50/24")
+					}
+					@settingsRowWide("net-gateway", "Gateway", "Default-route next hop. Blank adds no default route.") {
+						@settingsTextInput("net-gateway", "gateway", m.Gateway, "192.168.1.1")
+					}
+					@settingsRowWide("net-dns", "DNS Servers", "Nameservers written to /etc/resolv.conf, comma separated.") {
+						@settingsTextInput("net-dns", "dns", m.DNS, "1.1.1.1, 9.9.9.9")
+					}
+				</div>
+			}
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					USB host interface
+				}
+				@settingsRowWide("rhi-address", "BMC Address",
+					"Link-local CIDR the BMC takes on the USB link to the managed host.") {
+					@settingsTextInput("rhi-address", "rhiAddress", m.RHIAddress, "169.254.10.1/16")
+				}
+				@settingsRowWide("rhi-lease", "Host Lease",
+					"Single address offered to the host. Blank disables the DHCP server.") {
+					@settingsTextInput("rhi-lease", "rhiLease", m.RHILease, "169.254.10.2")
+				}
+			}
+		</form>
+		<form
+			hx-patch="/ui/settings/mdns"
+			hx-trigger="change"
+			hx-target="#settings-network-body"
+			hx-swap="innerHTML"
+			class="contents"
+		>
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Discovery (mDNS)
+				}
+				@settingsFieldsetNote("Advertises <hostname>.local on the LAN. Answers hostname queries only — no service records.")
+				@settingsSwitchRow("mdns-enabled", "enabled", "Advertise on the LAN",
+					"Reply to multicast-DNS hostname queries so the BMC is reachable by name.", m.MDNSEnabled)
+				@settingsTextRow("mdns-hostname", "hostname", "Advertised Name",
+					"Name published, without the .local suffix. Blank uses the OS hostname.",
+					m.MDNSHostname, "nanokvm")
+				@settingsTextRow("mdns-interface", "interface", "Interface",
+					"Restricts answers to one link. Blank means every up interface, which would include the USB host link.",
+					m.MDNSInterface, "eth0")
+				@settingsSwitchRow("mdns-ipv4", "ipv4", "IPv4 responder",
+					"Bind the 224.0.0.251 multicast group.", m.MDNSIPv4)
+				@settingsSwitchRow("mdns-ipv6", "ipv6", "IPv6 responder",
+					"Bind the [ff02::fb] multicast group.", m.MDNSIPv6)
+			}
+		</form>
+		@settingsNetworkStatusCard(m.Status)
+	}
+}
+
+// settingsNetworkStatusCard is the read-only counterpart of the form above —
+// what the interfaces actually ended up with. bg-background keeps it distinct
+// from the panel card it sits in. Its Refresh button re-reads just this card.
+templ settingsNetworkStatusCard(s SettingsNetworkStatus) {
+	@card.Card(card.Props{Size: card.SizeSm, Class: "bg-background"}) {
+		@card.Header() {
+			@card.Title(card.TitleProps{Class: "text-xs"}) {
+				Network Status
+			}
+			@card.Action() {
+				@button.Button(button.Props{
+					Variant: button.VariantOutline,
+					Size:    button.SizeSm,
+					Attributes: templ.Attributes{
+						"hx-get":     "/ui/settings/network/status",
+						"hx-target":  "#settings-network-status",
+						"hx-swap":    "innerHTML",
+						"aria-label": "Refresh network status",
+					},
+				}) {
+					@icon.RefreshCw()
+					<span>Refresh</span>
+				}
+			}
+		}
+		@card.Content(card.ContentProps{ID: "settings-network-status", Class: "grid grid-cols-1 gap-x-6 sm:grid-cols-2"}) {
+			@SettingsNetworkStatusRows(s)
+		}
+	}
+}
+
+// SettingsNetworkStatusRows is swapped on its own by the Refresh button.
+// statusRow (status_row.templ) is the same row the overview sidebar cards
+// use, so the label/value readouts share one rhythm everywhere.
+templ SettingsNetworkStatusRows(s SettingsNetworkStatus) {
+	@statusRow("IP Address", s.IP)
+	@statusRow("Interface", s.Interface)
+	@statusRow("IPv4 Mode", s.Mode)
+	@statusRow("MAC Address", s.MAC)
+	@statusRow("mDNS Name", s.MDNS)
+	@statusRow("USB Host Link", s.RHI)
+}
+
+// settingsSerialPanel is the host console's UART. It is its own section rather
+// than a fieldset under Hardware because the framing settings are batched
+// behind a Save — applying them re-opens the port, which drops every live
+// console session — while Hardware's switches apply on change. Mixing the two
+// write models in one panel is what makes a settings page feel unpredictable.
+templ settingsSerialPanel() {
+	@settingsPanel(
+		"serial", "Serial", "The UART the managed host's console runs on.", false,
+		settingsSubmitButton("settings-serial-form", "Save Settings"),
+	) {
+		@settingsBody("settings-serial-body", "/ui/settings/serial") {
+			@SettingsSerialBody(SettingsSerial{})
+		}
+	}
+}
+
+// SettingsSerialBody batches the whole port config behind the header's Save,
+// like the Network panel: each field on its own would re-open the port five
+// times on the way to one working configuration.
+templ SettingsSerialBody(m SettingsSerial) {
+	<form
+		id="settings-serial-form"
+		hx-patch="/ui/settings/serial"
+		hx-target="#settings-serial-body"
+		hx-swap="innerHTML"
+		hx-confirm="Re-opens the port immediately. Console sessions watching it are disconnected and must reconnect."
+		data-confirm-title="Save serial settings?"
+		data-confirm-label="Save"
+	>
+		@field.Group() {
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Port
+				}
+				@settingsFieldsetNote("Redfish exposes the same values at /redfish/v1/Managers/1/SerialInterfaces/1.")
+				@settingsTextRow("ser-device", "device", "Device",
+					"The tty the host's console is wired to.", m.Device, "/dev/ttyS1")
+				@settingsSelectRow("ser-baud", "baudRate", "Baud Rate",
+					"Line speed. Must match what the host's console is configured for.",
+					m.BaudRate, settingsSelectW, settingsBaudRates)
+				@settingsSelectRow("ser-databits", "dataBits", "Data Bits",
+					"Bits per character. 8 for essentially every modern host.",
+					m.DataBits, settingsSelectW, settingsDataBits)
+				@settingsSelectRow("ser-parity", "parity", "Parity",
+					"Error-check bit. None is the common pairing with 8 data bits.",
+					m.Parity, settingsSelectW, settingsParities)
+				@settingsSelectRow("ser-stopbits", "stopBits", "Stop Bits",
+					"Bits marking the end of a character.", m.StopBits, settingsSelectW, settingsStopBits)
+				@settingsSelectRow("ser-flow", "flowControl", "Flow Control",
+					"Throttling handshake. None unless the host's console expects otherwise.",
+					m.FlowControl, settingsSelectW, settingsFlowControl)
+			}
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Console capture
+				}
+				@settingsFieldsetNote("Records host console output continuously, so its boot and panic messages survive even when nobody is watching.")
+				@settingsSwitchRow("ser-capture", "captureEnabled", "Capture output",
+					"Hold the port open for the whole server lifetime and record to a bounded file.", m.CaptureEnabled)
+				@settingsNumberRow("ser-capture-max", "captureMaxKB", "Size limit",
+					"Kilobytes before the file rotates once. At most twice this is ever kept.",
+					m.CaptureMaxKB, "16")
+				// Read-only: this path must stay on the persistent partition or
+				// the host's boot logs vanish on the next BMC reboot, which is an
+				// image-layout guarantee rather than an operator preference.
+				@settingsValueRow("Capture file", "Where the recording is written. Fixed to the persistent data partition.", m.CaptureFile)
+			}
+		}
+	</form>
+}
+
+templ settingsHardwarePanel() {
+	@settingsPanel("hardware", "Hardware", "The USB device the BMC pretends to be, and how power is driven.", false, nil) {
+		@settingsBody("settings-hardware-body", "/ui/settings/hardware") {
+			@SettingsHardwareBody(SettingsHardware{})
+		}
+	}
+}
+
+// SettingsHardwareBody separates the two halves of the gadget by how they
+// apply, because the difference is invisible otherwise. The first fieldset is
+// reconciled live by pkg/usbgadget — the handler reads back real gadget state,
+// so those switches say what the gadget is actually doing rather than what was
+// clicked. Everything below is only read when the configfs tree is built at
+// startup, so it is persisted and labelled as needing a reboot.
+templ SettingsHardwareBody(m SettingsHardware) {
+	@field.Group() {
+		<form
+			hx-post="/ui/settings/hardware"
+			hx-trigger="change"
+			hx-target="#settings-hardware-body"
+			hx-swap="innerHTML"
+			class="contents"
+		>
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Functions
+				}
+				@settingsSwitchRow("usb-network", "network", "USB Ethernet",
+					"Present a CDC-NCM adapter to the host — the transport for the Redfish host interface.", m.USBNetwork)
+				@settingsSwitchRow("usb-disk", "disk", "USB Mass Storage",
+					"Present the BMC's disk image to the host as a USB drive.", m.USBDisk)
+				@settingsValueRow("Virtual media", "Whether an ISO is currently attached to the host.", m.MediaState)
+			}
+		</form>
+		<form
+			hx-patch="/ui/settings/gadget"
+			hx-trigger="change"
+			hx-target="#settings-hardware-body"
+			hx-swap="innerHTML"
+			class="contents"
+		>
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Input device
+				}
+				@settingsFieldsetNote("Saved immediately; the gadget is rebuilt from these on the BMC's next boot.")
+				@settingsSwitchRow("usb-hid", "hid", "Keyboard and mouse",
+					"Expose the combined HID function the console's keyboard, mouse and macros type through.", m.HID)
+				@settingsSwitchRow("usb-biosmode", "biosMode", "BIOS boot protocol",
+					"Advertise the HID function as boot-protocol. Required for most BIOS and UEFI setup screens to accept the keyboard.", m.BIOSMode)
+				@settingsSwitchRow("usb-wakeup", "wakeupOnWrite", "Wake host on input",
+					"Let a keypress wake a suspended host.", m.WakeupOnWrite)
+			}
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Device identity
+				}
+				@settingsFieldsetNote("What the host sees in lsusb. Changing it makes the host re-enumerate the device on the next boot.")
+				@settingsSwitchRow("usb-gadget-enabled", "enabled", "USB gadget",
+					"Master switch. When off the BMC presents no USB device to the host at all.", m.GadgetEnabled)
+				@settingsTextRow("usb-vendor", "vendorID", "Vendor ID",
+					"Hex USB vendor identifier.", m.VendorID, "0x3346")
+				@settingsTextRow("usb-product-id", "productID", "Product ID",
+					"Hex USB product identifier.", m.ProductID, "0x1009")
+				@settingsTextRow("usb-manufacturer", "manufacturer", "Manufacturer",
+					"Manufacturer string in the device descriptor.", m.Manufacturer, "sipeed")
+				@settingsTextRow("usb-product", "product", "Product",
+					"Product string in the device descriptor.", m.Product, "NanoKVM")
+				@settingsTextRow("usb-serial", "serialNumber", "Serial Number",
+					"Serial string in the device descriptor.", m.SerialNumber, "0123456789ABCDEF")
+			}
+		</form>
+		<form
+			hx-patch="/ui/settings/power"
+			hx-trigger="change"
+			hx-target="#settings-hardware-body"
+			hx-swap="innerHTML"
+			class="contents"
+		>
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Power control
+				}
+				@settingsFieldsetNote("The power controller is built once at startup; saved immediately and applied on the next restart.")
+				@settingsSwitchRow("power-legacy", "legacyMode", "Legacy power mode",
+					"Drive the power pin directly instead of simulating a front-panel button press. Only for boards wired without a power-LED header.", m.PowerLegacyMode)
+			}
+		</form>
+	}
+}
+
+templ settingsAccessPanel() {
+	@settingsPanel("access", "Access", "Who can reach the BMC, and how.", false, nil) {
+		@settingsBody("settings-access-body", "/ui/settings/access") {
+			@SettingsAccessBody(SettingsAccess{})
+		}
+	}
+}
+
+// SettingsAccessBody keeps one form per action rather than one per panel: a
+// keys edit must not restart the service the way flipping TLS does, and the
+// SSH listener rolls its own state back when the port is taken, so each write
+// answers with the panel re-read from what actually stuck.
+templ SettingsAccessBody(m SettingsAccess) {
+	@field.Group() {
+		@field.Set() {
+			@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+				SSH
+			}
+			<form
+				hx-post="/ui/settings/access/ssh"
+				hx-trigger="change"
+				hx-target="#settings-access-body"
+				hx-swap="innerHTML"
+				class="contents"
+			>
+				@settingsSwitchRow("ssh-switch", "enabled", "SSH server",
+					"In-process SSH server. Log in as root.", m.SSHEnabled)
+				@settingsNumberRow("ssh-port", "port", "Port",
+					"Port the SSH listener binds. Changing it restarts the listener.", m.SSHPort, "1")
+				@settingsSwitchRow("ssh-password-auth", "passwordAuth", "Password authentication",
+					"Also accept the BMC web password. Public-key auth stays available either way; turn this off to require keys.", m.SSHPasswordAuth)
+			</form>
+			<form
+				hx-post="/ui/settings/access/ssh/keys"
+				hx-target="#settings-access-body"
+				hx-swap="innerHTML"
+				class="contents"
+			>
+				@field.Field() {
+					@field.Label(field.LabelProps{For: "ssh-keys"}) {
+						Authorized Keys
+					}
+					@field.Description() {
+						One public key per line, OpenSSH format.
+					}
+					@textarea.Textarea(textarea.Props{
+						ID:          "ssh-keys",
+						Name:        "sshKey",
+						Value:       m.SSHKeys,
+						Rows:        4,
+						Placeholder: "ssh-ed25519 AAAA… user@host",
+						Class:       "font-mono text-xs",
+						Attributes:  templ.Attributes{"spellcheck": "false", "autocomplete": "off"},
+					})
+					<div class="flex items-center justify-end gap-2">
+						@button.Button(button.Props{
+							Type:    button.TypeSubmit,
+							Variant: button.VariantOutline,
+							Size:    button.SizeSm,
+						}) {
+							Save Keys
+						}
+					</div>
+				}
+			</form>
+		}
+		@field.Set() {
+			@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+				Web interface
+			}
+			<form
+				hx-post="/ui/settings/access/tls"
+				hx-trigger="change"
+				hx-target="#settings-access-body"
+				hx-swap="innerHTML"
+				hx-confirm="The service restarts and the page reloads on the new scheme."
+				data-confirm-title="Change the web protocol?"
+				data-confirm-label="Restart"
+				class="contents"
+			>
+				@settingsSwitchRow("tls-switch", "enabled", "TLS / HTTPS",
+					"Serve the web UI and the APIs over HTTPS.", m.TLSEnabled)
+			</form>
+			@settingsActionRow("Password", "Change the password of the BMC web account.") {
+				@button.Button(button.Props{
+					Variant: button.VariantOutline,
+					Size:    button.SizeSm,
+					Href:    "/auth/password",
+				}) {
+					@icon.KeyRound()
+					<span>Change Password</span>
+				}
+			}
+			<form
+				hx-patch="/ui/settings/access/ports"
+				hx-trigger="change"
+				hx-target="#settings-access-body"
+				hx-swap="innerHTML"
+				class="contents"
+			>
+				@settingsFieldsetNote("Listener ports are bound at startup; saved immediately and applied on the next restart.")
+				@settingsNumberRow("web-http-port", "httpPort", "HTTP Port",
+					"Port served when TLS is off.", m.HTTPPort, "1")
+				@settingsNumberRow("web-https-port", "httpsPort", "HTTPS Port",
+					"Port served when TLS is on.", m.HTTPSPort, "1")
+			</form>
+		}
+		@field.Set() {
+			@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+				Login security
+			}
+			// Read out of config on every login attempt, so these take effect
+			// with no restart — see pkg/auth/brute_force.go.
+			<form
+				hx-patch="/ui/settings/access/security"
+				hx-trigger="change"
+				hx-target="#settings-access-body"
+				hx-swap="innerHTML"
+				class="contents"
+			>
+				@settingsNumberRow("sec-max-failures", "maxFailures", "Failed attempts",
+					"Consecutive failures before an account is locked out.", m.LoginMaxFailures, "1")
+				@settingsNumberRow("sec-lockout", "lockoutDuration", "Lockout duration",
+					"Seconds a locked account stays locked. Zero disables lockout entirely.", m.LoginLockoutDuration, "0")
+				@settingsNumberRow("sec-session", "sessionDuration", "Session lifetime",
+					"Seconds a login stays valid before re-authentication.", m.SessionDuration, "60")
+				@settingsSwitchRow("sec-revoke", "revokeOnLogout", "Revoke tokens on logout",
+					"Invalidate the session token server-side at logout instead of only dropping the cookie.", m.RevokeTokensLogout)
+			</form>
+		}
+		@field.Set() {
+			@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+				Management protocols
+			}
+			@settingsFieldsetNote("Out-of-band interfaces for automation. Both are bound at startup; saved immediately and applied on the next restart.")
+			<form
+				hx-patch="/ui/settings/access/protocols"
+				hx-trigger="change"
+				hx-target="#settings-access-body"
+				hx-swap="innerHTML"
+				class="contents"
+			>
+				@settingsSwitchRow("ipmi-enabled", "ipmiEnabled", "IPMI",
+					"Serve IPMI 2.0 over LAN for ipmitool and similar clients.", m.IPMIEnabled)
+				@settingsNumberRow("ipmi-port", "ipmiPort", "IPMI Port",
+					"UDP port for the IPMI listener.", m.IPMIPort, "1")
+				@settingsSwitchRow("redfish-enabled", "redfishEnabled", "Redfish",
+					"Serve the Redfish REST API used by the host interface and the API documentation.", m.RedfishEnabled)
+			</form>
+		}
+	}
+}
+
+// settingsMetricsPanel is the app's own instrumentation, charted. It sits in
+// Settings next to the Telemetry switch that turns collection on, so the
+// panel's "not collecting" state has its remedy one section away.
+//
+// The body loads when the dialog opens and on the Refresh control, rather than
+// polling: the values only move when something happens, and a hidden panel
+// polling a metric registry every few seconds is work this BMC's single core
+// should not be doing for a pane nobody is looking at.
+templ settingsMetricsPanel() {
+	@settingsPanel("metrics", "Metrics", "What this BMC has been doing since it booted.", false, settingsMetricsRefresh()) {
+		@settingsBody("settings-metrics-body", "/ui/metrics") {
+			@MetricsPanel(telemetry.Snapshot{}, nil)
+		}
+		// The collection form sits under the charts rather than above them: the
+		// charts are what the panel is for, and this is the knob you reach for
+		// once — when they are empty because collection is off.
+		@settingsBody("settings-telemetry-body", "/ui/settings/telemetry") {
+			@SettingsTelemetryBody(SettingsTelemetry{})
+		}
+	}
+}
+
+// SettingsTelemetryBody configures collection and export. Every field here is
+// consumed by telemetry.Init at startup, so writes persist and take effect on
+// the next restart — including the master switch, which is why the charts above
+// do not repopulate the moment it is flipped.
+templ SettingsTelemetryBody(m SettingsTelemetry) {
+	<form
+		hx-patch="/ui/settings/telemetry"
+		hx-trigger="change"
+		hx-target="#settings-telemetry-body"
+		hx-swap="innerHTML"
+		class="mt-8 block"
+	>
+		@field.Group() {
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Collection
+				}
+				@settingsFieldsetNote("Instrumentation is wired up at startup; saved immediately and applied on the next restart.")
+				@settingsSwitchRow("otel-enabled", "enabled", "Collect metrics and traces",
+					"Instrument HTTP handlers and record the counters the charts above are drawn from.", m.Enabled)
+				@settingsTextRow("otel-service", "serviceName", "Service Name",
+					"Identifies this BMC in a metrics backend.", m.ServiceName, "nanokvm")
+			}
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Prometheus
+				}
+				@settingsSwitchRow("prom-enabled", "prometheusEnabled", "Scrape endpoint",
+					"Expose the collected metrics for a Prometheus scrape on this same web server.", m.PrometheusEnabled)
+				@settingsTextRow("prom-path", "prometheusPath", "Path",
+					"Where the scrape endpoint is served.", m.PrometheusPath, "/metrics")
+			}
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					OTLP export
+				}
+				@settingsTextRow("otlp-endpoint", "otlpEndpoint", "Endpoint",
+					"OTLP gRPC collector to push traces and metrics to. Blank disables export.",
+					m.OTLPEndpoint, "otel-collector:4317")
+				@settingsSwitchRow("otlp-insecure", "otlpInsecure", "Plaintext export",
+					"Send without TLS. Appropriate for a collector on the same host, not across a network.", m.OTLPInsecure)
+			}
+		}
+	</form>
+}
+
+templ settingsMetricsRefresh() {
+	@button.Button(button.Props{
+		Variant: button.VariantOutline,
+		Size:    button.SizeSm,
+		Attributes: templ.Attributes{
+			"hx-get":    "/ui/metrics",
+			"hx-target": "#settings-metrics-body",
+			"hx-swap":   "innerHTML",
+			"title":     "Re-read the counters",
+		},
+	}) {
+		@icon.RefreshCw()
+		<span>Refresh</span>
+	}
+}
+
+templ settingsAdvancedPanel() {
+	@settingsPanel("advanced", "Advanced", "Maintenance and diagnostics.", false, nil) {
+		@settingsBody("settings-advanced-body", "/ui/settings/advanced") {
+			@SettingsAdvancedBody(SettingsAdvanced{})
+		}
+	}
+}
+
+templ SettingsAdvancedBody(m SettingsAdvanced) {
+	@field.Group() {
+		@settingsActionRow("Reboot BMC",
+			"Restart the management controller. The managed host keeps running.") {
+			@button.Button(button.Props{
+				Variant: button.VariantDestructive,
+				Size:    button.SizeSm,
+				Attributes: templ.Attributes{
+					"hx-post":                  "/ui/settings/reboot",
+					"hx-swap":                  "none",
+					"hx-confirm":               "The management controller restarts; this page will stop responding for about a minute.",
+					"data-confirm-title":       "Reboot the BMC?",
+					"data-confirm-label":       "Reboot",
+					"data-confirm-destructive": "",
+				},
+			}) {
+				@icon.RefreshCw()
+				<span>Reboot BMC</span>
+			}
+		}
+		// The whole row is the link (item.Item renders an <a> when Href is
+		// set); the trailing icon signals it opens outside the dialog.
+		@item.Item(item.Props{
+			Href:       "/docs",
+			Target:     "_blank",
+			Variant:    item.VariantOutline,
+			Class:      "hover:bg-muted",
+			Attributes: templ.Attributes{"rel": "noopener noreferrer"},
+		}) {
+			@item.Media(item.MediaProps{Variant: item.MediaVariantIcon}) {
+				@icon.BookOpen()
+			}
+			@item.Content() {
+				@item.Title(item.TitleProps{Class: "text-xs font-semibold uppercase"}) {
+					API documentation
+				}
+				@item.Description(item.DescriptionProps{Class: "line-clamp-none"}) {
+					Rendered reference for the Redfish and NanoKVM APIs served by this device.
+				}
+			}
+			@item.Actions() {
+				@icon.ExternalLink(icon.Props{Class: "size-4 text-muted-foreground"})
+			}
+		}
+		@settingsValueRow("Device key", "Per-device identifier baked into the image.", m.DeviceKey)
+		<form
+			hx-patch="/ui/settings/logging"
+			hx-trigger="change"
+			hx-target="#settings-advanced-body"
+			hx-swap="innerHTML"
+			class="contents"
+		>
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Logging
+				}
+				// Level applies live — pkg/logger only calls logrus.SetLevel, so
+				// the handler can do the same without a restart. The file is
+				// opened once at startup, hence read-only here.
+				@settingsSelectRow("log-level", "level", "Log Level",
+					"How much detail the BMC logs. Applies immediately.", m.LogLevel, "w-32", settingsLogLevels)
+				@settingsValueRow("Log file", "Where the BMC writes its own log. /var/log is RAM-backed and resets each boot.", m.LogFile)
+			}
+		</form>
+		<form
+			hx-patch="/ui/settings/webrtc"
+			hx-trigger="change"
+			hx-target="#settings-advanced-body"
+			hx-swap="innerHTML"
+			class="contents"
+		>
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Video relay (WebRTC)
+				}
+				@settingsFieldsetNote("Only needed when operators reach this BMC across NAT. On a shared management network the console connects without any of it, and leaving these blank keeps console sessions from announcing this device to a third party.")
+				@settingsTextRow("rtc-stun", "stun", "STUN Server",
+					"Discovers this device's public address. Blank uses host candidates only.",
+					m.Stun, "stun.example.org:3478")
+				@settingsTextRow("rtc-turn-addr", "turnAddr", "TURN Server",
+					"Relays video when a direct path cannot be found.", m.TurnAddr, "turn.example.org:3478")
+				@settingsTextRow("rtc-turn-user", "turnUser", "TURN Username",
+					"Credential username for the relay.", m.TurnUser, "")
+				@settingsTextRow("rtc-turn-cred", "turnCred", "TURN Credential",
+					"Shared secret for the relay.", m.TurnCred, "")
+			}
+		</form>
+		<form
+			hx-patch="/ui/settings/storage"
+			hx-trigger="change"
+			hx-target="#settings-advanced-body"
+			hx-swap="innerHTML"
+			class="contents"
+		>
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Storage
+				}
+				@settingsTextRow("fw-mediadir", "mediaDir", "Media Directory",
+					"Where uploaded ISO images are kept. Must be on the persistent data partition.",
+					m.MediaDir, "/var/lib/nanokvm/media")
+			}
+		</form>
+	}
+}

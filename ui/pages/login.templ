@@ -14,6 +14,7 @@ import (
 templ LoginPage() {
 	@layouts.Base("NanoKVM - Login", false, false) {
 		<script src="/js/crypto-js.min.js"></script>
+		@authHelperScript()
 		<div class="flex h-full w-full flex-col items-center justify-center p-4">
 			<form id="login-form" class="w-full max-w-sm space-y-4" onsubmit="return handleLogin(event)">
 				<div class="flex flex-col items-center gap-2 pb-4">
@@ -47,12 +48,16 @@ templ LoginPage() {
 					<span>Sign In</span>
 				}
 				<div class="flex justify-end">
-					<span
-						class="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground cursor-pointer"
-						{ dialog.TriggerFor("tips-modal")... }
-					>
+					// A real button rather than a span with trigger attributes:
+					// the span was unreachable by keyboard (no tabindex, no
+					// focus ring) and invisible to assistive tech as a control.
+					@button.Button(button.Props{
+						Variant:    button.VariantLink,
+						Size:       button.SizeSm,
+						Attributes: dialog.TriggerFor("tips-modal"),
+					}) {
 						Forgot Password?
-					</span>
+					}
 				</div>
 			</form>
 		</div>

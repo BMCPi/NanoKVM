@@ -42,13 +42,6 @@ templ MacroBar() {
 			<div id="macro-list">
 				@MacroList()
 			</div>
-			@dropdownmenu.Separator()
-			@dropdownmenu.Item(dropdownmenu.ItemProps{
-				Attributes: templ.Attributes{"onclick": "openMacroEditor()"},
-			}) {
-				@icon.SquarePen()
-				<span>Edit macros…</span>
-			}
 		}
 	}
 	@macroBarScript()
@@ -105,9 +98,17 @@ templ macroBarScript() {
 		// Firing a macro is fire-and-forget from the page's point of view, so
 		// the only feedback worth surfacing is failure — a macro that could not
 		// be sent looks identical to one the host ignored otherwise.
+		//
+		// uiToastHandled tells HTMXScript's generic responseError fallback that
+		// this failure already has its toast — the run endpoint is the JSON API
+		// (it has non-htmx consumers), so there is no HX-Trigger header to
+		// suppress the fallback the way /ui fragments do. This script renders
+		// inside <main> and HTMXScript at the end of <body>, so this listener
+		// registers first and the flag is set before the fallback reads it.
 		document.addEventListener('htmx:responseError', (ev) => {
 			const path = ev.detail?.pathInfo?.requestPath || '';
 			if (!path.includes('/api/vm/macros/')) return;
+			ev.detail.uiToastHandled = true;
 			const name = ev.detail?.elt?.dataset?.macroName || 'macro';
 			let detail = '';
 			try { detail = JSON.parse(ev.detail.xhr.responseText).error || ''; } catch (e) {}
@@ -117,9 +118,5 @@ templ macroBarScript() {
 				variant: 'error',
 			});
 		});
-
-		window.openMacroEditor = function () {
-			window.dispatchEvent(new CustomEvent('macro-editor:open'));
-		};
 	</script>
 }

@@ -112,9 +112,9 @@ func newCaptureWriter(path string, maxBytes int64) *captureWriter {
 	return &captureWriter{path: path, max: maxBytes}
 }
 
-// Write implements io.Writer for the broker fan-out. Errors are swallowed
-// after logging: a capture failure must never disturb the live sessions
-// sharing the MultiWriter.
+// Write implements io.Writer for the capture session's pump. Errors are
+// swallowed after logging: a capture failure must never stall the pump or
+// tear down the session that holds the port open.
 func (w *captureWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()

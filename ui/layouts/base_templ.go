@@ -76,10 +76,6 @@ func Base(title string, showNav bool, onDocsPage bool) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = authHelperScript().Render(ctx, templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</head><body class=\"min-h-screen\"><div class=\"flex h-screen flex-col\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -151,37 +147,6 @@ func Base(title string, showNav bool, onDocsPage bool) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "</body></html>")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		return nil
-	})
-}
-
-// authHelperScript exposes cookie + auth-header helpers used by every page's
-// inline fetch() calls. Defined early so handlers in <body> can call them.
-func authHelperScript() templ.Component {
-	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
-			return templ_7745c5c3_CtxErr
-		}
-		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-		if !templ_7745c5c3_IsBuffer {
-			defer func() {
-				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err == nil {
-					templ_7745c5c3_Err = templ_7745c5c3_BufErr
-				}
-			}()
-		}
-		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var4 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var4 == nil {
-			templ_7745c5c3_Var4 = templ.NopComponent
-		}
-		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<script>\n\t\tfunction getCookie(name) {\n\t\t\tconst match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));\n\t\t\treturn match ? decodeURIComponent(match[2]) : null;\n\t\t}\n\t\tfunction setCookie(name, value, days) {\n\t\t\tconst d = new Date();\n\t\t\td.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));\n\t\t\tdocument.cookie = name + '=' + encodeURIComponent(value) + ';expires=' + d.toUTCString() + ';path=/';\n\t\t}\n\t\tfunction deleteCookie(name) {\n\t\t\tdocument.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';\n\t\t}\n\t\tfunction getAuthHeaders() {\n\t\t\tconst token = getCookie('nano-kvm-token') || '';\n\t\t\treturn { 'Content-Type': 'application/json', 'token': token };\n\t\t}\n\t\tfunction encryptPassword(password) {\n\t\t\tconst SECRET_KEY = 'nanokvm-sipeed-2024';\n\t\t\tconst encrypted = CryptoJS.AES.encrypt(password, SECRET_KEY).toString();\n\t\t\treturn encodeURIComponent(encrypted);\n\t\t}\n\t\tasync function apiGet(url) {\n\t\t\treturn (await fetch(url, { headers: getAuthHeaders() })).json();\n\t\t}\n\t\tasync function apiPost(url, body) {\n\t\t\treturn (await fetch(url, {\n\t\t\t\tmethod: 'POST',\n\t\t\t\theaders: getAuthHeaders(),\n\t\t\t\tbody: body ? JSON.stringify(body) : undefined,\n\t\t\t})).json();\n\t\t}\n\t</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

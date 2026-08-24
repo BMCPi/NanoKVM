@@ -80,25 +80,21 @@ templ Navbar(onDocsPage bool) {
 				}
 			}
 			@SettingsDialogTrigger()
+			// POST /ui/logout revokes the session, clears the cookie and
+			// answers with HX-Redirect — no client-side cookie handling left.
 			@button.Button(button.Props{
-				Variant:    button.VariantGhost,
-				Size:       button.SizeIcon,
-				Attributes: templ.Attributes{"onclick": "doLogout()", "aria-label": "Logout", "title": "Logout"},
+				Variant: button.VariantGhost,
+				Size:    button.SizeIcon,
+				Attributes: templ.Attributes{
+					"hx-post":    "/ui/logout",
+					"hx-swap":    "none",
+					"aria-label": "Logout",
+					"title":      "Logout",
+				},
 			}) {
 				@icon.LogOut()
 			}
 		</div>
 	</header>
-	@navbarScript()
-}
-
-templ navbarScript() {
-	<script>
-		async function doLogout() {
-			try { await apiPost('/api/auth/logout'); } catch(e) {}
-			deleteCookie('nano-kvm-token');
-			window.location.replace('/auth/login');
-		}
-	</script>
 }
 

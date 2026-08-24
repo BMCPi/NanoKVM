@@ -84,6 +84,20 @@ func pageRoutes(r *gin.Engine, d *deps.Deps) {
 		c.Render(http.StatusOK, render)
 	})
 
+	// Logout for the navbar's hx-post. On pageGroup rather than the fragment
+	// group: logging out must succeed even with an expired token, where
+	// requireAuthFragment would reject before the cookie could be cleared.
+	// Mirrors POST /api/auth/logout, plus the cookie handling and redirect the
+	// browser side used to do in JavaScript.
+	pageGroup.POST("/ui/logout", func(c *gin.Context) {
+		if config.GetInstance().JWT.RevokeTokensOnLogout {
+			config.RegenerateSecretKey()
+		}
+		middleware.ClearAuthCookie(c)
+		c.Header("HX-Redirect", "/auth/login")
+		c.Status(http.StatusOK)
+	})
+
 	// Protected pages — require valid JWT cookie, redirect to login otherwise.
 	protected := pageGroup.Group("/")
 	protected.Use(middleware.RequireAuth())

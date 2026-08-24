@@ -48,7 +48,11 @@ templ HTMXScript() {
 			// A handler that answers 4xx/5xx without a ui-toast trigger still
 			// gets one, so no failure is silent. Status 0 is a dropped
 			// connection — expected while the BMC restarts after an update.
+			// uiToastHandled is set by a listener that already raised a more
+			// specific toast (the macro bar) — the fallback stands down so a
+			// failure never toasts twice.
 			document.addEventListener('htmx:responseError', function (e) {
+				if (e.detail.uiToastHandled) return;
 				const xhr = e.detail.xhr;
 				if (xhr.getResponseHeader('HX-Trigger')) return;
 				tui.toast.add({

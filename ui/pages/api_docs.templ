@@ -128,9 +128,7 @@ templ apiDocsSidebarTag(tag APIDocsTag, ops []APIDocsOperation) {
 	<details class="group">
 		<summary class="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer hover:bg-accent transition-colors list-none [&::-webkit-details-marker]:hidden">
 			<a href={ templ.URL("#" + tag.Anchor) } class="flex-1 truncate">{ tag.Name }</a>
-			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5 text-muted-foreground transition-transform group-open:rotate-90">
-				<polyline points="9 18 15 12 9 6"></polyline>
-			</svg>
+			@icon.ChevronRight(icon.Props{Class: "size-3.5 text-muted-foreground transition-transform group-open:rotate-90"})
 		</summary>
 		<div class="ml-1 mt-0.5 mb-1 space-y-0.5 border-l border-border/60 pl-2">
 			for _, op := range ops {
@@ -378,9 +376,7 @@ templ apiDocsResponseRow(r APIDocsResponse, open bool) {
 				@item.Item(item.Props{Class: "rounded-md items-baseline gap-2 py-2 hover:bg-accent/40"}) {
 					// The chevron rides one level deeper than a bare summary
 					// child, so the open-state selector is a descendant match.
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5 text-muted-foreground transition-transform [details[open]>summary_&]:rotate-90 shrink-0 mt-0.5">
-						<polyline points="9 18 15 12 9 6"></polyline>
-					</svg>
+					@icon.ChevronRight(icon.Props{Class: "size-3.5 text-muted-foreground transition-transform [details[open]>summary_&]:rotate-90 shrink-0 mt-0.5"})
 					@apiDocsResponseItemBody(r)
 				}
 			</summary>
@@ -488,9 +484,10 @@ templ apiDocsSchemaProp(p APIDocsSchemaProp, depth int) {
 		<details class="border-l-2 border-border/60 pl-3" open?={ depth == 0 }>
 			<summary class="cursor-pointer py-1.5 list-none [&::-webkit-details-marker]:hidden">
 				<div class="flex items-baseline gap-2 flex-wrap">
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3 text-muted-foreground transition-transform [details[open]>summary>&]:rotate-90 inline-block">
-						<polyline points="9 18 15 12 9 6"></polyline>
-					</svg>
+					// Descendant match, not direct-child: the chevron sits
+					// inside this flex div, so `>summary>&` could never fire —
+					// the property chevrons were not rotating on open.
+					@icon.ChevronRight(icon.Props{Class: "size-3 text-muted-foreground transition-transform [details[open]>summary_&]:rotate-90 inline-block"})
 					<code class="font-mono text-xs font-semibold">{ p.Name }</code>
 					@apiDocsTypeBadge(p.Schema)
 					if p.Required {
@@ -550,9 +547,7 @@ templ apiDocsSchemaOneOf(s *APIDocsSchema, depth int) {
 			for i, v := range s.OneOf {
 				<details class="border-l-2 border-border/60 pl-3" open?={ i == 0 }>
 					<summary class="cursor-pointer py-1 list-none [&::-webkit-details-marker]:hidden flex items-baseline gap-2">
-						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3 text-muted-foreground transition-transform [details[open]>summary>&]:rotate-90 inline-block">
-							<polyline points="9 18 15 12 9 6"></polyline>
-						</svg>
+						@icon.ChevronRight(icon.Props{Class: "size-3 text-muted-foreground transition-transform [details[open]>summary>&]:rotate-90 inline-block"})
 						<span class="text-xs font-semibold">variant { strconv.Itoa(i + 1) }</span>
 						@apiDocsTypeBadge(v)
 					</summary>

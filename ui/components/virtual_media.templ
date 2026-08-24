@@ -235,7 +235,11 @@ templ VMAddBody(files []string) {
 						Upload
 					}
 				</form>
-				@progress.Progress(progress.Props{ID: "vm-upload-progress", Class: "hidden"})
+				// Hidden via the ATTRIBUTE, matching the rest of the app:
+				// preflight's [hidden] { display:none !important } always wins,
+				// where a `hidden` utility class competes with the component's
+				// own display classes on stylesheet order.
+				@progress.Progress(progress.Props{ID: "vm-upload-progress", Attributes: templ.Attributes{"hidden": true}})
 			}
 			@tabs.Content(tabs.ContentProps{Value: "url", Class: "space-y-2"}) {
 				<form

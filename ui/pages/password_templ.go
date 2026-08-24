@@ -52,7 +52,15 @@ func PasswordPage(loggedIn bool) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<script src=\"/js/crypto-js.min.js\"></script> <div class=\"flex h-full w-full flex-col items-center justify-center gap-5 p-4\"><h2 class=\"text-xl font-semibold\">Change Password</h2><form id=\"pw-form\" class=\"w-full max-w-sm space-y-4\" onsubmit=\"return handleChangePassword(event)\"><div class=\"space-y-1.5\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<script src=\"/js/crypto-js.min.js\"></script> ")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = authHelperScript().Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " <div class=\"flex h-full w-full flex-col items-center justify-center gap-5 p-4\"><h2 class=\"text-xl font-semibold\">Change Password</h2><form id=\"pw-form\" class=\"w-full max-w-sm space-y-4\" onsubmit=\"return handleChangePassword(event)\"><div class=\"space-y-1.5\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -68,7 +76,7 @@ func PasswordPage(loggedIn bool) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "Username")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "Username")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -82,7 +90,7 @@ func PasswordPage(loggedIn bool) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</div><div class=\"space-y-1.5\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</div><div class=\"space-y-1.5\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -98,7 +106,7 @@ func PasswordPage(loggedIn bool) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "New Password")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "New Password")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -112,7 +120,7 @@ func PasswordPage(loggedIn bool) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</div><div class=\"space-y-1.5\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</div><div class=\"space-y-1.5\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -128,7 +136,7 @@ func PasswordPage(loggedIn bool) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "Confirm Password")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "Confirm Password")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -142,7 +150,7 @@ func PasswordPage(loggedIn bool) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div><p id=\"pw-error\" class=\"text-sm text-destructive min-h-5\"></p><div class=\"flex gap-2\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</div><p id=\"pw-error\" class=\"text-sm text-destructive min-h-5\"></p><div class=\"flex gap-2\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -158,7 +166,7 @@ func PasswordPage(loggedIn bool) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "OK")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "OK")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -180,21 +188,21 @@ func PasswordPage(loggedIn bool) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "Cancel")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "Cancel")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				return nil
 			})
 			templ_7745c5c3_Err = button.Button(button.Props{
-				Variant:    button.VariantOutline,
-				Class:      "flex-1",
-				Attributes: templ.Attributes{"onclick": "window.location.replace('/dashboard')"},
+				Variant: button.VariantOutline,
+				Class:   "flex-1",
+				Href:    "/dashboard",
 			}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var7), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</div></form><div class=\"w-full max-w-sm\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</div></form><div class=\"w-full max-w-sm\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -222,7 +230,7 @@ func PasswordPage(loggedIn bool) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "This affects both web and SSH login")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "This affects both web and SSH login")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -232,7 +240,7 @@ func PasswordPage(loggedIn bool) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, " ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, " ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -248,7 +256,7 @@ func PasswordPage(loggedIn bool) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<ol class=\"list-decimal list-outside pl-5 space-y-0.5\"><li>Enter a new username and password.</li><li>You will be redirected to the login page after changing.</li></ol><p class=\"mt-2 text-destructive\">Do not use special characters: <code class=\"rounded bg-muted px-1 text-foreground\">' \" \\ /</code></p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<ol class=\"list-decimal list-outside pl-5 space-y-0.5\"><li>Enter a new username and password.</li><li>You will be redirected to the login page after changing.</li></ol><p class=\"mt-2 text-destructive\">Do not use special characters: <code class=\"rounded bg-muted px-1 text-foreground\">' \" \\ /</code></p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -264,7 +272,7 @@ func PasswordPage(loggedIn bool) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</div></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "</div></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -303,7 +311,7 @@ func passwordScript() templ.Component {
 			templ_7745c5c3_Var11 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<script>\n\t\tasync function handleChangePassword(event) {\n\t\t\tevent.preventDefault();\n\t\t\tconst errorEl = document.getElementById('pw-error');\n\t\t\tconst btn = document.getElementById('pw-ok-btn');\n\n\t\t\tconst username = document.getElementById('pw-username').value.trim();\n\t\t\tconst password = document.getElementById('pw-password').value;\n\t\t\tconst confirm = document.getElementById('pw-confirm').value;\n\n\t\t\tif (!username || !password || !confirm) {\n\t\t\t\terrorEl.textContent = 'All fields are required.';\n\t\t\t\treturn false;\n\t\t\t}\n\n\t\t\tif (password !== confirm) {\n\t\t\t\terrorEl.textContent = 'Passwords do not match.';\n\t\t\t\treturn false;\n\t\t\t}\n\n\t\t\tconst forbidden = /['\"\\\\/]/;\n\t\t\tif (forbidden.test(username)) {\n\t\t\t\terrorEl.textContent = 'Username contains invalid characters.';\n\t\t\t\treturn false;\n\t\t\t}\n\t\t\tif (forbidden.test(password)) {\n\t\t\t\terrorEl.textContent = 'Password contains invalid characters.';\n\t\t\t\treturn false;\n\t\t\t}\n\n\t\t\tbtn.disabled = true;\n\t\t\terrorEl.textContent = '';\n\n\t\t\ttry {\n\t\t\t\tconst r = await fetch('/api/auth/password', {\n\t\t\t\t\tmethod: 'POST',\n\t\t\t\t\theaders: { 'Content-Type': 'application/json' },\n\t\t\t\t\tbody: JSON.stringify({ username, password: encryptPassword(password) })\n\t\t\t\t});\n\t\t\t\tconst data = await r.json();\n\n\t\t\t\tif (data.code === 0) {\n\t\t\t\t\tdeleteCookie('nano-kvm-token');\n\t\t\t\t\twindow.location.replace('/auth/login');\n\t\t\t\t\treturn false;\n\t\t\t\t}\n\n\t\t\t\terrorEl.textContent = 'Failed to change password.';\n\t\t\t} catch (e) {\n\t\t\t\terrorEl.textContent = 'Connection error. Please try again.';\n\t\t\t} finally {\n\t\t\t\tbtn.disabled = false;\n\t\t\t}\n\t\t\treturn false;\n\t\t}\n\t</script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<script>\n\t\tasync function handleChangePassword(event) {\n\t\t\tevent.preventDefault();\n\t\t\tconst errorEl = document.getElementById('pw-error');\n\t\t\tconst btn = document.getElementById('pw-ok-btn');\n\n\t\t\tconst username = document.getElementById('pw-username').value.trim();\n\t\t\tconst password = document.getElementById('pw-password').value;\n\t\t\tconst confirm = document.getElementById('pw-confirm').value;\n\n\t\t\tif (!username || !password || !confirm) {\n\t\t\t\terrorEl.textContent = 'All fields are required.';\n\t\t\t\treturn false;\n\t\t\t}\n\n\t\t\tif (password !== confirm) {\n\t\t\t\terrorEl.textContent = 'Passwords do not match.';\n\t\t\t\treturn false;\n\t\t\t}\n\n\t\t\tconst forbidden = /['\"\\\\/]/;\n\t\t\tif (forbidden.test(username)) {\n\t\t\t\terrorEl.textContent = 'Username contains invalid characters.';\n\t\t\t\treturn false;\n\t\t\t}\n\t\t\tif (forbidden.test(password)) {\n\t\t\t\terrorEl.textContent = 'Password contains invalid characters.';\n\t\t\t\treturn false;\n\t\t\t}\n\n\t\t\tbtn.disabled = true;\n\t\t\terrorEl.textContent = '';\n\n\t\t\ttry {\n\t\t\t\tconst r = await fetch('/api/auth/password', {\n\t\t\t\t\tmethod: 'POST',\n\t\t\t\t\theaders: { 'Content-Type': 'application/json' },\n\t\t\t\t\tbody: JSON.stringify({ username, password: encryptPassword(password) })\n\t\t\t\t});\n\t\t\t\tconst data = await r.json();\n\n\t\t\t\tif (data.code === 0) {\n\t\t\t\t\tdeleteCookie('nano-kvm-token');\n\t\t\t\t\twindow.location.replace('/auth/login');\n\t\t\t\t\treturn false;\n\t\t\t\t}\n\n\t\t\t\terrorEl.textContent = 'Failed to change password.';\n\t\t\t} catch (e) {\n\t\t\t\terrorEl.textContent = 'Connection error. Please try again.';\n\t\t\t} finally {\n\t\t\t\tbtn.disabled = false;\n\t\t\t}\n\t\t\treturn false;\n\t\t}\n\t</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
