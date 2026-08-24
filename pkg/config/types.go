@@ -237,6 +237,12 @@ type Power struct {
 type IPMI struct {
 	Enabled bool `yaml:"enabled"`
 	Port    int  `yaml:"port"`
+	// Username/Password authenticate RMCP+ (lanplus) sessions. They are a
+	// separate credential from the web/Redfish accounts, which are stored
+	// bcrypt-hashed: RAKP authentication HMACs the password itself, so the
+	// IPMI secret has to be recoverable.
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
 }
 
 type Redfish struct {

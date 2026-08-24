@@ -155,12 +155,13 @@ func initialize(ctx context.Context) {
 	// the Redfish routes both read it.
 	redfish.LoadHostState()
 
-	// Start IPMI server on standard port 623
-	srv, err := ipmi.Start(ctx, 623, powerCtrl, fwCtrl)
-	if err != nil {
-		slog.ErrorContext(ctx, "IPMI server failed to start", slog.Any("err", err))
-	} else {
-		ipmiServer = srv
+	if cfg.IPMI.Enabled {
+		srv, err := ipmi.Start(ctx, cfg, powerCtrl, fwCtrl)
+		if err != nil {
+			slog.ErrorContext(ctx, "IPMI server failed to start", slog.Any("err", err))
+		} else {
+			ipmiServer = srv
+		}
 	}
 
 	// Build the USB gadget (g0 + all functions + UDC bind) before presenting the

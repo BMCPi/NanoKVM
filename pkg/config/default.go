@@ -52,8 +52,10 @@ var defaultConfig = &Config{
 		LoginMaxFailures:     5,
 	},
 	IPMI: IPMI{
-		Enabled: true,
-		Port:    623,
+		Enabled:  true,
+		Port:     623,
+		Username: "admin",
+		Password: "admin",
 	},
 	Redfish: Redfish{
 		Enabled: true,
