@@ -71,6 +71,43 @@ type VirtualMediaState struct {
 	Inserted  bool   `json:"inserted"`
 	ImageName string `json:"imageName,omitempty"` // original filename chosen by the user
 	ImageSize int64  `json:"imageSize,omitempty"` // size in bytes
+
+	// Ephemeral means the staged file's lifecycle is the mount: ejecting
+	// deletes it from the media directory. Set for inserts through interfaces
+	// with no library view and no delete verb (Redfish), where ejected media
+	// that silently accumulates on the data partition could never be cleaned
+	// up by the same client that put it there.
+	Ephemeral bool `json:"ephemeral,omitempty"`
+}
+
+// VMGadget is the slice of the USB gadget surface the virtual-media workflow
+// drives. Production code always goes through the usbgadget singleton; tests
+// inject a fake, because configfs is absent off-device and insert/eject cycles
+// (and the ephemeral deletion that hangs off eject) would otherwise be
+// untestable.
+type VMGadget interface {
+	InsertMedia(path string) error
+	EjectMedia() error
+	LUN1File() (string, bool)
+}
+
+func (c *Controller) vmGadget() VMGadget {
+	if c.gadget != nil {
+		return c.gadget
+	}
+	return usbgadget.Get()
+}
+
+// SetVMGadgetForTest routes the controller's virtual-media gadget calls
+// through g. Test-only; call before any media operation.
+func (c *Controller) SetVMGadgetForTest(g VMGadget) { c.gadget = g }
+
+// ephemeralMarkerPath is the sidecar recording that name was inserted with the
+// ephemeral contract. A file rather than memory because the insertion itself
+// outlives the process — configfs keeps lun.1 populated across a BMC restart,
+// so the promise to delete on eject has to survive one too.
+func (c *Controller) ephemeralMarkerPath(name string) string {
+	return filepath.Join(c.mediaDir, "."+name+".ephemeral")
 }
 
 // GetVirtualMediaState returns the current virtual media state.
@@ -92,10 +129,11 @@ func (c *Controller) GetVirtualMediaState() VirtualMediaState {
 }
 
 // recoverVMStateFromGadget inspects the gadget's lun.1 backing file and, if it
-// points at a readable file, returns a populated VirtualMediaState. Caller must
-// hold c.mu.
+// points at a readable file, returns a populated VirtualMediaState. The
+// ephemeral contract is recovered from the on-disk marker. Caller must hold
+// c.mu.
 func (c *Controller) recoverVMStateFromGadget() (VirtualMediaState, bool) {
-	path, ok := usbgadget.Get().LUN1File()
+	path, ok := c.vmGadget().LUN1File()
 	if !ok {
 		return VirtualMediaState{}, false
 	}
@@ -103,10 +141,13 @@ func (c *Controller) recoverVMStateFromGadget() (VirtualMediaState, bool) {
 	if err != nil {
 		return VirtualMediaState{}, false
 	}
+	name := filepath.Base(path)
+	_, markErr := os.Stat(c.ephemeralMarkerPath(name))
 	return VirtualMediaState{
 		Inserted:  true,
-		ImageName: filepath.Base(path),
+		ImageName: name,
 		ImageSize: info.Size(),
+		Ephemeral: markErr == nil,
 	}, true
 }
 
@@ -137,9 +178,11 @@ func (c *Controller) ListMediaFiles() ([]string, error) {
 	}
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
-		if !e.IsDir() {
-			names = append(names, e.Name())
+		// Dotfiles are bookkeeping (ephemeral markers), not media.
+		if e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			continue
 		}
+		names = append(names, e.Name())
 	}
 	return names, nil
 }
@@ -219,7 +262,20 @@ func (c *Controller) DeleteMediaFile(name string) error {
 // InsertVirtualMedia presents the named ISO from mediaDir as a USB CD-ROM
 // via the gadget's lun.1. The ISO is NOT copied anywhere — the gadget reads
 // it directly from mediaDir, so no space in the firmware FAT is consumed.
+// The file persists across ejects; it belongs to the staging library.
 func (c *Controller) InsertVirtualMedia(name string) error {
+	return c.insertVirtualMedia(name, false)
+}
+
+// InsertVirtualMediaEphemeral inserts name like InsertVirtualMedia but marks
+// the staged file transient: ejecting deletes it from the media directory.
+// This is the Redfish lifecycle — that API has no library view and no delete
+// verb, so for its clients an eject is the last reference to the image.
+func (c *Controller) InsertVirtualMediaEphemeral(name string) error {
+	return c.insertVirtualMedia(name, true)
+}
+
+func (c *Controller) insertVirtualMedia(name string, ephemeral bool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -236,16 +292,32 @@ func (c *Controller) InsertVirtualMedia(name string) error {
 		return fmt.Errorf("media file %q not found: %w", name, err)
 	}
 
-	if err := usbgadget.Get().InsertMedia(srcPath); err != nil {
+	if err := c.vmGadget().InsertMedia(srcPath); err != nil {
 		return fmt.Errorf("insert virtual media: %w", err)
 	}
 
-	c.vmState = VirtualMediaState{Inserted: true, ImageName: name, ImageSize: info.Size()}
-	log.Infof("firmware: inserted virtual media %q (%d bytes) via lun.1", name, info.Size())
+	marker := c.ephemeralMarkerPath(name)
+	if ephemeral {
+		if err := os.WriteFile(marker, nil, 0o644); err != nil {
+			// Degrade to persistence rather than promising a deletion the
+			// next process (or the sweep) would know nothing about.
+			log.Warnf("firmware: cannot mark %q ephemeral: %v (file will persist after eject)", name, err)
+			ephemeral = false
+		}
+	} else {
+		// A persistent insert of a previously-ephemeral name renews the file's
+		// tenure; a stale marker must not delete it on the next eject.
+		_ = os.Remove(marker)
+	}
+
+	c.vmState = VirtualMediaState{Inserted: true, ImageName: name, ImageSize: info.Size(), Ephemeral: ephemeral}
+	log.Infof("firmware: inserted virtual media %q (%d bytes, ephemeral=%t) via lun.1", name, info.Size(), ephemeral)
 	return nil
 }
 
-// EjectVirtualMedia clears lun.1 so the managed server sees an empty CD-ROM tray.
+// EjectVirtualMedia clears lun.1 so the managed server sees an empty CD-ROM
+// tray. An ephemeral insert's staged file is deleted from the media directory
+// once the tray is clear.
 func (c *Controller) EjectVirtualMedia() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -254,15 +326,85 @@ func (c *Controller) EjectVirtualMedia() error {
 		return nil // idempotent
 	}
 
-	prevName := c.vmState.ImageName
+	prev := c.vmState
 
-	if err := usbgadget.Get().EjectMedia(); err != nil {
+	if err := c.vmGadget().EjectMedia(); err != nil {
 		return fmt.Errorf("eject virtual media: %w", err)
 	}
 
 	c.vmState = VirtualMediaState{}
-	log.Infof("firmware: ejected virtual media %s", prevName)
+	c.removeEphemeralLocked(prev)
+	log.Infof("firmware: ejected virtual media %s", prev.ImageName)
 	return nil
+}
+
+// removeEphemeralLocked deletes prev's staged file when the insert was marked
+// transient, and clears the marker either way. A deletion failure doesn't fail
+// the eject — the tray is already empty — and the surviving marker lets the
+// startup sweep retry. Caller holds c.mu.
+func (c *Controller) removeEphemeralLocked(prev VirtualMediaState) {
+	if prev.ImageName == "" {
+		return
+	}
+	if prev.Ephemeral {
+		path, err := c.mediaPathFor(prev.ImageName)
+		if err == nil {
+			err = os.Remove(path)
+		}
+		if err != nil && !os.IsNotExist(err) {
+			log.Warnf("firmware: delete ephemeral media %q: %v", prev.ImageName, err)
+			return // keep the marker so the sweep can finish the job
+		}
+		log.Infof("firmware: deleted ephemeral media %q", prev.ImageName)
+	}
+	if err := os.Remove(c.ephemeralMarkerPath(prev.ImageName)); err != nil && !os.IsNotExist(err) {
+		log.Warnf("firmware: clear ephemeral marker for %q: %v", prev.ImageName, err)
+	}
+}
+
+// sweepEphemeralMediaLocked finishes any ephemeral eject a crash or restart
+// interrupted: a marker whose file is not the currently-inserted image means
+// that mount is over, and the bytes' lifecycle ended with it. Runs once at
+// startup (after the gadget is up, so an insertion recovered from configfs is
+// left alone). Caller holds c.mu.
+func (c *Controller) sweepEphemeralMediaLocked() {
+	if c.mediaDir == "" {
+		return
+	}
+	if !c.vmState.Inserted {
+		if recovered, ok := c.recoverVMStateFromGadget(); ok {
+			c.vmState = recovered
+		}
+	}
+
+	markers, err := filepath.Glob(filepath.Join(c.mediaDir, ".*.ephemeral"))
+	if err != nil {
+		return
+	}
+	for _, marker := range markers {
+		name := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(marker), "."), ".ephemeral")
+		if c.vmState.Inserted && c.vmState.ImageName == name {
+			continue
+		}
+		path, err := c.mediaPathFor(name)
+		if err == nil {
+			err = os.Remove(path)
+		}
+		if err != nil && !os.IsNotExist(err) {
+			log.Warnf("firmware: sweep ephemeral media %q: %v", name, err)
+			continue // keep the marker; retry next startup
+		}
+		_ = os.Remove(marker)
+		log.Infof("firmware: swept leftover ephemeral media %q", name)
+	}
+}
+
+// SweepEphemeralMedia is the exported form of the startup sweep, for callers
+// (and tests) outside Init.
+func (c *Controller) SweepEphemeralMedia() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sweepEphemeralMediaLocked()
 }
 
 // SaveMediaISO streams a NoCloud / cloud-init style ISO from r into mediaDir,

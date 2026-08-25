@@ -7,11 +7,13 @@ import (
 	"testing"
 )
 
-// buildRecord assembles a current (version 2) record the way the pTA does:
+// buildRecord assembles a current (version 3) record the way the pTA does:
 // little-endian fields, a fan block, then an IEEE CRC32 over everything before
 // the CRC word. Tests that want a malformed record start here and break one
 // thing. The fan block is fixed but non-trivial (level 2 of 4, 49% duty) so a
-// decode error in it is visible.
+// decode error in it is visible. The throttle word is left zero and its valid
+// flag clear — the state of a host that has not yet handed over the mailbox;
+// setThrottle populates it for the tests that exercise power health.
 func buildRecord(seq uint32, tempMilliC int32, uptime, status uint32) []byte {
 	b := make([]byte, RecordSize)
 	binary.LittleEndian.PutUint32(b[0:4], RecordMagic)
@@ -27,7 +29,29 @@ func buildRecord(seq uint32, tempMilliC int32, uptime, status uint32) []byte {
 	b[26] = 49 // fan_duty_pct
 	b[27] = byte(FanValidFlag)
 	binary.LittleEndian.PutUint16(b[28:30], 0) // fan_rpm
-	// b[30:44] reserved, left zero.
+	// b[30:32] reserved0, b[32:36] throttle, b[36:44] reserved — left zero.
+	binary.LittleEndian.PutUint32(b[RecordSize-4:RecordSize], crc32.ChecksumIEEE(b[:RecordSize-4]))
+	return b
+}
+
+// setThrottle stamps the version-3 throttle word into a record, sets the
+// StatusThrottleValid flag in the status field, and repairs the CRC. It mutates
+// b in place and returns it so tests can build a throttled record in one line.
+func setThrottle(b []byte, throttle uint32) []byte {
+	status := binary.LittleEndian.Uint32(b[20:24]) | StatusThrottleValid
+	binary.LittleEndian.PutUint32(b[20:24], status)
+	binary.LittleEndian.PutUint32(b[32:36], throttle)
+	binary.LittleEndian.PutUint32(b[RecordSize-4:RecordSize], crc32.ChecksumIEEE(b[:RecordSize-4]))
+	return b
+}
+
+// buildRecordV2 assembles the version-2 layout (fan block, no throttle word):
+// a v2 record is byte-identical to a v3 one except for the version field and
+// the meaning of bytes 32..36. Used to prove a v3 reader does not read a v2
+// record's reserved zero as a "no throttling" power-health reading.
+func buildRecordV2(seq uint32, tempMilliC int32, uptime, status uint32) []byte {
+	b := buildRecord(seq, tempMilliC, uptime, status)
+	binary.LittleEndian.PutUint16(b[4:6], 2)
 	binary.LittleEndian.PutUint32(b[RecordSize-4:RecordSize], crc32.ChecksumIEEE(b[:RecordSize-4]))
 	return b
 }
@@ -97,6 +121,86 @@ func TestParseRecordDecodesFanBlock(t *testing.T) {
 	}
 	if rec.FanRPM != 0 {
 		t.Errorf("FanRPM = %d, want 0 (no tach)", rec.FanRPM)
+	}
+}
+
+// The throttle word is the point of version 3: the PMIC/thermal power-health
+// the host now reports over I2C. A record whose valid flag is set must decode
+// both the currently-active and the latched-since-boot conditions.
+func TestParseRecordDecodesThrottleBlock(t *testing.T) {
+	// Under-voltage active now, and throttling has occurred at some point.
+	raw := setThrottle(buildRecord(1, 45000, 10, StatusTempValid),
+		ThrottleUnderVoltage|ThrottleThrottledEv)
+	rec, err := ParseRecord(raw)
+	if err != nil {
+		t.Fatalf("ParseRecord: %v", err)
+	}
+	if !rec.ThrottleValid() {
+		t.Fatalf("ThrottleValid() = false, want true (status 0x%x)", rec.Status)
+	}
+	if !rec.UnderVoltage() {
+		t.Error("UnderVoltage() = false, want true")
+	}
+	if rec.Throttled() {
+		t.Error("Throttled() = true, want false (only the latched bit was set)")
+	}
+	if !rec.ThrottledEver() {
+		t.Error("ThrottledEver() = false, want true")
+	}
+	if rec.PowerHealthy() {
+		t.Error("PowerHealthy() = true with under-voltage active, want false")
+	}
+}
+
+// A clean throttle reading — valid flag set, no condition bits — is the healthy
+// steady state and must read as such, distinct from "no reading".
+func TestParseRecordThrottleHealthy(t *testing.T) {
+	rec, err := ParseRecord(setThrottle(buildRecord(2, 45000, 10, StatusTempValid), 0))
+	if err != nil {
+		t.Fatalf("ParseRecord: %v", err)
+	}
+	if !rec.ThrottleValid() || !rec.PowerHealthy() {
+		t.Errorf("valid=%v healthy=%v, want true/true", rec.ThrottleValid(), rec.PowerHealthy())
+	}
+}
+
+// The throttle bits are only a reading when the valid flag says the host had
+// the mailbox to take them. Bits present without the flag (a pre-handoff
+// record) must not be trusted.
+func TestParseRecordThrottleNeedsValidFlag(t *testing.T) {
+	raw := buildRecord(3, 45000, 10, StatusTempValid)
+	binary.LittleEndian.PutUint32(raw[32:36], ThrottleUnderVoltage) // bits, but no flag
+	binary.LittleEndian.PutUint32(raw[RecordSize-4:RecordSize], crc32.ChecksumIEEE(raw[:RecordSize-4]))
+	rec, err := ParseRecord(raw)
+	if err != nil {
+		t.Fatalf("ParseRecord: %v", err)
+	}
+	if rec.ThrottleValid() {
+		t.Error("ThrottleValid() = true without the status flag, want false")
+	}
+}
+
+// A version-2 record read by this version-3 reader must not have its reserved
+// bytes 32..36 read as a throttle word, even if they are non-zero: the block is
+// gated on the version, not just the length.
+func TestParseRecordVersion2HasNoThrottle(t *testing.T) {
+	raw := buildRecordV2(4, 45000, 10, StatusTempValid)
+	binary.LittleEndian.PutUint32(raw[32:36], 0xffffffff) // dirty the v2 reserved word
+	binary.LittleEndian.PutUint32(raw[RecordSize-4:RecordSize], crc32.ChecksumIEEE(raw[:RecordSize-4]))
+	rec, err := ParseRecord(raw)
+	if err != nil {
+		t.Fatalf("ParseRecord(v2): %v", err)
+	}
+	if rec.Version != 2 {
+		t.Fatalf("version = %d, want 2", rec.Version)
+	}
+	if rec.ThrottleValid() || rec.ThrottleFlags != 0 {
+		t.Errorf("v2 record surfaced a throttle word: valid=%v flags=0x%x",
+			rec.ThrottleValid(), rec.ThrottleFlags)
+	}
+	// The fan block, which v2 does carry, must still decode.
+	if !rec.FanValid() {
+		t.Error("a version-2 record must still report its fan block")
 	}
 }
 

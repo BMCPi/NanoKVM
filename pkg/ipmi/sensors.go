@@ -2,6 +2,7 @@ package ipmi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/bougou/go-ipmi/pkg/hal"
@@ -76,7 +77,7 @@ func registerSensorHandlers(reg *handlers.Registry, s *sensorHAL) {
 				return nil, types.CodeRequestDataTruncated, nil
 			}
 			raw, err := s.ReadRaw(ctx, req[0])
-			if err == hal.ErrNotFound {
+			if errors.Is(err, hal.ErrNotFound) {
 				return nil, types.CodeRequestedDataNotPresent, nil
 			}
 			// Byte 2: [7] event messages enabled, [6] scanning enabled,

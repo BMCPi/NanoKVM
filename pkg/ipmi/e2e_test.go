@@ -170,7 +170,7 @@ func TestEndToEnd(t *testing.T) {
 	if err := cl.Connect(ctx); err != nil {
 		t.Fatalf("lanplus connect: %v", err)
 	}
-	defer cl.Close(ctx) //nolint:errcheck
+	defer cl.Close(ctx)
 
 	t.Run("device id", func(t *testing.T) {
 		resp, err := cl.GetDeviceID(ctx)

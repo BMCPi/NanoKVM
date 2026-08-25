@@ -19,6 +19,7 @@ import (
 	"net/textproto"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -29,10 +30,22 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/power"
 )
 
-const insertMediaPath = virtualMediaCDPath + "/Actions/VirtualMedia.InsertMedia"
+const (
+	insertMediaPath = virtualMediaCDPath + "/Actions/VirtualMedia.InsertMedia"
+	ejectMediaPath  = virtualMediaCDPath + "/Actions/VirtualMedia.EjectMedia"
+)
 
-// virtualMediaRouter mounts InsertMedia against a Firmware controller whose
-// media directory lives in t's temp dir.
+// fakeVMGadget satisfies firmware.VMGadget so insert/eject cycles run without
+// the configfs tree, which does not exist in a test environment.
+type fakeVMGadget struct{ lun1 string }
+
+func (g *fakeVMGadget) InsertMedia(path string) error { g.lun1 = path; return nil }
+func (g *fakeVMGadget) EjectMedia() error             { g.lun1 = ""; return nil }
+func (g *fakeVMGadget) LUN1File() (string, bool)      { return g.lun1, g.lun1 != "" }
+
+// virtualMediaRouter mounts the VirtualMedia actions against a Firmware
+// controller whose media directory lives in t's temp dir and whose gadget is
+// faked, so the full insert/eject lifecycle is exercised.
 func virtualMediaRouter(t *testing.T) (*gin.Engine, string) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -41,12 +54,16 @@ func virtualMediaRouter(t *testing.T) (*gin.Engine, string) {
 	cfg := &config.Config{}
 	cfg.Firmware.MediaDir = mediaDir
 
+	fw := firmware.NewController(cfg)
+	fw.SetVMGadgetForTest(&fakeVMGadget{})
+
 	svc := NewService(&deps.Deps{
 		Power:    power.NewController(config.Hardware{}, config.Power{}),
-		Firmware: firmware.NewController(cfg),
+		Firmware: fw,
 	})
 	r := gin.New()
 	r.POST(insertMediaPath, svc.InsertMedia)
+	r.POST(ejectMediaPath, svc.EjectMedia)
 	return r, mediaDir
 }
 
@@ -84,6 +101,8 @@ func buildInsertMediaBody(t *testing.T, parts ...uploadPart) (*bytes.Reader, str
 	return bytes.NewReader(buf.Bytes()), w.FormDataContentType()
 }
 
+// staged lists the media files in mediaDir, excluding dotfiles — those are
+// lifecycle bookkeeping (ephemeral markers), not staged images.
 func staged(t *testing.T, mediaDir string) []string {
 	t.Helper()
 	entries, err := os.ReadDir(mediaDir)
@@ -92,6 +111,9 @@ func staged(t *testing.T, mediaDir string) []string {
 	}
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
 		names = append(names, e.Name())
 	}
 	return names
@@ -206,6 +228,114 @@ func TestInsertMediaUploadWithoutFilePart(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+// Redfish media is transient: the client that inserted it has no delete verb,
+// so ejecting is its last reference to the image — the staged file goes with
+// the eject instead of accumulating on the data partition.
+func TestInsertMediaUploadIsEphemeralAcrossEject(t *testing.T) {
+	r, mediaDir := virtualMediaRouter(t)
+
+	body, ctype := buildInsertMediaBody(t, uploadPart{
+		name: "Image", filename: "transient.iso", content: "ISO",
+	})
+	req := httptest.NewRequest(http.MethodPost, insertMediaPath, body)
+	req.Header.Set("Content-Type", ctype)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("insert status = %d, want 200", w.Code)
+	}
+	if _, err := os.Stat(filepath.Join(mediaDir, "transient.iso")); err != nil {
+		t.Fatalf("image not staged while mounted: %v", err)
+	}
+
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, ejectMediaPath, nil))
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("eject status = %d, want 204", w.Code)
+	}
+
+	if names := staged(t, mediaDir); len(names) != 0 {
+		t.Errorf("media dir has %v after eject; a Redfish insert must not outlive its mount", names)
+	}
+	entries, err := os.ReadDir(mediaDir)
+	if err != nil {
+		t.Fatalf("read media dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("bookkeeping left behind after eject: %v", entries)
+	}
+}
+
+// The Stream transfer method (BMC pulls the image from a URL) carries the same
+// transient lifecycle as an upload.
+func TestInsertMediaStreamIsEphemeralAcrossEject(t *testing.T) {
+	r, mediaDir := virtualMediaRouter(t)
+
+	iso := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("REMOTE-ISO-BYTES"))
+	}))
+	defer iso.Close()
+
+	body := strings.NewReader(`{"Image":"` + iso.URL + `/remote.iso"}`)
+	req := httptest.NewRequest(http.MethodPost, insertMediaPath, body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("insert status = %d, want 200 (body: %s)", w.Code, w.Body.String())
+	}
+	got, err := os.ReadFile(filepath.Join(mediaDir, "remote.iso"))
+	if err != nil {
+		t.Fatalf("fetched image not staged: %v (dir has %v)", err, staged(t, mediaDir))
+	}
+	if string(got) != "REMOTE-ISO-BYTES" {
+		t.Errorf("staged content = %q, want the remote body", got)
+	}
+
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, ejectMediaPath, nil))
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("eject status = %d, want 204", w.Code)
+	}
+	if names := staged(t, mediaDir); len(names) != 0 {
+		t.Errorf("media dir has %v after eject; a streamed insert must not outlive its mount", names)
+	}
+}
+
+// An insert that stages bytes but fails to mount must not strand them: the
+// client has no way to delete the orphan.
+func TestInsertMediaFailedMountCleansUpStagedFile(t *testing.T) {
+	r, mediaDir := virtualMediaRouter(t)
+
+	first, ctype := buildInsertMediaBody(t, uploadPart{
+		name: "Image", filename: "mounted.iso", content: "ISO",
+	})
+	req := httptest.NewRequest(http.MethodPost, insertMediaPath, first)
+	req.Header.Set("Content-Type", ctype)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("first insert status = %d, want 200", w.Code)
+	}
+
+	// Second insert while the first is mounted: staged, then refused.
+	second, ctype := buildInsertMediaBody(t, uploadPart{
+		name: "Image", filename: "refused.iso", content: "ISO",
+	})
+	req = httptest.NewRequest(http.MethodPost, insertMediaPath, second)
+	req.Header.Set("Content-Type", ctype)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("second insert status = %d, want 409", w.Code)
+	}
+
+	names := staged(t, mediaDir)
+	if len(names) != 1 || names[0] != "mounted.iso" {
+		t.Errorf("media dir has %v, want only the mounted image; the refused upload must be cleaned up", names)
 	}
 }
 

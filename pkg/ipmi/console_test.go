@@ -25,7 +25,7 @@ func TestConsoleSingleActivation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen after close: %v", err)
 	}
-	conn.Close() //nolint:errcheck
+	conn.Close()
 }
 
 func TestConsoleDataPlane(t *testing.T) {
@@ -36,7 +36,7 @@ func TestConsoleDataPlane(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	defer conn.Close() //nolint:errcheck
+	defer conn.Close()
 
 	// Keystrokes go to the serial port.
 	if _, err := conn.Write([]byte("reboot\r")); err != nil {
@@ -51,7 +51,7 @@ func TestConsoleDataPlane(t *testing.T) {
 	if n, _ := conn.ReadAvailable(buf); n != 0 {
 		t.Errorf("ReadAvailable on empty buffer = %d, want 0", n)
 	}
-	broker.out.Write([]byte("login:")) //nolint:errcheck
+	broker.out.Write([]byte("login:"))
 	var got bytes.Buffer
 	for {
 		n, err := conn.ReadAvailable(buf)
@@ -76,13 +76,13 @@ func TestConsoleBufferBounded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	defer conn.Close() //nolint:errcheck
+	defer conn.Close()
 
 	chunk := bytes.Repeat([]byte{'x'}, 4096)
 	for range 32 {
-		broker.out.Write(chunk) //nolint:errcheck
+		broker.out.Write(chunk)
 	}
-	broker.out.Write([]byte("END")) //nolint:errcheck
+	broker.out.Write([]byte("END"))
 
 	cc := conn.(*consoleConn)
 	cc.mu.Lock()

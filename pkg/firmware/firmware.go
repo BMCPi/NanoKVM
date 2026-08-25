@@ -63,6 +63,7 @@ type Controller struct {
 	presented bool
 
 	vmState VirtualMediaState // current virtual media insertion state
+	gadget  VMGadget          // test seam; nil means the usbgadget singleton
 }
 
 // NewController builds the firmware Controller from config. Called once by
@@ -84,6 +85,9 @@ func NewController(cfg *config.Config) *Controller {
 func (c *Controller) Init() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Runs before the capsule work so its early returns can't skip the sweep.
+	c.sweepEphemeralMediaLocked()
 
 	if err := c.ensureVolumeLocked(); err != nil {
 		return err

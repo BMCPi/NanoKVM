@@ -25,8 +25,10 @@ func newStorageHAL() *storageHAL {
 }
 
 // fruStore and sdrStore name the ID-listing method each hal interface wants.
-type fruStore struct{ memStore[uint8] }
-type sdrStore struct{ memStore[uint16] }
+type (
+	fruStore struct{ memStore[uint8] }
+	sdrStore struct{ memStore[uint16] }
+)
 
 func (f *fruStore) DeviceIDs(ctx context.Context) ([]uint8, error)  { return f.ids(ctx) }
 func (s *sdrStore) RecordIDs(ctx context.Context) ([]uint16, error) { return s.ids(ctx) }

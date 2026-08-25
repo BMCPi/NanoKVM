@@ -70,6 +70,29 @@ type SensorOemNanoKVM struct {
 	TemperatureValid bool `json:"TemperatureValid"`
 	// LastPushOK mirrors the pTA's flag for its previous I2C write.
 	LastPushOK bool `json:"LastPushOK"`
+	// PowerHealth is the host firmware's GET_THROTTLED state, the one
+	// PMIC-sourced signal reachable over the I2C push. It is omitted unless
+	// the sample carried a live reading, which the host can only take once it
+	// is past ExitBootServices (it needs the VPU mailbox), so its absence
+	// means "the host is still in firmware" rather than "all clear".
+	PowerHealth *SensorOemPowerHealth `json:"PowerHealth,omitempty"`
+}
+
+// SensorOemPowerHealth decodes the record's GET_THROTTLED word. The *Now fields
+// are active in the latest sample; the *Ever fields latch that the condition
+// has happened at least once since the host booted. Under-voltage and
+// frequency capping are the PMIC's (DA9091) signals; the soft temperature
+// limit is the SoC thermal block's.
+type SensorOemPowerHealth struct {
+	UnderVoltageNow    bool `json:"UnderVoltageNow"`
+	FrequencyCappedNow bool `json:"FrequencyCappedNow"`
+	ThrottledNow       bool `json:"ThrottledNow"`
+	SoftTempLimitNow   bool `json:"SoftTempLimitNow"`
+
+	UnderVoltageEver    bool `json:"UnderVoltageEver"`
+	FrequencyCappedEver bool `json:"FrequencyCappedEver"`
+	ThrottledEver       bool `json:"ThrottledEver"`
+	SoftTempLimitEver   bool `json:"SoftTempLimitEver"`
 }
 
 // GetSensorCollection lists the sensors the BMC reads.
@@ -131,6 +154,24 @@ func socSensorResource() Sensor {
 		TemperatureValid:  reading.TempValid(),
 		LastPushOK:        reading.LastPushOK(),
 	}}
+
+	// Power health rides the same record but is independent of the AVS
+	// temperature read, so it is reported whenever it is live (the host past
+	// firmware) and current (not stale) — even if the temperature itself is
+	// withheld below.
+	if !reading.Stale && reading.ThrottleValid() {
+		sensor.Oem.NanoKVM.PowerHealth = &SensorOemPowerHealth{
+			UnderVoltageNow:    reading.UnderVoltage(),
+			FrequencyCappedNow: reading.FrequencyCapped(),
+			ThrottledNow:       reading.Throttled(),
+			SoftTempLimitNow:   reading.SoftTempLimited(),
+
+			UnderVoltageEver:    reading.UnderVoltageEver(),
+			FrequencyCappedEver: reading.FrequencyCappedEver(),
+			ThrottledEver:       reading.ThrottledEver(),
+			SoftTempLimitEver:   reading.SoftTempLimitedEver(),
+		}
+	}
 
 	// A stale record still parses perfectly — it is simply the last thing a
 	// host that has since gone quiet said. Reporting its temperature as a

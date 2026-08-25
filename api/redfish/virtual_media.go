@@ -81,6 +81,13 @@ func (s *Service) GetVirtualMedia(c *gin.Context) {
 //     "InsertMediaRequestBody" JSON part naming the file. This is how
 //     redfishtool/gofish/python-redfish-utility ship local ISOs that
 //     aren't reachable from the BMC's network.
+//
+// Either way the staged image is EPHEMERAL: EjectMedia deletes it from the
+// media directory. That matches what Redfish clients expect of virtual media
+// (on enterprise BMCs an ejected image is simply gone) and keeps a
+// Redfish-only workflow — which has no delete verb — from accumulating images
+// on the data partition. Media staged through the web UI or /api/firmware
+// keeps its persistent library semantics.
 func (s *Service) InsertMedia(c *gin.Context) {
 	ctype, _, _ := mime.ParseMediaType(c.GetHeader("Content-Type"))
 	if ctype == "multipart/form-data" {
@@ -192,7 +199,10 @@ func (s *Service) insertMediaUpload(c *gin.Context) {
 		}
 	}
 
-	if err := s.Firmware.InsertVirtualMedia(name); err != nil {
+	if err := s.Firmware.InsertVirtualMediaEphemeral(name); err != nil {
+		// The mount didn't happen, so the bytes staged for it have no owner:
+		// a Redfish client has no delete verb to clean them up later.
+		_ = s.Firmware.DeleteMediaFile(name)
 		redfishErrorResponse(c, http.StatusConflict, "insert media failed: "+err.Error())
 		return
 	}
@@ -255,19 +265,24 @@ type InsertError struct {
 
 func (e *InsertError) Error() string { return e.msg }
 
-// stageAndInsert saves r to mediaDir/<name> then inserts it. Returns a
-// typed error so callers can map to the appropriate HTTP status.
+// stageAndInsert saves r to mediaDir/<name> then inserts it with the
+// ephemeral contract (see InsertMedia: ejecting deletes the staged file).
+// Returns a typed error so callers can map to the appropriate HTTP status.
 func stageAndInsert(fwCtrl *firmware.Controller, name string, r io.Reader) *InsertError {
 	if _, err := fwCtrl.SaveMediaFile(name, r); err != nil {
 		return &InsertError{http.StatusInternalServerError, "save media failed: " + err.Error()}
 	}
-	if err := fwCtrl.InsertVirtualMedia(name); err != nil {
+	if err := fwCtrl.InsertVirtualMediaEphemeral(name); err != nil {
+		// No mount, no owner: clean up the bytes we staged for it.
+		_ = fwCtrl.DeleteMediaFile(name)
 		return &InsertError{http.StatusConflict, "insert media failed: " + err.Error()}
 	}
 	return nil
 }
 
 // EjectMedia handles POST …/VirtualMedia/1/Actions/VirtualMedia.EjectMedia.
+// The image a Redfish insert staged is deleted along with the eject; see
+// InsertMedia for why.
 func (s *Service) EjectMedia(c *gin.Context) {
 	fwCtrl := s.Firmware
 	if err := fwCtrl.EjectVirtualMedia(); err != nil {
