@@ -17,6 +17,9 @@ func (s *Service) GetServiceRoot(c *gin.Context) {
 			Name:         "NanoKVM BMC",
 		},
 		RedfishVersion: "1.0.0",
+		// The same stable identity the Manager reports. Discovery tools read
+		// it straight off the service root, before authenticating deeper.
+		UUID:           managerUUID(),
 		Systems:        Link(systemsPath),
 		Managers:       Link(managersPath),
 		Chassis:        Link(chassisPath),

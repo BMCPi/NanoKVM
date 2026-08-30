@@ -8,6 +8,14 @@ import (
 	"github.com/stmcginnis/gofish/schemas"
 )
 
+// Identity this BMC reports for itself. The managed host's Manufacturer and
+// Model come from its own reports (hostreports.go) and are a different thing
+// entirely — these describe the management controller.
+const (
+	managerManufacturer = "Sipeed"
+	managerModel        = "NanoKVM"
+)
+
 func (s *Service) GetManagerCollection(c *gin.Context) {
 	c.JSON(http.StatusOK, newCollection(
 		"ManagerCollection", "Manager Collection", managersPath,
@@ -29,12 +37,16 @@ func (s *Service) GetManager(c *gin.Context) {
 			ID:           "1",
 			Name:         "NanoKVM BMC",
 		},
-		ManagerType:       schemas.BMCManagerType,
-		FirmwareVersion:   firmwareVersion,
-		Status:            &Status{State: schemas.EnabledState, Health: schemas.OKHealth},
-		SerialInterfaces:  Link(serialInterfacesPath),
-		VirtualMedia:      Link(virtualMediaPath),
-		NetworkInterfaces: Link(networkInterfacesPath),
+		ManagerType:        schemas.BMCManagerType,
+		UUID:               managerUUID(),
+		Manufacturer:       managerManufacturer,
+		Model:              managerModel,
+		FirmwareVersion:    firmwareVersion,
+		Status:             &Status{State: schemas.EnabledState, Health: schemas.OKHealth},
+		SerialInterfaces:   Link(serialInterfacesPath),
+		VirtualMedia:       Link(virtualMediaPath),
+		EthernetInterfaces: Link(managerEthernetInterfacesPath),
+		NetworkInterfaces:  Link(networkInterfacesPath),
 		Links: ManagerLinks{
 			ManagerForServers: Links{Link(systemPath)},
 			Oem: Oem{

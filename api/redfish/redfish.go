@@ -22,6 +22,11 @@ func Register(r *gin.Engine, d *deps.Deps) {
 	r.GET(ServiceRootPath, service.GetServiceRoot)
 	r.GET(strings.TrimSuffix(ServiceRootPath, "/"), service.GetServiceRoot)
 
+	// $metadata is referenced by the @odata.context of every response, so it
+	// has to resolve for anyone who can read a response at all — including
+	// the unauthenticated service root.
+	r.GET("/redfish/v1/$metadata", service.GetMetadata)
+
 	r.GET("/redfish/v1/SessionService", service.GetSessionService)
 	r.POST("/redfish/v1/SessionService/Sessions", service.CreateSession)
 
@@ -125,6 +130,15 @@ func Register(r *gin.Engine, d *deps.Deps) {
 		api.GET("/Managers/1", service.GetManager)
 		api.GET("/Managers/1/Oem/Dell/DellAttributes/iDRAC.Embedded.1", service.GetDellIDRACAttributes)
 
+		// The BMC's own NICs. Inventory tools (OpenCHAMI magellan and the
+		// SMD it feeds) read the BMC's MAC from here and will not register
+		// an endpoint's MAC without it.
+		api.GET("/Managers/1/EthernetInterfaces", service.GetManagerEthernetInterfaceCollection)
+		api.GET("/Managers/1/EthernetInterfaces/:nic", service.GetManagerEthernetInterface)
+		// Advertised by the Manager since before the migration; served empty
+		// so the link resolves instead of 404ing.
+		api.GET("/Managers/1/NetworkInterfaces", service.GetManagerNetworkInterfaceCollection)
+
 		// Serial Interfaces
 		api.GET("/Managers/1/SerialInterfaces", service.GetSerialInterfaceCollection)
 		api.GET("/Managers/1/SerialInterfaces/1", service.GetSerialInterface)
@@ -136,8 +150,11 @@ func Register(r *gin.Engine, d *deps.Deps) {
 		api.POST("/Managers/1/VirtualMedia/CD/Actions/VirtualMedia.InsertMedia", service.InsertMedia)
 		api.POST("/Managers/1/VirtualMedia/CD/Actions/VirtualMedia.EjectMedia", service.EjectMedia)
 
-		// Sessions
+		// Sessions. The per-session member has to resolve: CreateSession
+		// hands the client this URI in the Location header, and gofish
+		// GETs/DELETEs it from there.
 		api.GET("/SessionService/Sessions", service.GetSessionCollection)
+		api.GET("/SessionService/Sessions/:id", service.GetSession)
 		api.DELETE("/SessionService/Sessions/:id", service.DeleteSession)
 
 		// UpdateService (FMP capsule staging; the host applies at next boot).

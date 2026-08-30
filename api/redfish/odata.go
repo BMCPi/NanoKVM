@@ -134,6 +134,10 @@ const (
 
 	networkInterfacesPath = managerPath + "/NetworkInterfaces"
 
+	// The BMC's own NICs. Distinct from ethernetInterfacesPath, which hangs
+	// off the ComputerSystem and carries the managed host's NICs.
+	managerEthernetInterfacesPath = managerPath + "/EthernetInterfaces"
+
 	virtualMediaPath   = managerPath + "/VirtualMedia"
 	virtualMediaCDPath = virtualMediaPath + "/CD"
 

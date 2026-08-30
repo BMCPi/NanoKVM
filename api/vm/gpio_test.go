@@ -104,3 +104,33 @@ func TestStreamGpioPushesEdges(t *testing.T) {
 		}
 	}
 }
+
+// TestStreamGpioUnreadableStateIsNotOK covers the failure that froze the
+// navbar power pill: when the controller cannot report power state the
+// handler used to answer 200 with an application/json envelope, and
+// EventSource treats a 200 whose Content-Type is not text/event-stream as a
+// FATAL error — it closes the stream and never reconnects, so the pill stayed
+// stale until the page was reloaded. The status has to be a real error so the
+// browser reconnects instead.
+func TestStreamGpioUnreadableStateIsNotOK(t *testing.T) {
+	cfg := config.GetInstance()
+	cfg.Power.LegacyMode = false
+	cfg.Hardware.GPIOPowerLED = config.GPIOPin{}
+	ctrl := power.NewController(cfg.Hardware, cfg.Power)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/api/vm/gpio/events", (&Service{Power: ctrl}).StreamGpio)
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	resp, err := http.Get(srv.URL + "/api/vm/gpio/events")
+	if err != nil {
+		t.Fatalf("open stream: %v", err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+
+	if resp.StatusCode < 500 {
+		t.Fatalf("status = %d, want a 5xx so EventSource retries instead of closing for good", resp.StatusCode)
+	}
+}

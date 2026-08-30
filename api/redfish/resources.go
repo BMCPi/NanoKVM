@@ -130,6 +130,10 @@ type ComputerSystem struct {
 // system to the baseboard resource (chassis.go).
 type SystemLinks struct {
 	Chassis Links `json:"Chassis,omitempty"`
+	// ManagedBy is how a client walks from the host back to the BMC that
+	// manages it. Crawlers resolve the manager this way rather than
+	// assuming Managers/1.
+	ManagedBy Links `json:"ManagedBy,omitempty"`
 }
 
 // BootProgress is the host-reported boot phase. LastState is one of the
@@ -190,13 +194,25 @@ type ResetAction struct {
 
 type Manager struct {
 	Resource
-	ManagerType      schemas.ManagerType `json:"ManagerType"`
-	FirmwareVersion  string              `json:"FirmwareVersion,omitempty"`
-	Status           *Status             `json:"Status,omitempty"`
-	SerialInterfaces Link                `json:"SerialInterfaces"`
-	VirtualMedia     Link                `json:"VirtualMedia"`
-	// NetworkInterfaces is advertised for client compatibility even though
-	// the collection is not implemented; this predates the migration.
+	ManagerType schemas.ManagerType `json:"ManagerType"`
+	// UUID identifies this BMC. Inventory tools (magellan, SMD) key a
+	// discovered endpoint on it, so it must be stable across reboots and
+	// firmware updates — see managerUUID.
+	UUID             string  `json:"UUID,omitempty"`
+	Manufacturer     string  `json:"Manufacturer,omitempty"`
+	Model            string  `json:"Model,omitempty"`
+	FirmwareVersion  string  `json:"FirmwareVersion,omitempty"`
+	Status           *Status `json:"Status,omitempty"`
+	SerialInterfaces Link    `json:"SerialInterfaces"`
+	VirtualMedia     Link    `json:"VirtualMedia"`
+	// EthernetInterfaces is the BMC's own NIC collection
+	// (manager_ethernet.go). Inventory crawlers read the BMC's MAC from
+	// here; magellan will not record a MAC for this endpoint without it.
+	EthernetInterfaces Link `json:"EthernetInterfaces"`
+	// NetworkInterfaces is advertised for client compatibility. The
+	// collection is empty — this BMC has no NetworkAdapter inventory — but
+	// it resolves rather than 404ing, because a client that follows an
+	// advertised link into a 404 treats it as a broken service.
 	NetworkInterfaces Link         `json:"NetworkInterfaces"`
 	Links             ManagerLinks `json:"Links"`
 	// Empty Oem/Actions.Oem keep gofish's dell.Manager() unmarshal from

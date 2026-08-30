@@ -335,6 +335,15 @@ templ bootDeviceSelect(value string) {
 // pushes a `power` event on every GPIO transition (nothing polls), and a
 // reconnect re-sends the current state. Auth rides the nano-kvm-token cookie.
 //
+// The reconnect is ours, not EventSource's. EventSource only retries by
+// itself while the failure is at the transport layer (readyState stays
+// CONNECTING); a failure at the HTTP layer — any non-200 status, or a 200
+// whose body is not text/event-stream — is fatal: readyState goes to CLOSED
+// and nothing tries again. One unreadable-GPIO answer, one 401 on a stale
+// cookie, one restart caught mid-response, and the pill froze at whatever it
+// last showed with only a page reload to recover it. So a CLOSED stream is
+// re-opened here on a capped backoff.
+//
 // setBootMode lives here rather than in the fragment because the fragment is
 // swapped by htmx on every open; a handler defined inside it would be
 // redefined on each swap, and any listener bound to the old copy lost.
@@ -343,7 +352,7 @@ templ powerMenuScript() {
 		(function () {
 			function renderPower(on) {
 				const dot = document.getElementById('power-dot');
-				if (dot) dot.className = 'inline-block size-2 rounded-full ' + (on ? 'bg-green-500' : 'bg-destructive');
+				if (dot) dot.className = 'inline-block size-2 rounded-full shrink-0 ' + (on ? 'bg-green-500' : 'bg-destructive');
 				const txt = document.getElementById('power-text');
 				if (txt) txt.textContent = on ? 'Power On' : 'Power Off';
 
@@ -365,16 +374,42 @@ templ powerMenuScript() {
 				if (shown) shown.textContent = label;
 			};
 
-			const powerEvents = new EventSource('/api/vm/gpio/events');
-			powerEvents.addEventListener('power', (e) => {
-				try {
-					renderPower(JSON.parse(e.data).pwr);
-				} catch(err) { console.error(err); }
-			});
-			powerEvents.onerror = () => {
-				// Leave the last known state on screen while EventSource retries.
-				console.debug('power stream interrupted, reconnecting');
-			};
+			// Backoff for our own reconnects: quick enough that a BMC restart
+			// is invisible, capped so a board that is genuinely unable to read
+			// its power LED is not asked once a second forever.
+			const RETRY_MIN = 1000, RETRY_MAX = 30000;
+			let retry = RETRY_MIN, pending = null;
+
+			function connect() {
+				// Each attempt keeps its own handle: a late error from a
+				// superseded stream must be judged on that stream's
+				// readyState, not on whichever one is current.
+				const es = new EventSource('/api/vm/gpio/events');
+
+				es.addEventListener('power', (e) => {
+					// A delivered event is the only proof the stream is
+					// healthy: onopen fires for a connection that may still
+					// break before the first byte.
+					retry = RETRY_MIN;
+					try {
+						renderPower(JSON.parse(e.data).pwr);
+					} catch(err) { console.error(err); }
+				});
+
+				es.onerror = () => {
+					// Still CONNECTING means EventSource is retrying by
+					// itself — leave the last known state on screen and let
+					// it. CLOSED means it has given up, and only we can
+					// re-open the stream.
+					if (es.readyState !== EventSource.CLOSED) return;
+					console.debug('power stream closed, reopening in ' + retry + 'ms');
+					if (pending) return;
+					pending = setTimeout(() => { pending = null; connect(); }, retry);
+					retry = Math.min(retry * 2, RETRY_MAX);
+				};
+			}
+
+			connect();
 		})();
 	</script>
 }

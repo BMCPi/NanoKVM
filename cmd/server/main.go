@@ -299,7 +299,15 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 	var servers []*http.Server
 	errCh := make(chan error, 2)
 
-	if conf.Proto == "https" {
+	// A configured-but-unprovisioned HTTPS setup used to be fatal: the only
+	// caller of GenerateCert is the web UI's TLS toggle, so a device that
+	// booted with proto: https and no certificate on disk exited instead of
+	// serving anything — including the UI an operator would need to fix it.
+	// Provision on demand, and if that fails, serve plaintext rather than
+	// nothing.
+	useTLS := conf.Proto == "https" && ensureServerCert(conf)
+
+	if useTLS {
 		httpsSrv := &http.Server{Addr: httpsAddr, Handler: r, BaseContext: baseCtx}
 		servers = append(servers, httpsSrv)
 		go func() {
@@ -471,4 +479,45 @@ func disposeAll() {
 	// Flush and release the rotating log file last, after other subsystems have
 	// logged their shutdown.
 	_ = logger.Close()
+}
+
+// ensureServerCert reports whether the configured TLS material is usable,
+// generating a self-signed pair when it is absent.
+//
+// It returns false rather than failing the boot: the certificate is how the
+// operator reaches the machine, so a device that cannot produce one is far
+// better off answering over plaintext — where the UI can be used to fix it —
+// than exiting into a reboot loop with no management path at all.
+func ensureServerCert(conf *config.Config) bool {
+	crt, key := conf.Cert.Crt, conf.Cert.Key
+	if crt == "" || key == "" {
+		slog.Error("https configured but cert/key paths are empty; falling back to http")
+		return false
+	}
+
+	_, crtErr := os.Stat(crt)
+	_, keyErr := os.Stat(key)
+	if crtErr == nil && keyErr == nil {
+		return true
+	}
+	if crtErr != nil && !os.IsNotExist(crtErr) {
+		slog.Error("https configured but certificate is unreadable; falling back to http",
+			slog.String("path", crt), slog.Any("err", crtErr))
+		return false
+	}
+
+	slog.Info("https configured but no certificate present; generating a self-signed pair",
+		slog.String("path", crt))
+	if err := utils.GenerateCert(); err != nil {
+		slog.Error("could not generate a server certificate; falling back to http", slog.Any("err", err))
+		return false
+	}
+	if _, err := os.Stat(crt); err != nil {
+		// GenerateCert writes to fixed paths; a configured pair pointing
+		// somewhere else is still unprovisioned afterwards.
+		slog.Error("generated certificate is not at the configured path; falling back to http",
+			slog.String("path", crt), slog.Any("err", err))
+		return false
+	}
+	return true
 }

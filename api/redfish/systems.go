@@ -252,7 +252,8 @@ func buildSystemResource(ctx context.Context, pw *power.Controller) ComputerSyst
 			},
 		},
 		Links: &SystemLinks{
-			Chassis: Links{Link(chassisItemPath)},
+			Chassis:   Links{Link(chassisItemPath)},
+			ManagedBy: Links{Link(managerPath)},
 		},
 	}
 

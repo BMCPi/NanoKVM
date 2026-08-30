@@ -8,7 +8,16 @@ import (
 )
 
 var defaultConfig = &Config{
-	Proto: "http",
+	// HTTPS by default, the way every other BMC ships. Redfish inventory
+	// tooling assumes it: OpenCHAMI's magellan scans https://host:443 and,
+	// in its collect phase, strips only an "https://" prefix before deriving
+	// the endpoint's ID — an http:// endpoint yields an empty ID and is
+	// dropped without a diagnostic. A plaintext BMC is invisible to it.
+	//
+	// This is safe to default on: cmd/server provisions a self-signed
+	// certificate when none exists and falls back to plaintext if it cannot,
+	// and the :80 listener stays up as a redirect for browsers.
+	Proto: "https",
 	Port: Port{
 		Http:  80,
 		Https: 443,
@@ -177,6 +186,26 @@ func checkDefaultValue() {
 
 	if instance.Authentication == "" {
 		instance.Authentication = "enable"
+	}
+
+	// An unset proto used to mean plaintext, because the https branch in
+	// cmd/server tests for the literal string. That made a config written by
+	// an older build — or hand-edited without the key — silently serve
+	// Redfish over HTTP, where inventory tooling cannot see it at all (see
+	// defaultConfig.Proto). Treat unset as "use the default" like every other
+	// field here.
+	if instance.Proto == "" {
+		instance.Proto = defaultConfig.Proto
+	}
+
+	// Same reasoning for the certificate paths: unset must mean "the default
+	// location", not "no TLS material", or an https config with no cert
+	// section degrades to plaintext instead of provisioning itself.
+	if instance.Cert.Crt == "" {
+		instance.Cert.Crt = defaultConfig.Cert.Crt
+	}
+	if instance.Cert.Key == "" {
+		instance.Cert.Key = defaultConfig.Cert.Key
 	}
 
 	// File logging is the default. Older builds persisted the previous "stdout"
