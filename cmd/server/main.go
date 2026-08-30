@@ -316,7 +316,12 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 			}
 		}()
 
-		redirectSrv := middleware.NewLoopbackHTTPRedirect(httpAddr, httpsAddr)
+		// The plain port cannot be redirect-only: the managed host's
+		// firmware speaks DSP0270 plain HTTP on the RHI subnet and cannot
+		// follow a redirect, so a blanket 307 severs the whole host sync
+		// (identity, thermal, boot-override consumption). Serve RHI-sourced
+		// requests directly, redirect everyone else.
+		redirectSrv := middleware.NewPlainHTTPServer(httpAddr, httpsAddr, conf.Network.RHI.Address, r)
 		redirectSrv.BaseContext = baseCtx
 		servers = append(servers, redirectSrv)
 		go func() {
