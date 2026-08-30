@@ -1051,3 +1051,27 @@ func TestProcessorPatchUnknownIs404(t *testing.T) {
 		t.Errorf("PATCH unknown = %d, want 404", w.Code)
 	}
 }
+
+// A forwarded-for header naming the host interface must not open the host
+// lane: the trust boundary is the TCP source the nftables isolation
+// guarantees, and headers are attacker-controlled from anywhere on the LAN.
+func TestHostLaneIgnoresForwardedForSpoof(t *testing.T) {
+	resetHostState(t)
+	r := hostRouter()
+	spoof := map[string]string{
+		"X-Forwarded-For": hostIP(t),
+		"X-Real-IP":       hostIP(t),
+	}
+
+	for _, tc := range []struct{ method, path, body string }{
+		{http.MethodPost, "/redfish/v1/Systems/1/BootOptions", `{"Id":"Boot0000"}`},
+		{http.MethodPost, "/redfish/v1/Systems/1/Memory", `{"Id":"DIMM0"}`},
+		{http.MethodPatch, "/redfish/v1/Systems/1/Bios", `{"Attributes":{}}`},
+	} {
+		w := do(r, tc.method, tc.path, lanIP, tc.body, spoof)
+		if w.Code != http.StatusForbidden {
+			t.Errorf("%s %s from LAN with spoofed XFF = %d, want 403",
+				tc.method, tc.path, w.Code)
+		}
+	}
+}

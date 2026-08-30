@@ -247,6 +247,15 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 	gin.DisableConsoleColor()
 
 	r := gin.New()
+	// No proxy fronts this server, so trust none: with gin's default
+	// (trust-everything) setting, ClientIP() honors X-Forwarded-For from any
+	// peer, which let LAN clients spoof their way into IP-keyed behavior —
+	// the auth lockout keying and the request log at minimum. The Redfish
+	// host-interface check parses the TCP source itself and never depended
+	// on this, but every ClientIP() consumer gets the honest address now.
+	if err := r.SetTrustedProxies(nil); err != nil {
+		log.Fatalf("configure trusted proxies: %v", err)
+	}
 	// Make *gin.Context a real context.Context: Done/Deadline/Err/Value fall
 	// back to the request context, so handlers pass `c` directly into
 	// ctx-taking code and cancellation propagates when the client disconnects

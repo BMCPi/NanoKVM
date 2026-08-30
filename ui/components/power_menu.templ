@@ -357,8 +357,23 @@ templ powerMenuScript() {
 				if (txt) txt.textContent = on ? 'Power On' : 'Power Off';
 
 				// The toggle offers the action that changes the current state.
+				//
+				// Rewriting the attribute is only half of it. htmx reads hx-post
+				// once, when it processes the node, and hands that captured path
+				// to every request the trigger fires (processVerbs → the `path`
+				// closed over by issueAjaxRequest). Setting the attribute later
+				// repaints nothing on htmx's side: the button would read
+				// "Power On" and still post /ui/power/off. htmx.process()
+				// recomputes the node's attribute hash, and a changed hash is
+				// what makes htmx drop the stale binding and re-read the verb.
 				const btn = document.getElementById('power-toggle');
-				if (btn) btn.setAttribute('hx-post', on ? '/ui/power/off' : '/ui/power/on');
+				if (btn) {
+					btn.setAttribute('hx-post', on ? '/ui/power/off' : '/ui/power/on');
+					// Guarded because this runs from the SSE handler: if htmx
+					// were not loaded, throwing here would abandon the rest of
+					// the repaint below.
+					if (window.htmx) window.htmx.process(btn);
+				}
 				const label = document.getElementById('power-toggle-label');
 				if (label) label.textContent = on ? 'Power Off' : 'Power On';
 				const iconOn = document.getElementById('power-toggle-icon-on');

@@ -10,13 +10,13 @@ import (
 func (s *Service) GetServiceRoot(c *gin.Context) {
 	c.JSON(http.StatusOK, ServiceRoot{
 		Resource: Resource{
-			ODataType:    "#ServiceRoot.v1_9_0.ServiceRoot",
+			ODataType:    odataTypeServiceRoot,
 			ODataID:      ServiceRootPath,
 			ODataContext: odataContext("ServiceRoot.ServiceRoot"),
 			ID:           "ServiceRoot",
 			Name:         "NanoKVM BMC",
 		},
-		RedfishVersion: "1.0.0",
+		RedfishVersion: redfishProtocolVersion,
 		// The same stable identity the Manager reports. Discovery tools read
 		// it straight off the service root, before authenticating deeper.
 		UUID:           managerUUID(),

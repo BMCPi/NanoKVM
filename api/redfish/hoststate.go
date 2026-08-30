@@ -126,7 +126,15 @@ var (
 // The nftables isolation in pkg/network guarantees 169.254/16 traffic cannot
 // arrive via eth0, so the source address is a real trust boundary here.
 func IsHostInterfaceRequest(c *gin.Context) bool {
-	ip := net.ParseIP(c.ClientIP())
+	// The raw TCP source, never c.ClientIP(): ClientIP honors forwarded-for
+	// headers depending on the engine's trusted-proxy settings, and a trust
+	// boundary must not hinge on attacker-controlled headers or on distant
+	// engine configuration. Nothing legitimate proxies the host interface.
+	remoteHost, _, err := net.SplitHostPort(c.Request.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(remoteHost)
 	if ip == nil {
 		return false
 	}
