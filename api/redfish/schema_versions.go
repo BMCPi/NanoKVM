@@ -1,5 +1,7 @@
 package redfish
 
+import "github.com/pi-bmc/nanokvm-app/pkg/identity"
+
 // schema_versions.go is the single place the schema versions this BMC
 // advertises are written down.
 //
@@ -26,26 +28,13 @@ package redfish
 // Where the host publishes a resource itself (memory modules, boot options,
 // the attribute registry) it supplies its own @odata.type and that one wins;
 // these are the types used for the documents this BMC renders on its own.
+
 // redfishProtocolVersion is the value the service root reports as
-// RedfishVersion. It is the *protocol* version from DSP0266's Protocol
-// Version clause — not the ServiceRoot schema version, which is a separate
-// number (odataTypeServiceRoot below).
-//
-// 1.13.0 is the lowest protocol version consistent with what this BMC
-// actually serves: odataTypeComputerSystem is pinned to v1_13_0, and
-// BootProgress — which the host firmware PATCHes and systems.go publishes —
-// is that version's addition. Clients gate on this. bmclib, the library
-// behind Tinkerbell's Rufio, refuses to read BootProgress from a service
-// reporting less than 1.13.0, so the "1.0.0" this replaced was silently
-// switching off a feature we implement.
-//
-// Protocol minor versions are additive, so under-claiming costs features
-// while over-claiming promises behaviour we do not have: raise this only to
-// match a capability actually added here. Not implementing
-// ProtocolFeaturesSupported (protocol 1.6+) is not a reason to claim less —
-// that property is optional, and its absence correctly means "no query
-// parameters supported".
-const redfishProtocolVersion = "1.13.0"
+// RedfishVersion. The value and the reasoning behind it (why 1.13.0, and why
+// it must not be lowered) live in pkg/identity.RedfishProtocolVersion —
+// pkg/discovery advertises the same version over SSDP/DNS-SD, and a pkg may
+// not import api.
+const redfishProtocolVersion = identity.RedfishProtocolVersion
 
 const (
 	// The service root's own schema version, distinct from the protocol
