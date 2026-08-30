@@ -403,12 +403,21 @@ func checkDefaultValue() {
 	}
 
 	// Discovery folds the legacy top-level mdns: block into discovery.mdns
-	// (see migrateDiscovery), then applies the same absent-section handling
-	// as mDNS above for discovery.mdns, plus SSDP's own defaults.
+	// (see migrateDiscovery) before any defaulting happens, then applies the
+	// same absent-section handling as mDNS above for discovery.mdns, plus
+	// SSDP's own defaults.
+	//
+	// The absent-section check below must also test viper.IsSet("mdns"):
+	// a legacy-only file has no discovery.mdns key either, so testing
+	// !viper.IsSet("discovery.mdns") alone would treat a just-migrated
+	// block as absent and immediately stomp it back to hardcoded defaults —
+	// silently reverting an operator's non-default interface/hostname and,
+	// worse, flipping a deliberate `enabled: false` back to true.
 	migrateDiscovery(&instance, viper.IsSet("discovery"))
-	if !viper.IsSet("discovery.mdns") {
+	if !viper.IsSet("discovery.mdns") && !viper.IsSet("mdns") {
 		instance.Discovery.MDNS = defaultConfig.Discovery.MDNS
-	} else if instance.Discovery.MDNS.Interface == "" && !viper.IsSet("discovery.mdns.interface") {
+	} else if instance.Discovery.MDNS.Interface == "" &&
+		!viper.IsSet("discovery.mdns.interface") && !viper.IsSet("mdns.interface") {
 		instance.Discovery.MDNS.Interface = defaultConfig.Discovery.MDNS.Interface
 	}
 	if !viper.IsSet("discovery.ssdp") {
