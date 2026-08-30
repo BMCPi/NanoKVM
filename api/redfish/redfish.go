@@ -102,6 +102,7 @@ func Register(r *gin.Engine, d *deps.Deps) {
 		api.DELETE("/Systems/1/Processors/:processor", service.DeleteProcessor)
 		api.GET("/Systems/1/EthernetInterfaces", service.GetEthernetInterfaceCollection)
 		api.GET("/Systems/1/EthernetInterfaces/:nic", service.GetEthernetInterface)
+		api.POST("/Systems/1/EthernetInterfaces", service.PostEthernetInterface)
 
 		// Storage — subsystem "1" is the host's own storage (drives the host
 		// firmware reports); "BMC" is the USB gadget's LUNs.

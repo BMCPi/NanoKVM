@@ -37,6 +37,7 @@ var (
 	processorsOf  = func(h *hostState) map[string]map[string]any { return h.Processors }
 	drivesOf      = func(h *hostState) map[string]map[string]any { return h.Drives }
 	firmwareOf    = func(h *hostState) map[string]map[string]any { return h.Firmware }
+	ethernetOf    = func(h *hostState) map[string]map[string]any { return h.Ethernet }
 )
 
 // hostCollectionIDs returns the member ids in stable (sorted) order.

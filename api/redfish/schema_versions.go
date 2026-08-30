@@ -58,6 +58,9 @@ const (
 	odataTypeBootOption        = "#BootOption.v1_0_4.BootOption"
 	odataTypeSecureBoot        = "#SecureBoot.v1_1_0.SecureBoot"
 	odataTypeMemory            = "#Memory.v1_7_1.Memory"
+	// Hand-built by RpiRedfishSyncDxe (no converter lib), so this version is
+	// pinned here rather than in the feature-driver table.
+	odataTypeEthernetInterface = "#EthernetInterface.v1_8_0.EthernetInterface"
 
 	// Sensor has no counterpart in RedfishClientPkg — the host does not
 	// consume it, this BMC only publishes it — so it is pinned to the

@@ -71,6 +71,12 @@ type hostState struct {
 	Processors  map[string]map[string]any `json:"processors"`
 	Drives      map[string]map[string]any `json:"drives"`
 
+	// Ethernet is the host's NIC inventory (the ComputerSystem's
+	// EthernetInterfaces collection), keyed by member Id. RpiRedfishSyncDxe
+	// POSTs one member per physical NIC each boot, keyed on a MAC-derived
+	// Id, so re-reports upsert in place.
+	Ethernet map[string]map[string]any `json:"ethernet"`
+
 	// Firmware is the UpdateService FirmwareInventory, keyed by member Id.
 	// RpiRedfishSyncDxe PATCHes one SoftwareInventory member ("BiosFirmware")
 	// per boot with the ESRT view of the running image.
@@ -97,6 +103,7 @@ var host = &hostState{
 	Memory:         map[string]map[string]any{},
 	Processors:     map[string]map[string]any{},
 	Drives:         map[string]map[string]any{},
+	Ethernet:       map[string]map[string]any{},
 	Firmware:       map[string]map[string]any{},
 	BiosAttributes: map[string]any{},
 	BiosPending:    map[string]any{},

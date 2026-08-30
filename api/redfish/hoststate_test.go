@@ -47,6 +47,7 @@ func resetHostState(t *testing.T) {
 		host.BiosPending = map[string]any{}
 		host.BiosRegistry = nil
 		host.Firmware = map[string]map[string]any{}
+		host.Ethernet = map[string]map[string]any{}
 		host.Thermal = nil
 		host.mu.Unlock()
 	}
@@ -75,6 +76,9 @@ func hostRouter() *gin.Engine {
 	r.GET("/redfish/v1/Systems/1", svc.GetSystem)
 	r.PATCH("/redfish/v1/Systems/1", svc.PatchSystem)
 	r.GET("/redfish/v1/Systems/1/BootOptions", svc.GetBootOptionCollection)
+	r.GET("/redfish/v1/Systems/1/EthernetInterfaces", svc.GetEthernetInterfaceCollection)
+	r.GET("/redfish/v1/Systems/1/EthernetInterfaces/:nic", svc.GetEthernetInterface)
+	r.POST("/redfish/v1/Systems/1/EthernetInterfaces", svc.PostEthernetInterface)
 	r.POST("/redfish/v1/Systems/1/BootOptions", svc.PostBootOption)
 	r.GET("/redfish/v1/Systems/1/BootOptions/:option", svc.GetBootOption)
 	r.PATCH("/redfish/v1/Systems/1/BootOptions/:option", svc.PatchBootOption)
@@ -135,6 +139,7 @@ func TestHostWritesRejectedFromLAN(t *testing.T) {
 
 	for _, tc := range []struct{ method, path string }{
 		{http.MethodPost, "/redfish/v1/Systems/1/BootOptions"},
+		{http.MethodPost, "/redfish/v1/Systems/1/EthernetInterfaces"},
 		{http.MethodPost, "/redfish/v1/Systems/1/Memory"},
 		{http.MethodPost, "/redfish/v1/Systems/1/Processors"},
 		{http.MethodPatch, "/redfish/v1/Systems/1/Processors/CPU1"},
@@ -1073,5 +1078,63 @@ func TestHostLaneIgnoresForwardedForSpoof(t *testing.T) {
 			t.Errorf("%s %s from LAN with spoofed XFF = %d, want 403",
 				tc.method, tc.path, w.Code)
 		}
+	}
+}
+
+// The firmware POSTs its NIC inventory each boot, keyed on the stable
+// MAC-derived Id — the exact body RpiRedfishSyncDxe sends. Re-reports must
+// upsert the same member, never accumulate ghosts.
+func TestEthernetInterfaceHostReport(t *testing.T) {
+	resetHostState(t)
+	r := hostRouter()
+	body := `{"Id":"NIC-D83ADDC98C28","Name":"Onboard Ethernet",` +
+		`"MACAddress":"D8:3A:DD:C9:8C:28","PermanentMACAddress":"D8:3A:DD:C9:8C:28",` +
+		`"LinkStatus":"LinkUp","InterfaceEnabled":true}`
+
+	w := do(r, http.MethodPost, "/redfish/v1/Systems/1/EthernetInterfaces", hostIP(t), body, nil)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("host POST = %d, want 201: %s", w.Code, w.Body.String())
+	}
+	if loc := w.Header().Get("Location"); loc != "/redfish/v1/Systems/1/EthernetInterfaces/NIC-D83ADDC98C28" {
+		t.Fatalf("Location = %q", loc)
+	}
+
+	// Second boot's identical re-report lands on the same member.
+	if w = do(r, http.MethodPost, "/redfish/v1/Systems/1/EthernetInterfaces", hostIP(t), body, nil); w.Code != http.StatusCreated {
+		t.Fatalf("re-POST = %d, want 201", w.Code)
+	}
+
+	w = do(r, http.MethodGet, "/redfish/v1/Systems/1/EthernetInterfaces", lanIP, "", nil)
+	var coll struct {
+		Count   int `json:"Members@odata.count"`
+		Members []struct {
+			ID string `json:"@odata.id"`
+		} `json:"Members"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &coll); err != nil {
+		t.Fatalf("collection decode: %v", err)
+	}
+	if coll.Count != 1 || len(coll.Members) != 1 {
+		t.Fatalf("collection = %d members (count %d), want exactly 1", len(coll.Members), coll.Count)
+	}
+
+	w = do(r, http.MethodGet, "/redfish/v1/Systems/1/EthernetInterfaces/NIC-D83ADDC98C28", lanIP, "", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("member GET = %d, want 200", w.Code)
+	}
+	var member map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &member); err != nil {
+		t.Fatalf("member decode: %v", err)
+	}
+	if member["MACAddress"] != "D8:3A:DD:C9:8C:28" {
+		t.Fatalf("MACAddress = %v", member["MACAddress"])
+	}
+	if member["@odata.type"] != odataTypeEthernetInterface {
+		t.Fatalf("@odata.type = %v", member["@odata.type"])
+	}
+
+	// An unreported NIC stays a 404, not an invented member.
+	if w = do(r, http.MethodGet, "/redfish/v1/Systems/1/EthernetInterfaces/NIC-MISSING", lanIP, "", nil); w.Code != http.StatusNotFound {
+		t.Fatalf("missing member GET = %d, want 404", w.Code)
 	}
 }
