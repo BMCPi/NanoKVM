@@ -69,9 +69,13 @@ func loadConfigFromYAML(t *testing.T, yamlText string) Config {
 // file (it has no discovery: block at all), so it stomped a just-migrated
 // legacy mdns: block back to hardcoded defaults — silently losing a
 // non-default interface/hostname and, worse, reviving a deliberately
-// disabled responder. Exercises the real load path (viper +
-// checkDefaultValue) so it can actually see that backfill run, unlike a test
-// that calls migrateDiscovery in isolation.
+// disabled responder. Also covers the round-2 fix: Enabled/IPv4/IPv6 must be
+// backfilled per-key (like Interface already was), or a bare
+// `discovery: {mdns: {interface: eth0}}` lands with the responder disabled
+// simply because it never repeats "enabled: true". Exercises the real load
+// path (viper + checkDefaultValue) so it can actually see the backfill that
+// runs after migrateDiscovery, unlike a test that calls migrateDiscovery in
+// isolation.
 func TestDiscoveryMigrationSurvivesDefaulting(t *testing.T) {
 	const secret = "jwt:\n  secretKey: test-secret\n"
 
@@ -81,6 +85,8 @@ func TestDiscoveryMigrationSurvivesDefaulting(t *testing.T) {
 		wantInterface string
 		wantHostname  string
 		wantEnabled   bool
+		wantIPv4      bool
+		wantIPv6      bool
 	}{
 		{
 			name:          "legacy-only",
@@ -88,6 +94,8 @@ func TestDiscoveryMigrationSurvivesDefaulting(t *testing.T) {
 			wantInterface: "eth1",
 			wantHostname:  "old",
 			wantEnabled:   true,
+			wantIPv4:      true,
+			wantIPv6:      true,
 		},
 		{
 			name:          "discovery-only",
@@ -95,16 +103,23 @@ func TestDiscoveryMigrationSurvivesDefaulting(t *testing.T) {
 			wantInterface: "eth2",
 			wantHostname:  "new",
 			wantEnabled:   true,
+			wantIPv4:      true,
+			wantIPv6:      true,
 		},
 		{
 			// Both spellings present: the explicit discovery: block wins in
 			// full, per TestExplicitDiscoveryBlockWinsOverLegacy — the legacy
-			// eth1 must not leak through even partially.
+			// eth1 must not leak through even partially, and legacy's
+			// enabled: true must not be what makes Enabled true here either;
+			// it's true because discovery.mdns's own (absent) enabled key
+			// defaults true, same as discovery-interface-only below.
 			name:          "both",
 			yaml:          secret + "mdns:\n  enabled: true\n  interface: eth1\n  hostname: old\n" + "discovery:\n  mdns:\n    interface: eth0\n",
 			wantInterface: "eth0",
 			wantHostname:  "",
-			wantEnabled:   false,
+			wantEnabled:   true,
+			wantIPv4:      true,
+			wantIPv6:      true,
 		},
 		{
 			name:          "neither",
@@ -112,16 +127,37 @@ func TestDiscoveryMigrationSurvivesDefaulting(t *testing.T) {
 			wantInterface: "eth0",
 			wantHostname:  "",
 			wantEnabled:   true,
+			wantIPv4:      true,
+			wantIPv6:      true,
 		},
 		{
-			// CRITICAL 2 from the review: a deliberately disabled legacy
+			// CRITICAL 2 from round 1: a deliberately disabled legacy
 			// responder must stay disabled after migration, not get flipped
-			// back on by the eth0/true/true/true defaults.
+			// back on by the eth0/true/true/true defaults. This is also the
+			// regression guard for the round-2 trap: a naive per-key
+			// backfill keyed only on discovery.mdns.enabled (ignoring which
+			// spelling authored the value) would see "enabled" as unset and
+			// revive it.
 			name:          "legacy-disabled",
 			yaml:          secret + "mdns:\n  enabled: false\n  interface: eth1\n",
 			wantInterface: "eth1",
 			wantHostname:  "",
 			wantEnabled:   false,
+			wantIPv4:      true,
+			wantIPv6:      true,
+		},
+		{
+			// Round-2 regression case: an operator opting into the new
+			// spelling with only an interface override, no legacy block at
+			// all, and no explicit "enabled" anywhere — must still get a
+			// running responder, not Go's bool zero value.
+			name:          "discovery-interface-only",
+			yaml:          secret + "discovery:\n  mdns:\n    interface: eth0\n",
+			wantInterface: "eth0",
+			wantHostname:  "",
+			wantEnabled:   true,
+			wantIPv4:      true,
+			wantIPv6:      true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -135,6 +171,12 @@ func TestDiscoveryMigrationSurvivesDefaulting(t *testing.T) {
 			}
 			if c.Discovery.MDNS.Enabled != tc.wantEnabled {
 				t.Errorf("Discovery.MDNS.Enabled = %v, want %v", c.Discovery.MDNS.Enabled, tc.wantEnabled)
+			}
+			if c.Discovery.MDNS.IPv4 != tc.wantIPv4 {
+				t.Errorf("Discovery.MDNS.IPv4 = %v, want %v", c.Discovery.MDNS.IPv4, tc.wantIPv4)
+			}
+			if c.Discovery.MDNS.IPv6 != tc.wantIPv6 {
+				t.Errorf("Discovery.MDNS.IPv6 = %v, want %v", c.Discovery.MDNS.IPv6, tc.wantIPv6)
 			}
 		})
 	}

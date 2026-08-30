@@ -413,12 +413,39 @@ func checkDefaultValue() {
 	// block as absent and immediately stomp it back to hardcoded defaults —
 	// silently reverting an operator's non-default interface/hostname and,
 	// worse, flipping a deliberate `enabled: false` back to true.
-	migrateDiscovery(&instance, viper.IsSet("discovery"))
+	discoveryKeySet := viper.IsSet("discovery")
+	migrateDiscovery(&instance, discoveryKeySet)
 	if !viper.IsSet("discovery.mdns") && !viper.IsSet("mdns") {
 		instance.Discovery.MDNS = defaultConfig.Discovery.MDNS
-	} else if instance.Discovery.MDNS.Interface == "" &&
-		!viper.IsSet("discovery.mdns.interface") && !viper.IsSet("mdns.interface") {
-		instance.Discovery.MDNS.Interface = defaultConfig.Discovery.MDNS.Interface
+	} else {
+		// Enabled/IPv4/IPv6 default true, so a zero value is ambiguous with
+		// an explicit false — the same problem the section-level check above
+		// exists to prevent, just one level deeper. legacySet consults the
+		// legacy mdns.<key> spelling only when there is no explicit
+		// discovery: block at all; once one exists it wins in full (per
+		// migrateDiscovery above), so a legacy value must not count as
+		// "already set" for any of its own keys. Skipping that distinction
+		// would reintroduce the CRITICAL-2 trap in the other direction: a
+		// bare `discovery: {mdns: {interface: eth0}}` would inherit whatever
+		// legacy's mdns.enabled happened to be (or Go's false zero value if
+		// there were no legacy block at all), silently leaving the responder
+		// off even though the operator wrote no "enabled" key anywhere.
+		legacySet := func(key string) bool {
+			return !discoveryKeySet && viper.IsSet("mdns."+key)
+		}
+		if !viper.IsSet("discovery.mdns.enabled") && !legacySet("enabled") {
+			instance.Discovery.MDNS.Enabled = defaultConfig.Discovery.MDNS.Enabled
+		}
+		if !viper.IsSet("discovery.mdns.ipv4") && !legacySet("ipv4") {
+			instance.Discovery.MDNS.IPv4 = defaultConfig.Discovery.MDNS.IPv4
+		}
+		if !viper.IsSet("discovery.mdns.ipv6") && !legacySet("ipv6") {
+			instance.Discovery.MDNS.IPv6 = defaultConfig.Discovery.MDNS.IPv6
+		}
+		if instance.Discovery.MDNS.Interface == "" &&
+			!viper.IsSet("discovery.mdns.interface") && !legacySet("interface") {
+			instance.Discovery.MDNS.Interface = defaultConfig.Discovery.MDNS.Interface
+		}
 	}
 	if !viper.IsSet("discovery.ssdp") {
 		instance.Discovery.SSDP = defaultConfig.Discovery.SSDP
