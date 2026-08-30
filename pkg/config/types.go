@@ -23,10 +23,14 @@ type Config struct {
 	Power      Power      `yaml:"power"`
 	Telemetry  Telemetry  `yaml:"telemetry"`
 	AutoUpdate AutoUpdate `yaml:"autoUpdate"`
-	MDNS       MDNS       `yaml:"mdns"`
-	Network    Network    `yaml:"network"`
-	TimeSync   TimeSync   `yaml:"timeSync"`
-	Hardware   Hardware   `yaml:"-"`
+	// MDNS is the pre-discovery top-level spelling, kept only as the landing
+	// spot viper unmarshals a legacy server.yaml's mdns: block into — see
+	// migrateDiscovery. Discovery.MDNS is what the mDNS/SSDP responders read.
+	MDNS      MDNS      `yaml:"mdns"`
+	Discovery Discovery `yaml:"discovery"`
+	Network   Network   `yaml:"network"`
+	TimeSync  TimeSync  `yaml:"timeSync"`
+	Hardware  Hardware  `yaml:"-"`
 
 	// Macros are the operator's keyboard macros (see macros.go). Stored with
 	// the config so every client and every session sees the same set.
@@ -122,6 +126,32 @@ type MDNS struct {
 	// Hostname overrides the advertised name. Empty = the OS hostname
 	// (/etc/hostname); the responder appends ".local".
 	Hostname string `yaml:"hostname"`
+}
+
+// Discovery groups the responders that make the BMC findable on the LAN
+// without an operator already knowing its address: mDNS (hostname
+// resolution) and SSDP (device-type/service announcement for Redfish
+// discovery tooling). It replaced the top-level mdns: block; see
+// migrateDiscovery in default.go for how an older config still works.
+type Discovery struct {
+	MDNS MDNS `yaml:"mdns"`
+	SSDP SSDP `yaml:"ssdp"`
+}
+
+// SSDP configures the UPnP/SSDP announce-and-respond service used by Redfish
+// discovery tooling (DSP0263) to find the BMC without an operator already
+// knowing its address.
+type SSDP struct {
+	// Enabled gates the whole subsystem. When false, nothing is announced and
+	// M-SEARCH requests go unanswered.
+	Enabled bool `yaml:"enabled"`
+	// Interface restricts announcements/responses to this interface. Empty
+	// inherits Discovery.MDNS.Interface, so the two responders are scoped
+	// together by default instead of one silently covering usb0.
+	Interface string `yaml:"interface"`
+	// MaxAge is the advertised cache-control lifetime in seconds. 0 means the
+	// default of 1800 (the UPnP-recommended minimum).
+	MaxAge int `yaml:"maxAge"`
 }
 
 // AutoUpdate configures the background updater that periodically checks for

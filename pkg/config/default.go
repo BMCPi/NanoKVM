@@ -129,6 +129,10 @@ var defaultConfig = &Config{
 		IPv6:      true,
 		Hostname:  "",
 	},
+	Discovery: Discovery{
+		MDNS: MDNS{Enabled: true, Interface: "eth0", IPv4: true, IPv6: true},
+		SSDP: SSDP{Enabled: true, MaxAge: 1800},
+	},
 	TimeSync: TimeSync{
 		Enabled:         true,
 		IntervalMinutes: 60,
@@ -398,6 +402,33 @@ func checkDefaultValue() {
 		instance.MDNS.Interface = defaultConfig.MDNS.Interface
 	}
 
+	// Discovery folds the legacy top-level mdns: block into discovery.mdns
+	// (see migrateDiscovery), then applies the same absent-section handling
+	// as mDNS above for discovery.mdns, plus SSDP's own defaults.
+	migrateDiscovery(&instance, viper.IsSet("discovery"))
+	if !viper.IsSet("discovery.mdns") {
+		instance.Discovery.MDNS = defaultConfig.Discovery.MDNS
+	} else if instance.Discovery.MDNS.Interface == "" && !viper.IsSet("discovery.mdns.interface") {
+		instance.Discovery.MDNS.Interface = defaultConfig.Discovery.MDNS.Interface
+	}
+	if !viper.IsSet("discovery.ssdp") {
+		instance.Discovery.SSDP = defaultConfig.Discovery.SSDP
+	} else {
+		if !viper.IsSet("discovery.ssdp.enabled") {
+			instance.Discovery.SSDP.Enabled = defaultConfig.Discovery.SSDP.Enabled
+		}
+		if instance.Discovery.SSDP.MaxAge == 0 {
+			instance.Discovery.SSDP.MaxAge = defaultConfig.Discovery.SSDP.MaxAge
+		}
+		// Empty SSDP interface inherits mDNS's rather than the default eth0
+		// directly, so an operator who only overrides discovery.mdns.interface
+		// gets both responders scoped to the same link without also having to
+		// repeat it under ssdp.
+		if instance.Discovery.SSDP.Interface == "" {
+			instance.Discovery.SSDP.Interface = instance.Discovery.MDNS.Interface
+		}
+	}
+
 	// TimeSync: same absent-section handling (Enabled defaults true). When
 	// present, clamp the interval so a zero/negative value can't spin the loop.
 	if !viper.IsSet("timesync") {
@@ -439,5 +470,18 @@ func checkDefaultValue() {
 	// Persist the generated secret key so tokens survive server restarts.
 	if needsPersist {
 		persistConfig()
+	}
+}
+
+// migrateDiscovery folds a pre-discovery top-level `mdns:` block into
+// discovery.mdns. Config files written before the SSDP responder existed use
+// the old spelling, and rewriting a user's file to move two keys is worse
+// than reading both. One-way: nothing is written back.
+func migrateDiscovery(c *Config, discoveryKeySet bool) {
+	if discoveryKeySet {
+		return
+	}
+	if c.MDNS != (MDNS{}) {
+		c.Discovery.MDNS = c.MDNS
 	}
 }
