@@ -14,6 +14,8 @@ github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
 github.com/beorn7/perks v1.0.1/go.mod h1:G2ZrVWU2WbWT9wwq4/hrbKbnv/1ERSJQ0ibhJ6rlkpw=
 github.com/bougou/go-ipmi v0.9.1-0.20260820080520-71349da4d0d9 h1:IYoqSN5XFKB7EhbiDaoUHctc80HwK+G3LYqvJwekvpQ=
 github.com/bougou/go-ipmi v0.9.1-0.20260820080520-71349da4d0d9/go.mod h1:09+IrJAgPdIwDEl2eBPQ/61e5Pl1m0WoBczP2oUwTN8=
+github.com/brutella/dnssd v1.2.14 h1:qLpTnRTm5peo2jA30hqMIbCuWn8x3sFg3e9o9ODOobw=
+github.com/brutella/dnssd v1.2.14/go.mod h1:tG4GE8orv6+irE5rdsNgb6MJSxm6cyMUKdC5jmD22gk=
 github.com/bytedance/gopkg v0.1.4 h1:oZnQwnX82KAIWb7033bEwtxvTqXcYMxDBaQxo5JJHWM=
 github.com/bytedance/gopkg v0.1.4/go.mod h1:v1zWfPm21Fb+OsyXN2VAHdL6TBb2L88anLQgdyje6R4=
 github.com/bytedance/sonic v1.15.0 h1:/PXeWFaR5ElNcVE84U0dOHjiMHQOwNIx3K4ymzh/uSE=
@@ -128,6 +130,8 @@ github.com/mdlayher/socket v0.4.1 h1:eM9y2/jlbs1M615oshPQOHZzj6R6wMT7bX5NPiQvn2U
 github.com/mdlayher/socket v0.4.1/go.mod h1:cAqeGjoufqdxWkD7DkpyS+wcefOtmu5OQ8KuoJGIReA=
 github.com/mervick/aes-everywhere/go/aes256 v0.0.0-20240803013625-6759956693c0 h1:IfWxTv9SQWw2Vw48Y2CZvVam1WeDBASWnlvNL8QwyQs=
 github.com/mervick/aes-everywhere/go/aes256 v0.0.0-20240803013625-6759956693c0/go.mod h1:Eb5RMoo9kOQra/2uRiUTGP+LfNuM13Vqm7y7P34+KKo=
+github.com/miekg/dns v1.1.61 h1:nLxbwF3XxhwVSm8g9Dghm9MHPaUZuqhPiGL+675ZmEs=
+github.com/miekg/dns v1.1.61/go.mod h1:mnAarhS3nWaW+NVP2wTkYVIZyHNJ098SJZUki3eykwQ=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd h1:TRLaZ9cD/w8PVh93nsPXa1VrQ6jlwL5oN8l14QlcNfg=
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=

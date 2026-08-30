@@ -7,6 +7,7 @@ require (
 	github.com/a-h/templ v0.3.1001
 	github.com/beevik/ntp v1.5.0
 	github.com/bougou/go-ipmi v0.9.1-0.20260820080520-71349da4d0d9
+	github.com/brutella/dnssd v1.2.14
 	github.com/diskfs/go-diskfs v1.9.2
 	github.com/gin-contrib/cors v1.7.7
 	github.com/gin-gonic/gin v1.12.0
@@ -92,6 +93,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/mdlayher/packet v1.1.2 // indirect
 	github.com/mdlayher/socket v0.4.1 // indirect
+	github.com/miekg/dns v1.1.61 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
