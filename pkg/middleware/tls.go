@@ -5,7 +5,9 @@ import (
 	"github.com/unrolled/secure"
 )
 
-func Tls() gin.HandlerFunc {
+// TLS returns a handler that redirects plain-HTTP requests to HTTPS and
+// aborts the chain on any redirect the secure middleware emits.
+func TLS() gin.HandlerFunc {
 	secureMiddleware := secure.New(secure.Options{
 		SSLRedirect: true,
 	})

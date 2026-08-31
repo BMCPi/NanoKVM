@@ -207,8 +207,8 @@ type Logger struct {
 }
 
 type Port struct {
-	Http  int `yaml:"http"`
-	Https int `yaml:"https"`
+	HTTP  int `yaml:"http"`
+	HTTPS int `yaml:"https"`
 }
 
 type Cert struct {

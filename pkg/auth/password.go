@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -39,7 +40,17 @@ func ChangePassword(username, plainPassword string) error {
 // still matches "admin".
 func IsPasswordUpdated() (bool, error) {
 	if _, err := os.Stat(accountFile); err != nil {
-		return false, nil
+		if errors.Is(err, os.ErrNotExist) {
+			// No account file at all: the device is still on the shipped
+			// default credential. This is the expected pre-setup state, not
+			// a failure, so it is reported as "not updated" with no error.
+			return false, nil
+		}
+		// Any other stat failure (permissions, I/O) says nothing about the
+		// password. Surface it rather than let an unreadable account file be
+		// indistinguishable from a device that was never configured — the
+		// same split GetAccount already makes.
+		return false, err
 	}
 
 	account, err := GetAccount()
@@ -66,7 +77,11 @@ func changeRootPassword(password string) error {
 }
 
 func passwd(password string) error {
-	cmd := exec.Command("passwd", "root")
+	// context.Background(): nothing above this call carries a context today
+	// (ChangePassword is exported without one), and passwd must not be
+	// cancelled halfway through rewriting /etc/shadow, so the conversion to
+	// CommandContext is mechanical and leaves the lifetime unchanged.
+	cmd := exec.CommandContext(context.Background(), "passwd", "root")
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -93,9 +108,5 @@ func passwd(password string) error {
 		return err
 	}
 
-	if err = cmd.Wait(); err != nil {
-		return err
-	}
-
-	return nil
+	return cmd.Wait()
 }

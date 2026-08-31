@@ -475,8 +475,8 @@ func accessModel() components.SettingsAccess {
 		SSHPasswordAuth: conf.SSH.PasswordAuth,
 
 		TLSEnabled: conf.Proto == "https",
-		HTTPPort:   strconv.Itoa(conf.Port.Http),
-		HTTPSPort:  strconv.Itoa(conf.Port.Https),
+		HTTPPort:   strconv.Itoa(conf.Port.HTTP),
+		HTTPSPort:  strconv.Itoa(conf.Port.HTTPS),
 
 		LoginMaxFailures:     strconv.Itoa(conf.Security.LoginMaxFailures),
 		LoginLockoutDuration: strconv.Itoa(conf.Security.LoginLockoutDuration),
@@ -526,8 +526,8 @@ func postSSHEnabled(c *gin.Context) {
 // leave the UI claiming a port nothing is listening on.
 func patchWebPorts(c *gin.Context) {
 	p := &config.GetInstance().Port
-	p.Http = atoiClamp(c.PostForm("httpPort"), p.Http, 1)
-	p.Https = atoiClamp(c.PostForm("httpsPort"), p.Https, 1)
+	p.HTTP = atoiClamp(c.PostForm("httpPort"), p.HTTP, 1)
+	p.HTTPS = atoiClamp(c.PostForm("httpsPort"), p.HTTPS, 1)
 
 	config.Save()
 

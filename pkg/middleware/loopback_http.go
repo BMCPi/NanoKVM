@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // NewPlainHTTPServer returns an unstarted server that owns the plain-HTTP
@@ -33,6 +34,11 @@ func NewPlainHTTPServer(httpPort, httpsPort, rhiCIDR string, hostHandler http.Ha
 
 	return &http.Server{
 		Addr: httpPort,
+		// Bound how long a client may dribble out its request headers, so an
+		// idle half-open connection cannot pin a server goroutine (Slowloris).
+		// Deliberately generous: the host firmware's DSP0270 client on the
+		// link-local net is slow, and this listener serves it directly.
+		ReadHeaderTimeout: 30 * time.Second,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			if hostHandler != nil && rhiNet != nil && remoteInSubnet(req.RemoteAddr, rhiNet) {
 				hostHandler.ServeHTTP(w, req)
@@ -49,6 +55,16 @@ func NewPlainHTTPServer(httpPort, httpsPort, rhiCIDR string, hostHandler http.Ha
 				targetURL = "https://" + host + httpsPort + req.URL.String()
 			}
 
+			// The only request-controlled part of targetURL is req.Host — the
+			// name the client itself used to reach this listener — plus the
+			// path it asked for. Nothing a third party can put in a link
+			// (query string, header a browser will forward cross-origin)
+			// reaches the authority, so this cannot be aimed at a victim: a
+			// caller can only redirect itself to the host it already typed.
+			// The host cannot be pinned to an allowlist either — the BMC is
+			// reached by DHCP address, mDNS name and whatever DNS name the
+			// operator assigned, none of them known here.
+			//nolint:gosec // G710: authority comes from the caller's own Host header, not from any third-party-supplied URL
 			http.Redirect(w, req, targetURL, http.StatusTemporaryRedirect)
 		}),
 	}

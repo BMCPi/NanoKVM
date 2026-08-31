@@ -253,8 +253,8 @@ func (r *Responder) startLocked() error {
 func (r *Responder) startMDNSLocked(cfg *config.Config, host string) error {
 	svcs := mdns.Services(mdns.Inputs{
 		Proto:          cfg.Proto,
-		HTTPPort:       cfg.Port.Http,
-		HTTPSPort:      cfg.Port.Https,
+		HTTPPort:       cfg.Port.HTTP,
+		HTTPSPort:      cfg.Port.HTTPS,
 		RedfishEnabled: cfg.Redfish.Enabled,
 		SSHEnabled:     cfg.SSH.Enabled,
 		SSHPort:        cfg.SSH.Port,
@@ -310,9 +310,9 @@ func (r *Responder) startSSDPLocked(cfg *config.Config) error {
 // port is still omitted, matching how a browser or curl treats a bare
 // https:// URL, rather than needlessly spelling out ":443".
 func ssdpHostPort(cfg *config.Config, addr string) string {
-	port, schemeDefault := cfg.Port.Https, 443
+	port, schemeDefault := cfg.Port.HTTPS, 443
 	if cfg.Proto != "https" {
-		port, schemeDefault = cfg.Port.Http, 80
+		port, schemeDefault = cfg.Port.HTTP, 80
 	}
 	if port == 0 || port == schemeDefault {
 		return addr

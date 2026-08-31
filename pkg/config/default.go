@@ -7,6 +7,10 @@ import (
 	"github.com/spf13/viper"
 )
 
+// defaultInterface is the board's LAN-side kernel interface. Both the mDNS
+// responder's scope and the managed eth0 block default to it.
+const defaultInterface = "eth0"
+
 var defaultConfig = &Config{
 	// HTTPS by default, the way every other BMC ships. Redfish inventory
 	// tooling assumes it: OpenCHAMI's magellan scans https://host:443 and,
@@ -19,8 +23,8 @@ var defaultConfig = &Config{
 	// and the :80 listener stays up as a redirect for browsers.
 	Proto: "https",
 	Port: Port{
-		Http:  80,
-		Https: 443,
+		HTTP:  80,
+		HTTPS: 443,
 	},
 	Cert: Cert{
 		// Under /etc/kvm, which is bind-mounted from the persistent data
@@ -126,7 +130,7 @@ var defaultConfig = &Config{
 	// defaulting it would write the very key migrateDiscovery exists to
 	// remove — and would make a default-config boot look like an upgrade.
 	Discovery: Discovery{
-		MDNS: MDNS{Enabled: true, Interface: "eth0", IPv4: true, IPv6: true},
+		MDNS: MDNS{Enabled: true, Interface: defaultInterface, IPv4: true, IPv6: true},
 		SSDP: SSDP{Enabled: true, MaxAge: 1800},
 	},
 	TimeSync: TimeSync{
@@ -136,7 +140,7 @@ var defaultConfig = &Config{
 	Network: Network{
 		Enabled: true,
 		Eth0: InterfaceConfig{
-			Name: "eth0",
+			Name: defaultInterface,
 			Mode: "dhcp",
 		},
 		RHI: RHIConfig{
@@ -167,23 +171,73 @@ var defaultConfig = &Config{
 	},
 }
 
+// checkDefaultValue backfills every field the config file left unset, then
+// persists the file once if anything was generated or migrated.
+//
+// The per-section helpers below are a mechanical split of what used to be one
+// function; their call order is load-bearing and must not be rearranged. Two
+// dependencies in particular: migrateLegacyDataPaths rewrites the firmware and
+// SSH paths that applyFirmwareDefaults/applySSHDefaults have just backfilled,
+// and applyDiscoveryDefaults derives the SSDP interface from the mDNS one it
+// resolves earlier in the same helper.
 func checkDefaultValue() {
-	needsPersist := false
+	needsPersist := applyJWTDefaults()
+
+	applyCoreDefaults()
+	applySerialDefaults()
+	applyConsoleDefaults()
+	applySSHDefaults()
+	applyFirmwareDefaults()
+
+	if migrateLegacyDataPaths() {
+		needsPersist = true
+	}
+
+	applyUsbGadgetDefaults()
+	applyTelemetryDefaults()
+	applyAutoUpdateDefaults()
+
+	if applyDiscoveryDefaults() {
+		needsPersist = true
+	}
+
+	applyTimeSyncDefaults()
+	applyNetworkDefaults()
+
+	instance.Hardware = getHardware()
+
+	// Persist generated values (the JWT secret) and the discovery migration
+	// so neither has to be redone on the next boot.
+	if needsPersist {
+		persistConfig()
+	}
+}
+
+// applyJWTDefaults seeds the signing secret and token lifetime. It reports
+// whether it generated a secret, which the caller must persist.
+func applyJWTDefaults() bool {
+	generated := false
 
 	if instance.JWT.SecretKey == "" {
 		instance.JWT.SecretKey = generateRandomSecretKey()
 		instance.JWT.RevokeTokensOnLogout = true
-		needsPersist = true
+		generated = true
 	}
 
 	if instance.JWT.RefreshTokenDuration == 0 {
 		instance.JWT.RefreshTokenDuration = 2678400
 	}
 
-	// Stun is deliberately not defaulted here: empty means "LAN only", which
-	// is the right answer for a management controller, and filling it in
-	// would make an unset key indistinguishable from an opt-in.
+	return generated
+}
 
+// applyCoreDefaults backfills the top-level service settings: authentication
+// mode, protocol, certificate paths and the log destination.
+//
+// Stun is deliberately not defaulted here: empty means "LAN only", which
+// is the right answer for a management controller, and filling it in
+// would make an unset key indistinguishable from an opt-in.
+func applyCoreDefaults() {
 	if instance.Authentication == "" {
 		instance.Authentication = "enable"
 	}
@@ -215,8 +269,10 @@ func checkDefaultValue() {
 	if instance.Logger.File == "" || instance.Logger.File == "stdout" {
 		instance.Logger.File = defaultConfig.Logger.File
 	}
+}
 
-	// Apply serial defaults when not present in the config file.
+// applySerialDefaults applies serial defaults when not present in the config file.
+func applySerialDefaults() {
 	if instance.Serial.Device == "" {
 		instance.Serial.Device = defaultConfig.Serial.Device
 	}
@@ -245,44 +301,52 @@ func checkDefaultValue() {
 	if instance.Serial.Capture.MaxSizeKB <= 0 {
 		instance.Serial.Capture.MaxSizeKB = defaultConfig.Serial.Capture.MaxSizeKB
 	}
+}
 
-	// Console view. Normalised to one of the two sentinels rather than merely
-	// defaulted, so a stale or mistyped value in server.yaml lands on serial
-	// instead of being written back out and persisting forever.
+// applyConsoleDefaults normalises the console view. Normalised to one of the
+// two sentinels rather than merely defaulted, so a stale or mistyped value in
+// server.yaml lands on serial instead of being written back out and persisting
+// forever.
+func applyConsoleDefaults() {
 	if instance.Console.PrimaryView != PrimaryViewHDMI {
 		instance.Console.PrimaryView = PrimaryViewSerial
 	}
+}
 
-	// Apply SSH defaults. Enabled and passwordAuth are default-true, so they
-	// go through viper.IsSet — a plain zero-value check cannot tell an
-	// operator's explicit false from an absent key. A config written before
-	// the in-process SSH server existed has no ssh section at all; seeding it
-	// keeps upgraded devices reachable over SSH exactly as they were when
-	// openssh was still in the image.
+// applySSHDefaults applies SSH defaults. Enabled and passwordAuth are
+// default-true, so they go through viper.IsSet — a plain zero-value check
+// cannot tell an operator's explicit false from an absent key. A config
+// written before the in-process SSH server existed has no ssh section at all;
+// seeding it keeps upgraded devices reachable over SSH exactly as they were
+// when openssh was still in the image.
+func applySSHDefaults() {
 	if !viper.IsSet("ssh") {
 		instance.SSH = defaultConfig.SSH
-	} else {
-		if !viper.IsSet("ssh.enabled") {
-			instance.SSH.Enabled = defaultConfig.SSH.Enabled
-		}
-		if !viper.IsSet("ssh.passwordAuth") {
-			instance.SSH.PasswordAuth = defaultConfig.SSH.PasswordAuth
-		}
-		if instance.SSH.Port == 0 {
-			instance.SSH.Port = defaultConfig.SSH.Port
-		}
-		if instance.SSH.HostKeyPath == "" {
-			instance.SSH.HostKeyPath = defaultConfig.SSH.HostKeyPath
-		}
-		if instance.SSH.AuthorizedKeysPath == "" {
-			instance.SSH.AuthorizedKeysPath = defaultConfig.SSH.AuthorizedKeysPath
-		}
+		return
 	}
 
-	// Apply firmware defaults when not present in the config file. Configs
-	// written before the boot-image transport was retired carry imagePath,
-	// firmwareDir, mountPoint and the env-file keys; they no longer bind to
-	// any field and are dropped on the next Save().
+	if !viper.IsSet("ssh.enabled") {
+		instance.SSH.Enabled = defaultConfig.SSH.Enabled
+	}
+	if !viper.IsSet("ssh.passwordAuth") {
+		instance.SSH.PasswordAuth = defaultConfig.SSH.PasswordAuth
+	}
+	if instance.SSH.Port == 0 {
+		instance.SSH.Port = defaultConfig.SSH.Port
+	}
+	if instance.SSH.HostKeyPath == "" {
+		instance.SSH.HostKeyPath = defaultConfig.SSH.HostKeyPath
+	}
+	if instance.SSH.AuthorizedKeysPath == "" {
+		instance.SSH.AuthorizedKeysPath = defaultConfig.SSH.AuthorizedKeysPath
+	}
+}
+
+// applyFirmwareDefaults applies firmware defaults when not present in the
+// config file. Configs written before the boot-image transport was retired
+// carry imagePath, firmwareDir, mountPoint and the env-file keys; they no
+// longer bind to any field and are dropped on the next Save().
+func applyFirmwareDefaults() {
 	if instance.Firmware.CapsulePath == "" {
 		instance.Firmware.CapsulePath = defaultConfig.Firmware.CapsulePath
 	}
@@ -292,13 +356,19 @@ func checkDefaultValue() {
 	if instance.Firmware.MediaDir == "" {
 		instance.Firmware.MediaDir = defaultConfig.Firmware.MediaDir
 	}
+}
 
-	// Migrate pre-squashfs-layout paths. The /data partition no longer exists
-	// — every persistent path lives under /var/lib/nanokvm (the data
-	// partition the initramfs mounts) — so a config carried over from an old
-	// image or a restored backup would otherwise point the capsule volume,
-	// media dir and EEPROM snapshots at a dead mount. Rewritten in place and
-	// persisted so the migration runs once.
+// migrateLegacyDataPaths rewrites pre-squashfs-layout paths. The /data
+// partition no longer exists — every persistent path lives under
+// /var/lib/nanokvm (the data partition the initramfs mounts) — so a config
+// carried over from an old image or a restored backup would otherwise point
+// the capsule volume, media dir and EEPROM snapshots at a dead mount.
+// Rewritten in place and reported to the caller so the migration is persisted
+// and runs once.
+//
+// This must run after applyFirmwareDefaults and applySSHDefaults: it rewrites
+// the very fields they backfill.
+func migrateLegacyDataPaths() bool {
 	migratedDataPath := false
 	for _, p := range []*string{
 		&instance.Firmware.CapsulePath,
@@ -313,15 +383,18 @@ func checkDefaultValue() {
 	}
 	if migratedDataPath {
 		log.Println("config: migrated legacy /data paths to /var/lib/nanokvm")
-		needsPersist = true
 	}
 
-	// Apply USB gadget identity/path defaults when not present in the config
-	// file. The gadget config is now the sole source of truth for which USB
-	// functions are exposed (it replaced the /boot flags and the runtime state
-	// file), so the default-true toggles are seeded here, gated on viper.IsSet
-	// so an explicit false is distinguishable from an unset key — a plain
-	// zero-value check cannot tell them apart.
+	return migratedDataPath
+}
+
+// applyUsbGadgetDefaults applies USB gadget identity/path defaults when not
+// present in the config file. The gadget config is now the sole source of
+// truth for which USB functions are exposed (it replaced the /boot flags and
+// the runtime state file), so the default-true toggles are seeded here, gated
+// on viper.IsSet so an explicit false is distinguishable from an unset key — a
+// plain zero-value check cannot tell them apart.
+func applyUsbGadgetDefaults() {
 	if instance.UsbGadget.VendorID == "" {
 		instance.UsbGadget.VendorID = defaultConfig.UsbGadget.VendorID
 	}
@@ -354,7 +427,6 @@ func checkDefaultValue() {
 	// absent, so an operator's explicit false is preserved. Ethernet is a
 	// two-valued string ("off"/"ncm"); anything else (empty, invalid, or the
 	// retired "ecm") falls back to the default.
-	// falls back to the default.
 	if !viper.IsSet("usbgadget.enabled") {
 		instance.UsbGadget.Enabled = defaultConfig.UsbGadget.Enabled
 	}
@@ -376,56 +448,60 @@ func checkDefaultValue() {
 	default:
 		instance.UsbGadget.Ethernet = defaultConfig.UsbGadget.Ethernet
 	}
+}
 
+// applyTelemetryDefaults backfills the service name and Prometheus scrape path.
+func applyTelemetryDefaults() {
 	if instance.Telemetry.ServiceName == "" {
 		instance.Telemetry.ServiceName = defaultConfig.Telemetry.ServiceName
 	}
 	if instance.Telemetry.Prometheus.Path == "" {
 		instance.Telemetry.Prometheus.Path = defaultConfig.Telemetry.Prometheus.Path
 	}
+}
 
+// applyAutoUpdateDefaults clamps the poll interval so a zero/negative value
+// can't spin the loop.
+func applyAutoUpdateDefaults() {
 	if instance.AutoUpdate.IntervalMinutes <= 0 {
 		instance.AutoUpdate.IntervalMinutes = defaultConfig.AutoUpdate.IntervalMinutes
 	}
+}
 
-	// Discovery folds the legacy top-level mdns: block into discovery.mdns
-	// (see migrateDiscovery) before any defaulting happens, then applies the
-	// absent-section handling below to discovery.mdns, plus SSDP's own
-	// defaults. Only discovery.mdns gets defaulted: the legacy block is
-	// migration input, and defaults for a key that is about to be deleted
-	// would just be written back out as a resurrected mdns: block.
-	//
-	// The absent-section check below must also test viper.IsSet("mdns"):
-	// a legacy-only file has no discovery.mdns key either, so testing
-	// !viper.IsSet("discovery.mdns") alone would treat a just-migrated
-	// block as absent and immediately stomp it back to hardcoded defaults —
-	// silently reverting an operator's non-default interface/hostname and,
-	// worse, flipping a deliberate `enabled: false` back to true.
-	//
-	// discoveryMDNSSet asks "is discovery.mdns itself explicitly set?" — not
-	// "does a discovery: block exist at all?" Those are different questions:
-	// a board can carry a discovery: block for SSDP alone (e.g.
-	// `discovery: {ssdp: {enabled: true}}`) with no discovery.mdns, while
-	// still configuring mDNS the legacy way. Gating the fold on the parent
-	// key's presence (viper.IsSet("discovery")) instead of the child's used
-	// to treat that shape as "explicit discovery, ignore legacy" — skipping
-	// the fold below in migrateDiscovery — and then delete the legacy block
-	// anyway, force-enabling mDNS on hardcoded defaults and erasing the
-	// operator's interface/hostname/disabled choice with no way back.
+// applyDiscoveryDefaults folds the legacy top-level mdns: block into
+// discovery.mdns (see migrateDiscovery) before any defaulting happens, then
+// applies the absent-section handling below to discovery.mdns, plus SSDP's own
+// defaults. Only discovery.mdns gets defaulted: the legacy block is
+// migration input, and defaults for a key that is about to be deleted
+// would just be written back out as a resurrected mdns: block.
+//
+// It reports whether the file carried the legacy spelling, which the caller
+// must persist.
+//
+// The absent-section check below must also test viper.IsSet("mdns"):
+// a legacy-only file has no discovery.mdns key either, so testing
+// !viper.IsSet("discovery.mdns") alone would treat a just-migrated
+// block as absent and immediately stomp it back to hardcoded defaults —
+// silently reverting an operator's non-default interface/hostname and,
+// worse, flipping a deliberate `enabled: false` back to true.
+//
+// discoveryMDNSSet asks "is discovery.mdns itself explicitly set?" — not
+// "does a discovery: block exist at all?" Those are different questions:
+// a board can carry a discovery: block for SSDP alone (e.g.
+// `discovery: {ssdp: {enabled: true}}`) with no discovery.mdns, while
+// still configuring mDNS the legacy way. Gating the fold on the parent
+// key's presence (viper.IsSet("discovery")) instead of the child's used
+// to treat that shape as "explicit discovery, ignore legacy" — skipping
+// the fold below in migrateDiscovery — and then delete the legacy block
+// anyway, force-enabling mDNS on hardcoded defaults and erasing the
+// operator's interface/hostname/disabled choice with no way back.
+func applyDiscoveryDefaults() bool {
 	discoveryMDNSSet := viper.IsSet("discovery.mdns")
 	// legacyKeySet reads the parsed file, not the struct, so it still
 	// answers "did this file use the old spelling?" after migrateDiscovery
 	// has cleared the field — as do the per-key legacySet lookups below.
 	legacyKeySet := viper.IsSet("mdns")
 	migrateDiscovery(&instance, discoveryMDNSSet)
-	if legacyKeySet {
-		// Rewrite the file once, on this first boot after upgrade, so the
-		// legacy key actually leaves disk. Migrating in memory only left
-		// both spellings in the file, and a file with a discovery.mdns key
-		// makes migrateDiscovery skip the legacy block on the next load —
-		// so the operator's values were read once and then lost.
-		needsPersist = true
-	}
 	if !discoveryMDNSSet && !legacyKeySet {
 		instance.Discovery.MDNS = defaultConfig.Discovery.MDNS
 	} else {
@@ -479,48 +555,53 @@ func checkDefaultValue() {
 		}
 	}
 
-	// TimeSync: same absent-section handling (Enabled defaults true). When
-	// present, clamp the interval so a zero/negative value can't spin the loop.
+	// Returning legacyKeySet asks the caller to rewrite the file once, on this
+	// first boot after upgrade, so the legacy key actually leaves disk.
+	// Migrating in memory only left both spellings in the file, and a file with
+	// a discovery.mdns key makes migrateDiscovery skip the legacy block on the
+	// next load — so the operator's values were read once and then lost.
+	return legacyKeySet
+}
+
+// applyTimeSyncDefaults uses the same absent-section handling as mDNS (Enabled
+// defaults true). When present, clamp the interval so a zero/negative value
+// can't spin the loop.
+func applyTimeSyncDefaults() {
 	if !viper.IsSet("timesync") {
 		instance.TimeSync = defaultConfig.TimeSync
 	} else if instance.TimeSync.IntervalMinutes <= 0 {
 		instance.TimeSync.IntervalMinutes = defaultConfig.TimeSync.IntervalMinutes
 	}
+}
 
-	// Network: same absent-section handling as mDNS (Enabled defaults true). When
-	// present, backfill the identity/mode fields so a partial section still has a
-	// usable interface name, mode and RHI address.
+// applyNetworkDefaults uses the same absent-section handling as mDNS (Enabled
+// defaults true). When present, backfill the identity/mode fields so a partial
+// section still has a usable interface name, mode and RHI address.
+func applyNetworkDefaults() {
 	if !viper.IsSet("network") {
 		instance.Network = defaultConfig.Network
-	} else {
-		if !viper.IsSet("network.enabled") {
-			instance.Network.Enabled = defaultConfig.Network.Enabled
-		}
-		if instance.Network.Eth0.Name == "" {
-			instance.Network.Eth0.Name = defaultConfig.Network.Eth0.Name
-		}
-		if instance.Network.Eth0.Mode == "" {
-			instance.Network.Eth0.Mode = defaultConfig.Network.Eth0.Mode
-		}
-		if instance.Network.RHI.Interface == "" {
-			instance.Network.RHI.Interface = defaultConfig.Network.RHI.Interface
-		}
-		if instance.Network.RHI.Address == "" {
-			instance.Network.RHI.Address = defaultConfig.Network.RHI.Address
-		}
-		// An explicit empty lease disables the RHI DHCP server; only backfill
-		// when the key is absent entirely.
-		if instance.Network.RHI.Lease == "" && !viper.IsSet("network.rhi.lease") {
-			instance.Network.RHI.Lease = defaultConfig.Network.RHI.Lease
-		}
+		return
 	}
 
-	instance.Hardware = getHardware()
-
-	// Persist generated values (the JWT secret) and the discovery migration
-	// so neither has to be redone on the next boot.
-	if needsPersist {
-		persistConfig()
+	if !viper.IsSet("network.enabled") {
+		instance.Network.Enabled = defaultConfig.Network.Enabled
+	}
+	if instance.Network.Eth0.Name == "" {
+		instance.Network.Eth0.Name = defaultConfig.Network.Eth0.Name
+	}
+	if instance.Network.Eth0.Mode == "" {
+		instance.Network.Eth0.Mode = defaultConfig.Network.Eth0.Mode
+	}
+	if instance.Network.RHI.Interface == "" {
+		instance.Network.RHI.Interface = defaultConfig.Network.RHI.Interface
+	}
+	if instance.Network.RHI.Address == "" {
+		instance.Network.RHI.Address = defaultConfig.Network.RHI.Address
+	}
+	// An explicit empty lease disables the RHI DHCP server; only backfill
+	// when the key is absent entirely.
+	if instance.Network.RHI.Lease == "" && !viper.IsSet("network.rhi.lease") {
+		instance.Network.RHI.Lease = defaultConfig.Network.RHI.Lease
 	}
 }
 

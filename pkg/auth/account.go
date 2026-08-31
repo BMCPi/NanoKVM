@@ -42,7 +42,11 @@ func GetAccount() (*Account, error) {
 }
 
 func SetAccount(username string, hashedPassword string) error {
-	account, err := json.Marshal(&Account{
+	// G117 flags "password" as a secret being serialized. The value written is
+	// a bcrypt digest, never a plaintext credential, and the JSON key is the
+	// on-disk shape of /etc/kvm/pwd that every already-deployed device carries
+	// — renaming it would make existing accounts unreadable.
+	account, err := json.Marshal(&Account{ //nolint:gosec // G117: the marshaled value is a bcrypt digest and "password" is the established on-disk key
 		Username: username,
 		Password: hashedPassword,
 	})
@@ -57,7 +61,10 @@ func SetAccount(username string, hashedPassword string) error {
 		return err
 	}
 
-	err = os.WriteFile(accountFile, account, 0o644)
+	// 0600: only this process (running as root) ever reads the credential
+	// store, so there is nothing to gain from making the account hash
+	// world-readable.
+	err = os.WriteFile(accountFile, account, 0o600)
 	if err != nil {
 		log.Errorf("write password failed: %s", err)
 		return err
@@ -88,11 +95,8 @@ func CompareAccount(username string, plainPassword string) bool {
 	if err != nil {
 		// Compatible with old versions
 		accountHashedPassword, _ := utils.DecodeDecrypt(account.Password)
-		if accountHashedPassword == hashedPassword {
-			return true
-		}
 
-		return false
+		return accountHashedPassword == hashedPassword
 	}
 
 	return true

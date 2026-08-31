@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"math"
 	"net/http"
 	"time"
 
@@ -158,7 +159,18 @@ func ClearAuthCookie(c *gin.Context) {
 func GenerateJWT(username string) (string, error) {
 	conf := config.GetInstance()
 
-	expireDuration := time.Duration(conf.JWT.RefreshTokenDuration) * time.Second
+	// refreshTokenDuration is an operator-supplied count of seconds. Clamp it to
+	// the largest span time.Duration can hold so an absurd value in server.yaml
+	// yields a far-future expiry rather than wrapping negative — which would
+	// mint tokens that are already expired.
+	const maxExpireSeconds = uint64(math.MaxInt64) / uint64(time.Second)
+
+	seconds := conf.JWT.RefreshTokenDuration
+	if seconds > maxExpireSeconds {
+		seconds = maxExpireSeconds
+	}
+
+	expireDuration := time.Duration(seconds) * time.Second
 
 	claims := Token{
 		Username: username,
@@ -175,7 +187,7 @@ func GenerateJWT(username string) (string, error) {
 func ParseJWT(jwtToken string) (*Token, error) {
 	conf := config.GetInstance()
 
-	t, err := jwt.ParseWithClaims(jwtToken, &Token{}, func(token *jwt.Token) (any, error) {
+	t, err := jwt.ParseWithClaims(jwtToken, &Token{}, func(_ *jwt.Token) (any, error) {
 		return []byte(conf.JWT.SecretKey), nil
 	})
 	if err != nil {
@@ -185,7 +197,9 @@ func ParseJWT(jwtToken string) (*Token, error) {
 
 	if claims, ok := t.Claims.(*Token); ok && t.Valid {
 		return claims, nil
-	} else {
-		return nil, err
 	}
+
+	// err is the (nil) parse error; preserved verbatim from the previous
+	// else-branch so this path keeps returning exactly what it always has.
+	return nil, err
 }

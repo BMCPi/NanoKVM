@@ -19,7 +19,11 @@ func Read() (*Config, error) {
 	var conf Config
 
 	if err := yaml.Unmarshal(data, &conf); err != nil {
-		log.Fatalf("failed to unmarshal config: %v", err)
+		// Was log.Fatalf, which killed the process and left the `return`
+		// below unreachable. Read is a library call reached from HTTP
+		// handlers (api/vm/tls.go) that already inspect its error, so a
+		// malformed server.yaml must fail that request, not the daemon.
+		log.Errorf("failed to unmarshal config: %v", err)
 		return nil, err
 	}
 
@@ -34,7 +38,10 @@ func Write(conf *Config) error {
 		return err
 	}
 
-	err = os.WriteFile(ConfigurationFile, data, 0o644)
+	// 0600, matching create() and persistConfig() in config.go: server.yaml
+	// holds the JWT secret and the IPMI credentials, and only this process
+	// (running as root) reads it.
+	err = os.WriteFile(ConfigurationFile, data, 0o600)
 	if err != nil {
 		log.Errorf("failed to write config: %v", err)
 		return err

@@ -299,8 +299,8 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 	ui.Register(r, d)
 	api.Register(r, d)
 
-	httpAddr := fmt.Sprintf(":%d", conf.Port.Http)
-	httpsAddr := fmt.Sprintf(":%d", conf.Port.Https)
+	httpAddr := fmt.Sprintf(":%d", conf.Port.HTTP)
+	httpsAddr := fmt.Sprintf(":%d", conf.Port.HTTPS)
 
 	// BaseContext hands the root ctx to every accepted connection, so request
 	// contexts (and therefore gin contexts) are cancelled when shutdown starts.

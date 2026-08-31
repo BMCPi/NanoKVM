@@ -113,11 +113,11 @@ func TestSSDPHostPortOmitsOnlyTheSchemeDefault(t *testing.T) {
 		cfg  config.Config
 		want string
 	}{
-		{"https on the shipped non-default port", config.Config{Proto: "https", Port: config.Port{Https: 8443}}, "10.42.0.19:8443"},
-		{"https on the scheme default is bare", config.Config{Proto: "https", Port: config.Port{Https: 443}}, "10.42.0.19"},
-		{"http on a non-default port", config.Config{Proto: "http", Port: config.Port{Http: 8080}}, "10.42.0.19:8080"},
-		{"http on the scheme default is bare", config.Config{Proto: "http", Port: config.Port{Http: 80}}, "10.42.0.19"},
-		{"zero port is treated as unset, stays bare", config.Config{Proto: "https", Port: config.Port{Https: 0}}, "10.42.0.19"},
+		{"https on the shipped non-default port", config.Config{Proto: "https", Port: config.Port{HTTPS: 8443}}, "10.42.0.19:8443"},
+		{"https on the scheme default is bare", config.Config{Proto: "https", Port: config.Port{HTTPS: 443}}, "10.42.0.19"},
+		{"http on a non-default port", config.Config{Proto: "http", Port: config.Port{HTTP: 8080}}, "10.42.0.19:8080"},
+		{"http on the scheme default is bare", config.Config{Proto: "http", Port: config.Port{HTTP: 80}}, "10.42.0.19"},
+		{"zero port is treated as unset, stays bare", config.Config{Proto: "https", Port: config.Port{HTTPS: 0}}, "10.42.0.19"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

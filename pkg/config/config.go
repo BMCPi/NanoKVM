@@ -29,6 +29,16 @@ func GetInstance() *Config {
 	return &instance
 }
 
+// initialize loads the process-wide configuration. It runs exactly once, under
+// the sync.Once in GetInstance, before any subsystem starts.
+//
+// The log.Fatalf calls below are deliberate and cannot be turned into returned
+// errors: GetInstance's signature (*Config, no error) is what the whole tree
+// calls, and every one of these failures means the process has no configuration
+// at all — not even the compiled-in defaults could be read or parsed. There is
+// no caller that could recover, and continuing would hand every subsystem a
+// zero-valued Config: authentication "" (not "enable"), no ports, no cert
+// paths. Failing to boot is the correct and safest outcome.
 func initialize() {
 	if err := readByFile(); err != nil {
 		if errors.As(err, &viper.ConfigFileNotFoundError{}) {
@@ -36,6 +46,7 @@ func initialize() {
 		}
 
 		if err = readByDefault(); err != nil {
+			//nolint:revive // deep-exit: the compiled-in defaults are unreadable, so the process has no configuration at all and no caller of GetInstance can recover
 			log.Fatalf("Failed to read default configuration!")
 		}
 
@@ -43,10 +54,12 @@ func initialize() {
 	}
 
 	if err := validate(); err != nil {
+		//nolint:revive // deep-exit: validate() already rewrote and re-read the file; a failure here leaves no usable configuration for any caller of GetInstance
 		log.Fatalf("Failed to validate configuration!")
 	}
 
 	if err := viper.Unmarshal(&instance); err != nil {
+		//nolint:revive // deep-exit: configuration is a process precondition; an unparseable config would leave every subsystem with a zero-valued Config
 		log.Fatalf("Failed to parse configuration: %s", err)
 	}
 
