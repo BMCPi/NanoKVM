@@ -264,7 +264,7 @@ func (c *Controller) DeleteMediaFile(name string) error {
 // it directly from mediaDir, so no space in the firmware FAT is consumed.
 // The file persists across ejects; it belongs to the staging library.
 func (c *Controller) InsertVirtualMedia(name string) error {
-	return c.insertVirtualMedia(name, false)
+	return c.insertStagedMedia(name, false)
 }
 
 // InsertVirtualMediaEphemeral inserts name like InsertVirtualMedia but marks
@@ -272,10 +272,13 @@ func (c *Controller) InsertVirtualMedia(name string) error {
 // This is the Redfish lifecycle — that API has no library view and no delete
 // verb, so for its clients an eject is the last reference to the image.
 func (c *Controller) InsertVirtualMediaEphemeral(name string) error {
-	return c.insertVirtualMedia(name, true)
+	return c.insertStagedMedia(name, true)
 }
 
-func (c *Controller) insertVirtualMedia(name string, ephemeral bool) error {
+// insertStagedMedia is the body shared by InsertVirtualMedia and
+// InsertVirtualMediaEphemeral; ephemeral selects which lifetime contract the
+// staged file gets.
+func (c *Controller) insertStagedMedia(name string, ephemeral bool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -298,7 +301,10 @@ func (c *Controller) insertVirtualMedia(name string, ephemeral bool) error {
 
 	marker := c.ephemeralMarkerPath(name)
 	if ephemeral {
-		if err := os.WriteFile(marker, nil, 0o644); err != nil {
+		// 0600: a zero-byte sidecar only this process ever stats, globs or
+		// removes. The gadget is handed the ISO, never the marker, so no
+		// other reader loses access to anything by narrowing the mode.
+		if err := os.WriteFile(marker, nil, 0o600); err != nil {
 			// Degrade to persistence rather than promising a deletion the
 			// next process (or the sweep) would know nothing about.
 			log.Warnf("firmware: cannot mark %q ephemeral: %v (file will persist after eject)", name, err)

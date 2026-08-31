@@ -58,7 +58,7 @@ func MoveFileCrossFS(src, dst string) error {
 }
 
 func MoveFilesRecursively(src, dst string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+	return filepath.Walk(src, func(path string, _ os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -71,6 +71,14 @@ func MoveFilesRecursively(src, dst string) error {
 		}
 
 		if fileInfo.IsDir() {
+			// G122 flags this for sitting in a Walk callback, but the path it
+			// creates is not the walked one: dstName is the caller's dst with
+			// a suffix Walk produced from underneath src, so it cannot escape
+			// dst, and dst is always a fixed BMC-owned install directory
+			// (/var/lib/nanokvm/app or app.prev). The walked tree itself is
+			// written by this process alone — see ChmodRecursively for the
+			// same trust argument in full.
+			//nolint:gosec // G122: dstName is rooted at the caller's dst, not at the walked path
 			return os.MkdirAll(dstName, fileInfo.Mode())
 		}
 		return MoveFile(path, dstName)

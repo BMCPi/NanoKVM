@@ -61,6 +61,15 @@ var (
 // small fraction of total RAM.
 const xzMaxDictCap = 64 << 20 // 64 MiB
 
+// Format identifiers returned by DecompressingReader and used as the keys of
+// compressionSuffixes. They are the strings callers see, so they are named
+// here once rather than repeated at every return and map key.
+const (
+	formatGzip = "gzip"
+	formatXz   = "xz"
+	formatZstd = "zstd"
+)
+
 // ErrDecompressedTooLarge is returned once a decompressed stream exceeds the
 // cap passed to LimitDecompressedReader.
 var ErrDecompressedTooLarge = errors.New("decompressed content exceeds maximum allowed size")
@@ -90,7 +99,7 @@ func DecompressingReader(r io.Reader) (rc io.ReadCloser, format string, err erro
 		if err != nil {
 			return nil, "", fmt.Errorf("gzip header: %w", err)
 		}
-		return zr, "gzip", nil
+		return zr, formatGzip, nil
 
 	case bytes.HasPrefix(head, xzMagic):
 		// xz.ReaderConfig.DictCap below is not an upper bound in this
@@ -113,7 +122,7 @@ func DecompressingReader(r io.Reader) (rc io.ReadCloser, format string, err erro
 		if err != nil {
 			return nil, "", fmt.Errorf("xz header: %w", err)
 		}
-		return io.NopCloser(zr), "xz", nil
+		return io.NopCloser(zr), formatXz, nil
 
 	case bytes.HasPrefix(head, zstdMagic):
 		// WithDecoderConcurrency(1): the default spawns GOMAXPROCS worker
@@ -123,7 +132,7 @@ func DecompressingReader(r io.Reader) (rc io.ReadCloser, format string, err erro
 		if err != nil {
 			return nil, "", fmt.Errorf("zstd header: %w", err)
 		}
-		return zr.IOReadCloser(), "zstd", nil
+		return zr.IOReadCloser(), formatZstd, nil
 
 	default:
 		return io.NopCloser(br), "", nil
@@ -151,9 +160,9 @@ func LimitDecompressedReader(r io.Reader, maxBytes int64) io.Reader {
 // suffixes it should strip. Checked longest-appropriate-first is unnecessary
 // here since a name only ever carries one of a format's suffixes.
 var compressionSuffixes = map[string][]string{
-	"gzip": {".gz", ".gzip"},
-	"xz":   {".xz"},
-	"zstd": {".zst", ".zstd"},
+	formatGzip: {".gz", ".gzip"},
+	formatXz:   {".xz"},
+	formatZstd: {".zst", ".zstd"},
 }
 
 // StripCompressionSuffix removes the filename extension implied by format

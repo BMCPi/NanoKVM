@@ -26,6 +26,15 @@ func Download(req *http.Request, target string) error {
 		_ = out.Close()
 	}()
 
+	// G704 reads the request's URL as tainted because it is a parameter rather
+	// than a literal. Choosing the URL is this helper's contract: Download
+	// takes an already-built request precisely so the caller decides what to
+	// fetch. The only caller is pkg/application's updater, which builds the
+	// request from the asset URL returned by this project's own GitHub release
+	// API (a hardcoded api.github.com endpoint) — no request-supplied or
+	// operator-supplied value reaches it, so there is nothing here for an
+	// allowlist to filter that the caller has not already fixed.
+	//nolint:gosec // G704: URL is the caller's by contract; the sole caller uses GitHub release metadata
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
 		log.Errorf("request error: %s", err)

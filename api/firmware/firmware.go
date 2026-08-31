@@ -41,6 +41,9 @@ const maxMediaUploadBytes = 8 << 30 // 8 GiB
 // "a capsule is being staged" latch until the next reboot.
 const capsuleStageTimeout = 30 * time.Minute
 
+// errorKey is the JSON field every failure response in this file uses.
+const errorKey = "error"
+
 // Register mounts the firmware routes on the shared authenticated group.
 func Register(api *gin.RouterGroup, d *deps.Deps) {
 	ctrl := d.Firmware
@@ -63,7 +66,7 @@ func registerCapsules(fw *gin.RouterGroup, d *deps.Deps, ctrl *firmware.Controll
 	fw.GET("/capsules", func(c *gin.Context) {
 		capsules, err := ctrl.ListCapsules()
 		if err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"capsules": capsules})
@@ -73,7 +76,7 @@ func registerCapsules(fw *gin.RouterGroup, d *deps.Deps, ctrl *firmware.Controll
 	// field "file" or a raw binary body with ?name=<filename>.
 	fw.POST("/capsules", func(c *gin.Context) {
 		if ctrl.IsStaging() {
-			c.JSON(http.StatusConflict, gin.H{"error": "a capsule is already being staged"})
+			c.JSON(http.StatusConflict, gin.H{errorKey: "a capsule is already being staged"})
 			return
 		}
 
@@ -87,7 +90,7 @@ func registerCapsules(fw *gin.RouterGroup, d *deps.Deps, ctrl *firmware.Controll
 			// pkg/utils/multipart_stream.go.
 			upload, err := utils.StreamMultipartFile(c.Request, maxCapsuleUploadBytes, "file")
 			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "multipart field 'file' required"})
+				c.JSON(http.StatusBadRequest, gin.H{errorKey: "multipart field 'file' required"})
 				return
 			}
 			defer upload.Close()
@@ -98,13 +101,13 @@ func registerCapsules(fw *gin.RouterGroup, d *deps.Deps, ctrl *firmware.Controll
 			name = filepath.Base(c.Query("name"))
 		}
 		if name == "" || name == "." || name == "/" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "capsule filename required (multipart filename or ?name=)"})
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: "capsule filename required (multipart filename or ?name=)"})
 			return
 		}
 
 		written, err := ctrl.StageCapsule(name, src)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"capsule": name, "bytes": written})
@@ -118,16 +121,16 @@ func registerCapsules(fw *gin.RouterGroup, d *deps.Deps, ctrl *firmware.Controll
 			Name string `json:"name"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.URL == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "url required"})
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: "url required"})
 			return
 		}
 		if parsed, err := url.ParseRequestURI(req.URL); err != nil ||
 			(parsed.Scheme != "http" && parsed.Scheme != "https") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "url must be http or https"})
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: "url must be http or https"})
 			return
 		}
 		if ctrl.IsStaging() {
-			c.JSON(http.StatusConflict, gin.H{"error": "a capsule is already being staged"})
+			c.JSON(http.StatusConflict, gin.H{errorKey: "a capsule is already being staged"})
 			return
 		}
 
@@ -149,7 +152,7 @@ func registerCapsules(fw *gin.RouterGroup, d *deps.Deps, ctrl *firmware.Controll
 	fw.DELETE("/capsules/:name", func(c *gin.Context) {
 		name := filepath.Base(c.Param("name"))
 		if err := ctrl.RemoveCapsule(name); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"capsule": name, "deleted": true})
@@ -158,7 +161,7 @@ func registerCapsules(fw *gin.RouterGroup, d *deps.Deps, ctrl *firmware.Controll
 	// POST /api/firmware/capsules/clear — cancel every pending update.
 	fw.POST("/capsules/clear", func(c *gin.Context) {
 		if err := ctrl.ClearCapsules(); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "cleared"})
@@ -171,7 +174,7 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 	fw.GET("/media", func(c *gin.Context) {
 		names, err := ctrl.ListMediaFiles()
 		if err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: err.Error()})
 			return
 		}
 		vm := ctrl.GetVirtualMediaState()
@@ -191,7 +194,7 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 	fw.POST("/media/upload", func(c *gin.Context) {
 		upload, err := utils.StreamMultipartFile(c.Request, maxMediaUploadBytes, "file")
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "multipart field 'file' required"})
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: "multipart field 'file' required"})
 			return
 		}
 		defer upload.Close()
@@ -205,7 +208,7 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 		// part can expand far past it.
 		dr, format, err := utils.DecompressingReader(upload)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "decompress failed: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: "decompress failed: " + err.Error()})
 			return
 		}
 		defer dr.Close()
@@ -213,7 +216,7 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 
 		n, err := ctrl.SaveMediaFile(name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"file": name, "bytes": n})
@@ -227,12 +230,12 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 			Name string `json:"name"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.URL == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "url required"})
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: "url required"})
 			return
 		}
 		parsed, err := url.ParseRequestURI(req.URL)
 		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "url must be http or https"})
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: "url must be http or https"})
 			return
 		}
 		name := req.Name
@@ -241,14 +244,14 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 		}
 		name = filepath.Base(name)
 		if name == "." || name == "" || strings.ContainsAny(name, "/\\") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid filename derived from URL"})
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: "invalid filename derived from URL"})
 			return
 		}
 		// Bounded and timeout-guarded; the body streams straight to the media
 		// directory on the data partition.
 		remote, err := utils.FetchURL(c.Request.Context(), req.URL, maxMediaUploadBytes)
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "fetch failed: " + err.Error()})
+			c.JSON(http.StatusBadGateway, gin.H{errorKey: "fetch failed: " + err.Error()})
 			return
 		}
 		defer remote.Close()
@@ -260,7 +263,7 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 		// expand far past it.
 		dr, format, err := utils.DecompressingReader(remote)
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "decompress failed: " + err.Error()})
+			c.JSON(http.StatusBadGateway, gin.H{errorKey: "decompress failed: " + err.Error()})
 			return
 		}
 		defer dr.Close()
@@ -268,7 +271,7 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 
 		n, err := ctrl.SaveMediaFile(name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"file": name, "bytes": n})
@@ -282,11 +285,11 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 			Name string `json:"name"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.Name == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "name required"})
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: "name required"})
 			return
 		}
 		if err := ctrl.InsertVirtualMedia(req.Name); err != nil {
-			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			c.JSON(http.StatusConflict, gin.H{errorKey: err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, ctrl.GetVirtualMediaState())
@@ -296,7 +299,7 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 	fw.DELETE("/media/:name", func(c *gin.Context) {
 		name := filepath.Base(c.Param("name"))
 		if err := ctrl.DeleteMediaFile(name); err != nil {
-			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			c.JSON(http.StatusConflict, gin.H{errorKey: err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"file": name, "deleted": true})
@@ -306,7 +309,7 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 	// CD-ROM tray. The staged ISO stays in mediaDir.
 	fw.POST("/media/eject", func(c *gin.Context) {
 		if err := ctrl.EjectVirtualMedia(); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, ctrl.GetVirtualMediaState())
@@ -319,7 +322,7 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 func registerGadget(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 	fw.POST("/present", func(c *gin.Context) {
 		if err := ctrl.Present(); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "presented"})
@@ -327,7 +330,7 @@ func registerGadget(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 
 	fw.POST("/unpresent", func(c *gin.Context) {
 		if err := ctrl.Unpresent(); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "unpresented"})

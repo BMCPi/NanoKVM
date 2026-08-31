@@ -97,7 +97,10 @@ func SetGoMemLimit(limit int64) error {
 	log.Debugf("set GOMEMLIMIT to %d MB", limit)
 
 	data := []byte(fmt.Sprintf("%d", limit))
-	err := os.WriteFile(GoMemLimitFile, data, 0o644)
+	// 0600: this file is written and read only by this (root) process — no
+	// init script, no other component on the image references the path — so
+	// there is no reader whose access the narrower mode would take away.
+	err := os.WriteFile(GoMemLimitFile, data, 0o600)
 	if err != nil {
 		log.Errorf("failed to write GOMEMLIMIT: %s", err)
 		return err

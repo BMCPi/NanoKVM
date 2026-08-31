@@ -12,6 +12,18 @@ func ChmodRecursively(path string, mode uint32) error {
 		}
 
 		if !info.IsDir() {
+			// G122 wants the walk re-scoped through os.Root so the window
+			// between Walk's lstat and this chmod cannot be won by a symlink
+			// swap. There is no second party to win it here: the sole caller
+			// is the application installer (pkg/application/install.go), which
+			// walks /var/lib/nanokvm/app immediately after unpacking an update
+			// into it. That tree is written by this process alone, on a data
+			// partition no other component touches, and the update it came
+			// from is either a release asset from this project's own GitHub or
+			// an upload from a session already authenticated to replace the
+			// root-owned binary this process is. Nothing less privileged than
+			// the process doing the chmod is in the race.
+			//nolint:gosec // G122: walked tree is written by this process alone; no lower-privileged racer exists
 			err = os.Chmod(path, os.FileMode(mode))
 			if err != nil {
 				return err
