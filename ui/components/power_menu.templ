@@ -106,20 +106,51 @@ templ PowerMenu() {
 	@powerMenuScript()
 }
 
-// PowerPill is the navbar power-state indicator: the dot + label pair shown
-// on the menu trigger. Exported so the SSE stream (ui/fragments_power_events.go)
+// PowerPill is the navbar power-state indicator: the icon + label pair shown
+// on the menu trigger. Exported so the SSE stream (ui/fragments/power_events.go)
 // can render the same markup into a swap fragment instead of the JavaScript
-// side re-deriving the dot's class and the label text from a JSON payload.
+// side re-deriving the colour and the label text from a JSON payload.
+//
+// Tone and label come from two helpers rather than three near-identical
+// branches. Branches paired the colour and the words by copy-paste in three
+// places, which is the shape that let the toggle's label drift from its
+// hx-post path; now a fourth state touches each concern exactly once.
+//
+// This is deliberately ONE fragment, updated by a single sse-swap on the
+// wrapper in PowerMenu. Splitting the icon and the label into separate swap
+// targets would let them tear — the icon flipping green while the words still
+// read "Power Off" — and a self-contradicting power indicator is worse than a
+// marginally larger fragment.
 templ PowerPill(on, known bool) {
-	if known && on {
-		<span id="power-dot" class="inline-block size-2 rounded-full bg-green-500 shrink-0"></span>
-		<span id="power-text" class="hidden sm:inline">Power On</span>
-	} else if known {
-		<span id="power-dot" class="inline-block size-2 rounded-full bg-destructive shrink-0"></span>
-		<span id="power-text" class="hidden sm:inline">Power Off</span>
-	} else {
-		<span id="power-dot" class="inline-block size-2 rounded-full bg-muted-foreground shrink-0"></span>
-		<span id="power-text" class="hidden sm:inline">Checking…</span>
+	@icon.CirclePower(icon.Props{Class: "size-4 shrink-0 " + powerTone(on, known)})
+	<span id="power-text" class="hidden sm:inline">{ powerLabel(on, known) }</span>
+}
+
+// powerTone is the indicator's colour for each state. Unknown is deliberately
+// muted rather than red: before the stream delivers, the host's state is not
+// known to be off, and showing it as off invites power-cycling a running host.
+func powerTone(on, known bool) string {
+	switch {
+	case !known:
+		return "text-muted-foreground"
+	case on:
+		return "text-green-500"
+	default:
+		return "text-destructive"
+	}
+}
+
+// powerLabel is the words beside the icon. It always renders something: colour
+// alone would carry the state otherwise, which fails WCAG 1.4.1 and lands on
+// red/green, the most common colour-blind pair.
+func powerLabel(on, known bool) string {
+	switch {
+	case !known:
+		return "Checking…"
+	case on:
+		return "Power On"
+	default:
+		return "Power Off"
 	}
 }
 
