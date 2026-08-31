@@ -76,7 +76,7 @@ linters:
         # is "slog.Default" with no parens — a pattern requiring "(" can
         # never match.
         - pattern: 'slog\.Default'
-          msg: inject a *slog.Logger (see docs/superpowers/specs/2026-08-31-slog-di-design.md); slog.Default is for pkg/logger and the documented exceptions only
+          msg: inject a *slog.Logger (see .claude/docs/slog-di-design.md); slog.Default is for pkg/logger and the documented exceptions only
     gocognit:
       min-complexity: 98
     goconst:

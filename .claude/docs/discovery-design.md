@@ -1,6 +1,6 @@
 # Discovery (DNS-SD + SSDP) design summary
 
-Condensed from `docs/superpowers/specs/2026-08-30-discovery-dnssd-ssdp-design.md`
+Condensed from the original dated discovery design spec (since removed)
 (approved 2026-08-30, amended during implementation).
 
 The BMC advertises itself two ways: DNS-SD over mDNS (avahi-browse, Finder) and
