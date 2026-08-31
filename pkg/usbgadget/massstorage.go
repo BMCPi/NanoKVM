@@ -50,7 +50,7 @@ func (g *Gadget) ensureMassStorageFunc() error {
 	}
 
 	if _, err := g.fs.Stat(lun1); os.IsNotExist(err) {
-		if linked && g.udcBound() {
+		if linked && g.udcBoundLocked() {
 			_ = g.unbindUDCLocked()
 			// Release lun.0's backing file so f_mass_storage lets go.
 			_ = g.fs.writeAttr(filepath.Join(g.lun0Path(), "file"), "\n")
@@ -86,7 +86,7 @@ func (g *Gadget) ensureLUN1Locked() error {
 	if _, err := g.fs.Stat(lun1); err == nil {
 		return nil
 	}
-	if g.udcBound() {
+	if g.udcBoundLocked() {
 		_ = g.unbindUDCLocked()
 		_ = g.fs.writeAttr(filepath.Join(g.lun0Path(), "file"), "\n")
 		time.Sleep(50 * time.Millisecond)
@@ -118,20 +118,20 @@ func (g *Gadget) PresentDisk(path string) error {
 	_ = g.fs.writeAttr(filePath, "\n")
 	var lastErr error
 	for i := 0; i < 10; i++ {
-		if err := g.fs.WriteFile(filePath, []byte(path), 0o666); err == nil {
+		err := g.fs.WriteFile(filePath, []byte(path), 0o666)
+		if err == nil {
 			lastErr = nil
 			break
-		} else {
-			lastErr = err
-			time.Sleep(100 * time.Millisecond)
 		}
+		lastErr = err
+		time.Sleep(100 * time.Millisecond)
 	}
 	if lastErr != nil {
 		return fmt.Errorf("write lun.0 file: %w", lastErr)
 	}
 
 	// Only rebind if not already bound; a bound kernel picks up the file change.
-	if !g.udcBound() {
+	if !g.udcBoundLocked() {
 		if err := g.rebindUDCLocked(); err != nil {
 			return fmt.Errorf("rebind UDC: %w", err)
 		}

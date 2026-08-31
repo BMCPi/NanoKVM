@@ -8,6 +8,7 @@ PWD := $(shell pwd)
 
 # Deploy configuration (override on the command line: make deploy KVM_HOST=...)
 KVM_HOST ?= 10.0.150.207
+KVM_SHEME ?= http
 KVM_USER ?= admin
 KVM_PASS ?= admin
 # Transport obfuscation key, extracted from its single source of truth so a
@@ -111,19 +112,19 @@ deploy: dist/server/NanoKVM-Server dist/rpiboot/rpiboot
 	@PW=$$(printf '%s' '$(KVM_PASS)' \
 		| openssl enc -aes-256-cbc -md md5 -pass 'pass:$(KVM_SECRET)' -base64 -A 2>/dev/null \
 		| sed -e 's/+/%2B/g' -e 's|/|%2F|g' -e 's/=/%3D/g'); \
-	TOKEN=$$(curl -sS -m 15 -X POST "http://$(KVM_HOST)/api/auth/login" \
+	TOKEN=$$(curl -ksS -m 15 -X POST "${KVM_SCHEME}://$(KVM_HOST)/api/auth/login" \
 		-H 'Content-Type: application/json' \
 		-d "{\"username\":\"$(KVM_USER)\",\"password\":\"$$PW\"}" \
 		| sed -n 's/.*"token":"\([^"]*\)".*/\1/p'); \
 	if [ -z "$$TOKEN" ]; then echo "Login to $(KVM_HOST) failed"; exit 1; fi; \
-	RSP=$$(curl -sS -m 300 -X POST "http://$(KVM_HOST)/api/application/update/offline" \
+	RSP=$$(curl -ksS -m 300 -X POST "${KVM_SCHEME}://$(KVM_HOST)/api/application/update/offline" \
 		-H "Cookie: nano-kvm-token=$$TOKEN" \
 		-F "file=@dist/deploy/update.tar.gz;type=application/gzip"); \
 	echo "$$RSP"; \
 	case "$$RSP" in *'"code":0,'*) ;; *) echo "Update failed"; exit 1;; esac; \
 	echo "Waiting for service to restart..."; \
 	i=0; while [ $$i -lt 24 ]; do \
-		VER=$$(curl -sS -m 5 "http://$(KVM_HOST)/api/application/version" \
+		VER=$$(curl -ksS -m 5 "${KVM_SCHEME}://$(KVM_HOST)/api/application/version" \
 			-H "Cookie: nano-kvm-token=$$TOKEN" 2>/dev/null \
 			| sed -n 's/.*"current":"\([^"]*\)".*/\1/p'); \
 		if [ -n "$$VER" ]; then echo "Device is back up, running version $$VER"; exit 0; fi; \

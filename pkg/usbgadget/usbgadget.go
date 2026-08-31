@@ -101,7 +101,7 @@ func (g *Gadget) Init() error {
 	}
 
 	log.Infof("usbgadget: g0 ready (vid=%s pid=%s hid=%v ethernet=%s disk=%v udc-bound=%v)",
-		g.cfg.VendorID, g.cfg.ProductID, g.cfg.HID, g.cfg.Ethernet, g.cfg.Disk, g.udcBound())
+		g.cfg.VendorID, g.cfg.ProductID, g.cfg.HID, g.cfg.Ethernet, g.cfg.Disk, g.udcBoundLocked())
 	return nil
 }
 

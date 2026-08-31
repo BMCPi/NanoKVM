@@ -4,6 +4,18 @@
 // tests instead of a live mDNS listener.
 package mdns
 
+// DNS-SD service instance types (RFC 6763 §7) for the services table in
+// Services below, and the two Inputs.Proto values that select between them.
+const (
+	svcTypeRedfish = "_redfish._tcp"
+	svcTypeHTTP    = "_http._tcp"
+	svcTypeHTTPS   = "_https._tcp"
+	svcTypeSSH     = "_ssh._tcp"
+
+	protoHTTP  = "http"
+	protoHTTPS = "https"
+)
+
 // Service is one DNS-SD registration, independent of the library that
 // publishes it.
 type Service struct {
@@ -31,7 +43,7 @@ func Services(in Inputs) []Service {
 	var services []Service
 
 	redfishPort := in.HTTPSPort
-	if in.Proto == "http" {
+	if in.Proto == protoHTTP {
 		redfishPort = in.HTTPPort
 	}
 
@@ -48,7 +60,7 @@ func Services(in Inputs) []Service {
 			text["uuid"] = in.UUID
 		}
 		services = append(services, Service{
-			Type: "_redfish._tcp",
+			Type: svcTypeRedfish,
 			Port: redfishPort,
 			Text: text,
 		})
@@ -59,14 +71,14 @@ func Services(in Inputs) []Service {
 	// when proto is https: that is the only time a TLS listener exists at
 	// all, so there is no port to advertise otherwise.
 	if in.HTTPPort != 0 {
-		services = append(services, Service{Type: "_http._tcp", Port: in.HTTPPort})
+		services = append(services, Service{Type: svcTypeHTTP, Port: in.HTTPPort})
 	}
-	if in.Proto == "https" && in.HTTPSPort != 0 {
-		services = append(services, Service{Type: "_https._tcp", Port: in.HTTPSPort})
+	if in.Proto == protoHTTPS && in.HTTPSPort != 0 {
+		services = append(services, Service{Type: svcTypeHTTPS, Port: in.HTTPSPort})
 	}
 
 	if in.SSHEnabled && in.SSHPort != 0 {
-		services = append(services, Service{Type: "_ssh._tcp", Port: in.SSHPort})
+		services = append(services, Service{Type: svcTypeSSH, Port: in.SSHPort})
 	}
 
 	return services

@@ -41,7 +41,7 @@ type githubAsset struct {
 type Latest struct {
 	Version string
 	Name    string
-	Url     string
+	URL     string
 	Size    int64
 }
 
@@ -130,7 +130,7 @@ func fetchLatest(ctx context.Context) (*Latest, error) {
 	return &Latest{
 		Version: version,
 		Name:    asset.Name,
-		Url:     asset.BrowserDownloadURL,
+		URL:     asset.BrowserDownloadURL,
 		Size:    asset.Size,
 	}, nil
 }

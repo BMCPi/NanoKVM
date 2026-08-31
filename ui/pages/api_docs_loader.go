@@ -334,18 +334,29 @@ func extractAPIBody(res *resolver, op map[string]any) *APIDocsBody {
 	if content, ok := body["content"].(map[string]any); ok {
 		ct, vm := firstContent(content)
 		out.ContentType = ct
-		if vm != nil {
-			if ex, ok := vm["example"]; ok {
-				if pretty, err := json.MarshalIndent(ex, "", "  "); err == nil {
-					out.Example = string(pretty)
-				}
-			}
-			if sm, ok := vm["schema"].(map[string]any); ok {
-				out.Schema = res.buildSchema(sm, nil)
-			}
-		}
+		out.Example, out.Schema = exampleAndSchema(res, vm)
 	}
 	return out
+}
+
+// exampleAndSchema pulls the "example" and "schema" members out of an
+// OpenAPI media-type object (vm, the value firstContent returns alongside
+// its content type). vm is nil when the content map had no entries, in
+// which case both results are zero, matching the nested checks this
+// factors out of extractAPIBody and applyResponseContent.
+func exampleAndSchema(res *resolver, vm map[string]any) (example string, schema *APIDocsSchema) {
+	if vm == nil {
+		return "", nil
+	}
+	if ex, ok := vm["example"]; ok {
+		if pretty, err := json.MarshalIndent(ex, "", "  "); err == nil {
+			example = string(pretty)
+		}
+	}
+	if sm, ok := vm["schema"].(map[string]any); ok {
+		schema = res.buildSchema(sm, nil)
+	}
+	return example, schema
 }
 
 func extractAPIResponses(res *resolver, op map[string]any) []APIDocsResponse {
@@ -385,24 +396,36 @@ func extractAPIResponses(res *resolver, op map[string]any) []APIDocsResponse {
 		}
 		if content, ok := r["content"].(map[string]any); ok {
 			ct, vm := firstContent(content)
-			if vm != nil {
-				if ex, ok := vm["example"]; ok {
-					if pretty, err := json.MarshalIndent(ex, "", "  "); err == nil {
-						ar.ContentType = ct
-						ar.Example = string(pretty)
-					}
-				}
-				if sm, ok := vm["schema"].(map[string]any); ok {
-					if ar.ContentType == "" {
-						ar.ContentType = ct
-					}
-					ar.Schema = res.buildSchema(sm, nil)
-				}
-			}
+			applyResponseContent(res, &ar, ct, vm)
 		}
 		out = append(out, ar)
 	}
 	return out
+}
+
+// applyResponseContent fills ar's ContentType/Example/Schema from vm (the
+// media-type object for content type ct, as returned by firstContent).
+// Mirrors the nested logic this factors out of extractAPIResponses exactly:
+// ContentType is set only once, lazily, when an example or schema is
+// actually found — never unconditionally the way extractAPIBody's does,
+// since a response with no content must leave APIDocsResponse.ContentType
+// empty rather than reporting a content type that had nothing in it.
+func applyResponseContent(res *resolver, ar *APIDocsResponse, ct string, vm map[string]any) {
+	if vm == nil {
+		return
+	}
+	if ex, ok := vm["example"]; ok {
+		if pretty, err := json.MarshalIndent(ex, "", "  "); err == nil {
+			ar.ContentType = ct
+			ar.Example = string(pretty)
+		}
+	}
+	if sm, ok := vm["schema"].(map[string]any); ok {
+		if ar.ContentType == "" {
+			ar.ContentType = ct
+		}
+		ar.Schema = res.buildSchema(sm, nil)
+	}
 }
 
 // firstContent returns the alphabetically-first content-type entry from
@@ -733,7 +756,7 @@ func typeLabel(s *APIDocsSchema) string {
 		t = t + " · " + s.Format
 	}
 	if s.Nullable {
-		t = t + " · nullable"
+		t += " · nullable"
 	}
 	return t
 }

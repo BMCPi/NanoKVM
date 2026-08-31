@@ -1,6 +1,7 @@
 package usbgadget
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -24,7 +25,15 @@ func (g *Gadget) ensureConfigFS() error {
 	if err := g.fs.MkdirAll(configFSPath, 0o755); err != nil {
 		return err
 	}
-	out, err := exec.Command("mount", "-t", "configfs", "configfs", configFSPath).CombinedOutput()
+	// context.Background(), not a request or action context: this runs at
+	// server startup from Gadget.Init (see cmd/server/main.go), before any
+	// *deps.Deps exists to derive an ActionContext from -- there is no
+	// request or client to disconnect from here, and no cancellable parent
+	// to wire in without a behaviour change out of scope for a lint-only
+	// pass. This repo's idiom for a detached side effect is deps.ActionContext
+	// (see api/vm/service.go's Deps field doc and api/vm/gpio.go's power
+	// handlers).
+	out, err := exec.CommandContext(context.Background(), "mount", "-t", "configfs", "configfs", configFSPath).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("mount configfs: %s: %w", strings.TrimSpace(string(out)), err)
 	}
@@ -206,7 +215,7 @@ func (g *Gadget) ensureBindState() error {
 	if !g.cfg.BindUDC {
 		return nil
 	}
-	if !g.udcBound() {
+	if !g.udcBoundLocked() {
 		if err := g.bindUDCLocked(); err != nil {
 			return err
 		}

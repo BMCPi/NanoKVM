@@ -94,7 +94,7 @@ func update(ctx context.Context) error {
 	}
 
 	target := fmt.Sprintf("%s/%s", CacheDir, latest.Name)
-	if err := download(ctx, latest.Url, target); err != nil {
+	if err := download(ctx, latest.URL, target); err != nil {
 		log.Errorf("download app failed: %s", err)
 		return err
 	}

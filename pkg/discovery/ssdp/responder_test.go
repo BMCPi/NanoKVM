@@ -45,7 +45,7 @@ func TestResponderAnswersMSearch(t *testing.T) {
 	}
 }
 
-func TestStopIsIdempotent(t *testing.T) {
+func TestStopIsIdempotent(_ *testing.T) {
 	r := New(Config{Iface: "lo"})
 	r.Stop()
 	r.Stop() // must not panic

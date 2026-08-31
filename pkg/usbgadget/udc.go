@@ -43,10 +43,10 @@ func (g *Gadget) udcName() (string, error) {
 func (g *Gadget) UDCBound() bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return g.udcBound()
+	return g.udcBoundLocked()
 }
 
-func (g *Gadget) udcBound() bool {
+func (g *Gadget) udcBoundLocked() bool {
 	data, err := g.fs.ReadFile(g.udcPath())
 	if err != nil {
 		return false
@@ -70,7 +70,7 @@ func (g *Gadget) bindUDCLocked() error {
 // Writing "" is asynchronous on this kernel, so poll (20 × 50 ms) until the UDC
 // file reads back empty before any topology mutation. Caller holds g.mu.
 func (g *Gadget) unbindUDCLocked() error {
-	if !g.udcBound() {
+	if !g.udcBoundLocked() {
 		return nil
 	}
 	if err := g.fs.writeAttr(g.udcPath(), "\n"); err != nil {
@@ -78,7 +78,7 @@ func (g *Gadget) unbindUDCLocked() error {
 	}
 	for i := 0; i < 20; i++ {
 		time.Sleep(50 * time.Millisecond)
-		if !g.udcBound() {
+		if !g.udcBoundLocked() {
 			return nil
 		}
 	}
@@ -115,7 +115,7 @@ func (g *Gadget) setOTGRoleLocked(role string) error {
 	// OTGRolePath is the CVITEK OTG switch under /proc (default
 	// /proc/cviusb/otg_role), not /sys, so it is written with plain os rather
 	// than the sysfs-root service.
-	if err := os.WriteFile(g.cfg.OTGRolePath, []byte(role), 0o644); err != nil {
+	if err := os.WriteFile(g.cfg.OTGRolePath, []byte(role), 0o644); err != nil { //nolint:gosec // kernel pseudo-file under /proc; the mode arg only applies at O_CREATE and the node already exists with a mode the kernel owns, so narrowing it here is inert
 		return fmt.Errorf("set otg role %s: %w", role, err)
 	}
 	return nil

@@ -74,7 +74,7 @@ func TestResponderAnnouncesServicesOnLoopback(t *testing.T) {
 	}
 }
 
-func TestStopIsIdempotent(t *testing.T) {
+func TestStopIsIdempotent(_ *testing.T) {
 	r := New("nanokvm-test.local", "lo", nil)
 	r.Stop()
 	r.Stop() // must not panic

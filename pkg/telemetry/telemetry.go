@@ -40,7 +40,22 @@ import (
 // default global registry so any prometheus.MustRegister() in the codebase
 // is picked up automatically. Exposed so the HTTP router can attach the
 // promhttp.HandlerFor() handler.
-var PromRegistry = prometheus.DefaultRegisterer.(*prometheus.Registry)
+var PromRegistry = defaultPromRegistry()
+
+// defaultPromRegistry asserts prometheus.DefaultRegisterer down to the
+// concrete *Registry that promhttp.HandlerFor needs. client_golang sets
+// DefaultRegisterer to a *Registry at package-var init time and nothing in
+// this codebase ever reassigns it, so the assertion cannot fail in practice
+// -- but a checked assertion with a clear panic message is still cheaper and
+// more debuggable than an unchecked one, so it stays checked rather than
+// suppressed.
+func defaultPromRegistry() *prometheus.Registry {
+	reg, ok := prometheus.DefaultRegisterer.(*prometheus.Registry)
+	if !ok {
+		panic("telemetry: prometheus.DefaultRegisterer is not a *prometheus.Registry")
+	}
+	return reg
+}
 
 // Version is the service version reported as a resource attribute. Set by
 // main at startup so we don't pull a circular dependency on cmd/server.
