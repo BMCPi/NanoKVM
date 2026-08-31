@@ -7,8 +7,9 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 )
 
-// TestLocalNames moved verbatim from pkg/mdns/mdns_test.go — the hostname
-// normalization it pins did not change when the responders it feeds did.
+// TestLocalNames moved verbatim from the old hostname-only responder package
+// this one replaced — the hostname normalization it pins did not change when
+// the responders it feeds did.
 func TestLocalNames(t *testing.T) {
 	cases := []struct {
 		in   string

@@ -107,8 +107,8 @@ func (r *Responder) Stop() {
 	// race Start from the background watcher, and reading then calling
 	// cancel without it would let two callers both see a non-nil func and
 	// both "stop" — harmless for context.CancelFunc itself, but the pattern
-	// matches the mutex-guarded sibling responder in pkg/mdns and keeps this
-	// safe if the guarded body ever grows beyond a single idempotent call.
+	// matches the mutex-guarded sibling ssdp.Responder and keeps this safe if
+	// the guarded body ever grows beyond a single idempotent call.
 	once.Do(cancel)
 
 	r.mu.Lock()

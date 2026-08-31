@@ -20,7 +20,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/autoupdate"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
-	"github.com/pi-bmc/nanokvm-app/pkg/mdns"
+	"github.com/pi-bmc/nanokvm-app/pkg/discovery"
 	"github.com/pi-bmc/nanokvm-app/pkg/network"
 	"github.com/pi-bmc/nanokvm-app/pkg/serial"
 	sshsvc "github.com/pi-bmc/nanokvm-app/pkg/ssh"
@@ -218,7 +218,7 @@ func patchMDNS(c *gin.Context) {
 	md.IPv6 = checked(c, "ipv6")
 
 	config.Save()
-	mdns.Restart()
+	discovery.Restart()
 
 	hxToast(c, "success", "Settings saved", "Discovery responder restarted.")
 	renderFragment(c, components.SettingsNetworkBody(networkModel()))
@@ -300,7 +300,7 @@ func networkStatus() components.SettingsNetworkStatus {
 			}
 		}
 	}
-	if name, ok := mdns.Advertised(); ok {
+	if name, ok := discovery.Advertised(); ok {
 		st.MDNS = name
 	}
 	return st

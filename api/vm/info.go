@@ -7,7 +7,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
-	"github.com/pi-bmc/nanokvm-app/pkg/mdns"
+	"github.com/pi-bmc/nanokvm-app/pkg/discovery"
 	"github.com/pi-bmc/nanokvm-app/pkg/proto"
 	"github.com/pi-bmc/nanokvm-app/pkg/sysinfo"
 )
@@ -31,7 +31,7 @@ func getMdns() string {
 	// Report the built-in mDNS responder's advertised name (e.g.
 	// "licheervnano.local"), or "" when the responder is disabled/not running.
 	// This replaced the old avahi-daemon PID-file probe.
-	name, ok := mdns.Advertised()
+	name, ok := discovery.Advertised()
 	if !ok {
 		return ""
 	}

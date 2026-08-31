@@ -19,11 +19,11 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/autoupdate"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
+	"github.com/pi-bmc/nanokvm-app/pkg/discovery"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 	"github.com/pi-bmc/nanokvm-app/pkg/hid"
 	"github.com/pi-bmc/nanokvm-app/pkg/ipmi"
 	"github.com/pi-bmc/nanokvm-app/pkg/logger"
-	"github.com/pi-bmc/nanokvm-app/pkg/mdns"
 	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
 	"github.com/pi-bmc/nanokvm-app/pkg/network"
 	"github.com/pi-bmc/nanokvm-app/pkg/power"
@@ -52,7 +52,7 @@ var (
 
 var (
 	ipmiServer    *ipmi.Server
-	mdnsResponder *mdns.Responder
+	mdnsResponder *discovery.Responder
 
 	// powerCtrl and fwCtrl are the composition root's controllers, built once
 	// in initialize() and shared by run() (via deps.Deps) and the IPMI server.
@@ -208,10 +208,11 @@ func initialize(ctx context.Context) {
 	// Replaces busybox ntpd; retries with backoff until the network is up.
 	timesync.Start()
 
-	// Start the mDNS responder (advertises <hostname>.local). Replaces
-	// avahi-daemon; its watcher brings it up once eth0 has an address.
-	if r, err := mdns.Start(); err != nil {
-		slog.ErrorContext(ctx, "mDNS start failed", slog.Any("err", err))
+	// Start the discovery responders (mDNS hostname/service records, SSDP).
+	// Replaces avahi-daemon; the watcher brings them up once eth0 has an
+	// address.
+	if r, err := discovery.Start(); err != nil {
+		slog.ErrorContext(ctx, "discovery start failed", slog.Any("err", err))
 	} else {
 		mdnsResponder = r
 	}
