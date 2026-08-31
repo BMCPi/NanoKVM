@@ -5,6 +5,8 @@ package components
 // in, both for the first paint and for every htmx swap, so one template
 // definition covers both.
 
+import "github.com/pi-bmc/nanokvm-app/pkg/firmware"
+
 // SettingsGeneral backs the General panel — the BMC's own identity plus the
 // background updater's configuration.
 type SettingsGeneral struct {
@@ -149,6 +151,38 @@ type SettingsTelemetry struct {
 
 	OTLPEndpoint string
 	OTLPInsecure bool
+}
+
+// SettingsFirmware backs the Firmware panel: the capsule volume's state and
+// what is queued in it for the managed host to pick up.
+//
+// The host, not the BMC, applies these — at ITS next boot — and deletes each
+// capsule once applied. Staging is therefore never "did it work", only "is it
+// queued"; the panel's copy says so rather than implying otherwise.
+type SettingsFirmware struct {
+	// VolumeReady reports whether the capsule volume has been created on
+	// disk yet. False on a freshly flashed card until the first capsule is
+	// staged.
+	VolumeReady bool
+	// Presented reports whether the volume is attached to the gadget's
+	// lun.0. A capsule staged onto an unpresented volume is never seen by
+	// the host — distinct from VolumeReady, which only says the file exists.
+	Presented bool
+	// VolumeSize is the capsule volume's size in bytes; meaningful only when
+	// VolumeReady.
+	VolumeSize int64
+	// CapsuleDir is the directory inside the volume the host firmware scans,
+	// spelled the way the UEFI spec does (e.g. `\EFI\UpdateCapsule`).
+	CapsuleDir string
+
+	// Capsules are what is currently queued for the host's next boot.
+	Capsules []firmware.Capsule
+
+	// Staging is true while a URL fetch is in flight (ui/fragments' own
+	// tracker, not the controller's — see firmware.go for why the two must
+	// not be conflated). StagingName names the capsule being fetched.
+	Staging     bool
+	StagingName string
 }
 
 // SettingsAdvanced backs the Advanced panel.

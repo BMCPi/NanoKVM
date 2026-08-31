@@ -1,0 +1,241 @@
+package components
+
+// settings_firmware.templ is the Firmware settings panel: the UEFI FMP
+// capsule volume presented to the managed host on lun.0, and what is
+// currently queued on it.
+//
+// The framing an operator needs is not obvious from the UI alone: staging a
+// capsule does nothing until the HOST reboots (not the BMC), and the host
+// deletes each capsule it applies — so a shrinking queue, not a status flag,
+// is how staging a capsule is confirmed to have worked. Every copy string
+// below exists to say one of those two things instead of assuming they are
+// obvious.
+
+import (
+	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
+	"github.com/pi-bmc/nanokvm-app/ui/components/button"
+	"github.com/pi-bmc/nanokvm-app/ui/components/field"
+	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
+	"github.com/pi-bmc/nanokvm-app/ui/components/input"
+	"github.com/pi-bmc/nanokvm-app/ui/components/item"
+	"github.com/pi-bmc/nanokvm-app/ui/components/progress"
+	"github.com/pi-bmc/nanokvm-app/ui/components/tabs"
+	"github.com/pi-bmc/nanokvm-app/ui/utils"
+)
+
+templ settingsFirmwarePanel() {
+	@settingsPanel("firmware", "Firmware", "UEFI capsules queued for the managed host.", false, nil) {
+		@settingsBody("settings-firmware-body", "/ui/settings/firmware") {
+			@SettingsFirmwareBody(SettingsFirmware{})
+		}
+	}
+}
+
+// SettingsFirmwareBody is the Firmware panel's swappable region: volume
+// status, the queue itself, and the Upload/URL controls that add to it.
+//
+// While m.Staging, the root div polls GET /ui/settings/firmware/status
+// (hx-swap="outerHTML" replaces this whole div, id included, so the poll
+// keeps working across every re-render until the fetch settles) instead of
+// carrying its own hx-trigger="every Ns" permanently — a fragment that always
+// polls would hit the capsule volume on every tick even when nothing is
+// happening, and GetStatus opens that volume image on disk each time.
+templ SettingsFirmwareBody(m SettingsFirmware) {
+	<div
+		id="settings-firmware-body"
+		if m.Staging {
+			hx-get="/ui/settings/firmware/status"
+			hx-trigger="every 2s"
+			hx-swap="outerHTML"
+		}
+	>
+		@field.Group() {
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Capsule volume
+				}
+				@settingsFieldsetNote("A small FAT32 volume the BMC presents to the host on lun.0. Its scanned directory is where the HOST's own firmware looks for capsules at ITS next boot — nothing here is applied by the BMC.")
+				if m.VolumeReady {
+					@settingsValueRow("Volume", "Size of the capsule volume on disk.", formatBytes(m.VolumeSize))
+					@settingsValueRow("Scanned directory", "Path the host firmware reads capsules from.", m.CapsuleDir)
+				} else {
+					@settingsValueRow("Volume", "Created automatically the first time a capsule is staged.", "Not created")
+				}
+				@settingsValueRow("Presented to host", "Whether lun.0 is attached. A capsule staged while this is No is never seen by the host.", utils.IfElse(m.Presented, "Yes", "No"))
+			}
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Queued for next boot
+				}
+				@settingsFieldsetNote("The host applies these at ITS next boot, then deletes each one it applies. A capsule disappearing from this list is how you know it landed — staging it again is not needed and not harmless.")
+				if m.Staging {
+					@item.Item(item.Props{Variant: item.VariantOutline, Class: "border-dashed"}) {
+						@item.Media(item.MediaProps{Variant: item.MediaVariantIcon}) {
+							@icon.HardDriveUpload()
+						}
+						@item.Content() {
+							@item.Title() {
+								Staging { m.StagingName }…
+							}
+							@item.Description(item.DescriptionProps{Class: "text-xs"}) {
+								Fetching from a URL. Controls below are disabled until this finishes.
+							}
+						}
+					}
+				}
+				if len(m.Capsules) == 0 {
+					@item.Item(item.Props{Variant: item.VariantOutline, Class: "border-dashed"}) {
+						@item.Content() {
+							@item.Title() {
+								Nothing queued
+							}
+							@item.Description(item.DescriptionProps{Class: "text-xs"}) {
+								Upload a capsule or fetch one by URL below.
+							}
+						}
+					}
+				} else {
+					for _, capsule := range m.Capsules {
+						@firmwareCapsuleRow(capsule, m.Staging)
+					}
+					<div class="flex justify-end">
+						@button.Button(button.Props{
+							Variant:  button.VariantOutline,
+							Size:     button.SizeSm,
+							Disabled: m.Staging,
+							Attributes: templ.Attributes{
+								"hx-post":                  "/ui/settings/firmware/capsules/clear",
+								"hx-target":                "#settings-firmware-body",
+								"hx-swap":                  "outerHTML",
+								"hx-disabled-elt":          "this",
+								"hx-confirm":               "Cancels every capsule queued for the host's next boot.",
+								"data-confirm-title":       "Clear the capsule queue?",
+								"data-confirm-label":       "Clear all",
+								"data-confirm-destructive": "",
+							},
+						}) {
+							Clear all
+						}
+					</div>
+				}
+			}
+			@field.Set() {
+				@field.Legend(field.LegendProps{Variant: field.LegendVariantLabel}) {
+					Stage a capsule
+				}
+				@tabs.Tabs(tabs.Props{DefaultValue: "upload"}) {
+					@tabs.List(tabs.ListProps{Class: "w-full"}) {
+						@tabs.Trigger(tabs.TriggerProps{Value: "upload"}) {
+							Upload
+						}
+						@tabs.Trigger(tabs.TriggerProps{Value: "url"}) {
+							URL
+						}
+					}
+					@tabs.Content(tabs.ContentProps{Value: "upload", Class: "space-y-2"}) {
+						<form
+							id="fw-upload-form"
+							class="flex items-center gap-2"
+							hx-post="/ui/settings/firmware/capsules"
+							hx-encoding="multipart/form-data"
+							hx-target="#settings-firmware-body"
+							hx-swap="outerHTML"
+							hx-disabled-elt="find button"
+						>
+							@input.Input(input.Props{
+								ID:       "fw-upload-file",
+								Name:     "file",
+								Type:     "file",
+								Accept:   ".cap,.bin",
+								Class:    "flex-1 h-8",
+								Disabled: m.Staging,
+							})
+							@button.Button(button.Props{
+								ID:       "fw-upload-submit",
+								Size:     button.SizeSm,
+								Type:     button.TypeSubmit,
+								Disabled: true,
+							}) {
+								Upload
+							}
+						</form>
+						// Hidden via the ATTRIBUTE, not a utility class: preflight's
+						// [hidden] { display:none !important } wins where a `hidden`
+						// class competes with the component's own display rules — see
+						// virtual_media.templ's upload progress bar for the same note.
+						@progress.Progress(progress.Props{ID: "fw-upload-progress", Attributes: templ.Attributes{"hidden": true}})
+					}
+					@tabs.Content(tabs.ContentProps{Value: "url", Class: "space-y-2"}) {
+						<form
+							id="fw-fetch-form"
+							class="space-y-2"
+							hx-post="/ui/settings/firmware/capsules/fetch"
+							hx-target="#settings-firmware-body"
+							hx-swap="outerHTML"
+							hx-disabled-elt="find button"
+						>
+							@input.Input(input.Props{
+								ID:          "fw-fetch-url",
+								Name:        "url",
+								Type:        "url",
+								Placeholder: "https://example.com/host.cap",
+								Disabled:    m.Staging,
+							})
+							<div class="flex items-center gap-2">
+								@input.Input(input.Props{
+									ID:          "fw-fetch-name",
+									Name:        "name",
+									Placeholder: "filename.cap (optional)",
+									Class:       "flex-1",
+									Disabled:    m.Staging,
+								})
+								@button.Button(button.Props{
+									ID:       "fw-fetch-submit",
+									Size:     button.SizeSm,
+									Type:     button.TypeSubmit,
+									Disabled: m.Staging,
+								}) {
+									Fetch
+								}
+							</div>
+						</form>
+					}
+				}
+			}
+		}
+	</div>
+}
+
+// firmwareCapsuleRow is one queued capsule: name, size, and a delete control
+// that removes just this one. Clear all (above) is for emptying the whole
+// queue in one step.
+templ firmwareCapsuleRow(c firmware.Capsule, staging bool) {
+	@item.Item(item.Props{Variant: item.VariantOutline}) {
+		@item.Media(item.MediaProps{Variant: item.MediaVariantIcon}) {
+			@icon.HardDriveUpload()
+		}
+		@item.Content() {
+			@item.Title() {
+				{ c.Name }
+			}
+			@item.Description(item.DescriptionProps{Class: "text-xs"}) {
+				{ formatBytes(c.Size) }
+			}
+		}
+		@item.Actions() {
+			@button.Button(button.Props{
+				Variant:  button.VariantDestructive,
+				Size:     button.SizeSm,
+				Disabled: staging,
+				Attributes: templ.Attributes{
+					"hx-delete":       "/ui/settings/firmware/capsules/" + c.Name,
+					"hx-target":       "#settings-firmware-body",
+					"hx-swap":         "outerHTML",
+					"hx-disabled-elt": "this",
+				},
+			}) {
+				Remove
+			}
+		}
+	}
+}

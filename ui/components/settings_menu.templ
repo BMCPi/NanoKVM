@@ -39,6 +39,7 @@ var settingsSections = []settingsSection{
 	{ID: "network", Label: "Network", Icon: icon.Network},
 	{ID: "serial", Label: "Serial", Icon: icon.Cable},
 	{ID: "hardware", Label: "Hardware", Icon: icon.Usb},
+	{ID: "firmware", Label: "Firmware", Icon: icon.HardDriveUpload},
 	{ID: "access", Label: "Access", Icon: icon.ShieldCheck},
 	{ID: "metrics", Label: "Metrics", Icon: icon.ChartNoAxesColumn},
 	{ID: "advanced", Label: "Advanced", Icon: icon.Wrench},
@@ -100,6 +101,7 @@ templ SettingsDialog() {
 					@settingsNetworkPanel()
 					@settingsSerialPanel()
 					@settingsHardwarePanel()
+					@settingsFirmwarePanel()
 					@settingsAccessPanel()
 					@settingsMetricsPanel()
 					@settingsAdvancedPanel()
