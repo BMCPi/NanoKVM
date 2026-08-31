@@ -122,13 +122,9 @@ var defaultConfig = &Config{
 		OTGRolePath:   "/proc/cviusb/otg_role",
 		PHYDevice:     "4340000.usb",
 	},
-	MDNS: MDNS{
-		Enabled:   true,
-		Interface: "eth0",
-		IPv4:      true,
-		IPv6:      true,
-		Hostname:  "",
-	},
+	// No MDNS: here. The legacy top-level block is migration input only, so
+	// defaulting it would write the very key migrateDiscovery exists to
+	// remove — and would make a default-config boot look like an upgrade.
 	Discovery: Discovery{
 		MDNS: MDNS{Enabled: true, Interface: "eth0", IPv4: true, IPv6: true},
 		SSDP: SSDP{Enabled: true, MaxAge: 1800},
@@ -392,20 +388,12 @@ func checkDefaultValue() {
 		instance.AutoUpdate.IntervalMinutes = defaultConfig.AutoUpdate.IntervalMinutes
 	}
 
-	// mDNS: the boolean fields default true, so a zero value is ambiguous with an
-	// explicit false. When the whole section is absent (a config written before
-	// mDNS existed), seed all defaults so upgraded devices keep advertising
-	// <hostname>.local; when it is present, respect the operator's values.
-	if !viper.IsSet("mdns") {
-		instance.MDNS = defaultConfig.MDNS
-	} else if instance.MDNS.Interface == "" && !viper.IsSet("mdns.interface") {
-		instance.MDNS.Interface = defaultConfig.MDNS.Interface
-	}
-
 	// Discovery folds the legacy top-level mdns: block into discovery.mdns
 	// (see migrateDiscovery) before any defaulting happens, then applies the
-	// same absent-section handling as mDNS above for discovery.mdns, plus
-	// SSDP's own defaults.
+	// absent-section handling below to discovery.mdns, plus SSDP's own
+	// defaults. Only discovery.mdns gets defaulted: the legacy block is
+	// migration input, and defaults for a key that is about to be deleted
+	// would just be written back out as a resurrected mdns: block.
 	//
 	// The absent-section check below must also test viper.IsSet("mdns"):
 	// a legacy-only file has no discovery.mdns key either, so testing
@@ -414,8 +402,20 @@ func checkDefaultValue() {
 	// silently reverting an operator's non-default interface/hostname and,
 	// worse, flipping a deliberate `enabled: false` back to true.
 	discoveryKeySet := viper.IsSet("discovery")
+	// legacyKeySet reads the parsed file, not the struct, so it still
+	// answers "did this file use the old spelling?" after migrateDiscovery
+	// has cleared the field — as do the per-key legacySet lookups below.
+	legacyKeySet := viper.IsSet("mdns")
 	migrateDiscovery(&instance, discoveryKeySet)
-	if !viper.IsSet("discovery.mdns") && !viper.IsSet("mdns") {
+	if legacyKeySet {
+		// Rewrite the file once, on this first boot after upgrade, so the
+		// legacy key actually leaves disk. Migrating in memory only left
+		// both spellings in the file, and a file with a discovery: key
+		// makes migrateDiscovery skip the legacy block on the next load —
+		// so the operator's values were read once and then lost.
+		needsPersist = true
+	}
+	if !viper.IsSet("discovery.mdns") && !legacyKeySet {
 		instance.Discovery.MDNS = defaultConfig.Discovery.MDNS
 	} else {
 		// Enabled/IPv4/IPv6 default true, so a zero value is ambiguous with
@@ -503,21 +503,33 @@ func checkDefaultValue() {
 
 	instance.Hardware = getHardware()
 
-	// Persist the generated secret key so tokens survive server restarts.
+	// Persist generated values (the JWT secret) and the discovery migration
+	// so neither has to be redone on the next boot.
 	if needsPersist {
 		persistConfig()
 	}
 }
 
 // migrateDiscovery folds a pre-discovery top-level `mdns:` block into
-// discovery.mdns. Config files written before the SSDP responder existed use
-// the old spelling, and rewriting a user's file to move two keys is worse
-// than reading both. One-way: nothing is written back.
+// discovery.mdns and then clears it, leaving discovery: as the single place
+// the setting lives. Config files written before the SSDP responder existed
+// use the old spelling.
+//
+// Clearing the field is what makes the migration final: the caller pairs it
+// with a one-time rewrite (see checkDefaultValue), so the upgraded file has
+// one spelling instead of two. Keeping both was actively harmful — a file
+// with a discovery: key takes the early return below, so the legacy values
+// would be read on the migrating boot and dropped on every boot after it.
+//
+// An explicit discovery: block is authoritative even when a legacy block
+// coexists with it: the legacy block is then stale text to delete, never a
+// source of values.
 func migrateDiscovery(c *Config, discoveryKeySet bool) {
-	if discoveryKeySet {
+	if c.MDNS == nil {
 		return
 	}
-	if c.MDNS != (MDNS{}) {
-		c.Discovery.MDNS = c.MDNS
+	if !discoveryKeySet {
+		c.Discovery.MDNS = *c.MDNS
 	}
+	c.MDNS = nil
 }

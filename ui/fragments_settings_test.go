@@ -37,6 +37,10 @@ func settingsRouter(t *testing.T) *gin.Engine {
 // were then discarded for good on the next config.Save()/reload since a
 // written discovery: key makes migrateDiscovery skip the legacy block.
 //
+// Writing that field is now worse still, not better: migrateDiscovery
+// clears it on load and the rewrite drops the key, so a write there both
+// goes nowhere and resurrects a spelling the migration exists to remove.
+//
 // This fails if patchMDNS (the write) and networkModel (the read) ever
 // disagree again about which struct field is authoritative.
 func TestPatchMDNSWritesTheBlockDiscoveryReadsFrom(t *testing.T) {
@@ -53,7 +57,7 @@ func TestPatchMDNSWritesTheBlockDiscoveryReadsFrom(t *testing.T) {
 	// documented no-socket path regardless of the mDNS enabled bit this test
 	// submits — this test is about which config field gets written, not
 	// about exercising a live responder.
-	cfg.MDNS = config.MDNS{Enabled: true, Hostname: "legacy-should-not-change", Interface: "legacy0"}
+	cfg.MDNS = &config.MDNS{Enabled: true, Hostname: "legacy-should-not-change", Interface: "legacy0"}
 	cfg.Discovery.MDNS = config.MDNS{Enabled: true, Hostname: "old", Interface: "eth0"}
 	cfg.Discovery.SSDP = config.SSDP{Enabled: false}
 	cfg.Redfish.Enabled = false
@@ -80,7 +84,7 @@ func TestPatchMDNSWritesTheBlockDiscoveryReadsFrom(t *testing.T) {
 		t.Errorf("Discovery.MDNS after patch = %+v, want the submitted values (Enabled=false)", got)
 	}
 
-	if legacy := config.GetInstance().MDNS; legacy.Hostname != "legacy-should-not-change" {
+	if legacy := config.GetInstance().MDNS; legacy == nil || legacy.Hostname != "legacy-should-not-change" {
 		t.Errorf("legacy MDNS block was mutated: %+v (patchMDNS must write Discovery.MDNS only)", legacy)
 	}
 

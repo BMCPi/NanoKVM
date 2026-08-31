@@ -16,6 +16,13 @@ var (
 	once     sync.Once
 )
 
+// configFilePath is the file this package writes when it has to persist —
+// a generated JWT secret, a settings change, the one-time discovery
+// migration. It is a var rather than the ConfigurationFile constant used
+// directly so a test can redirect those writes away from the real /etc/kvm.
+// Reads still go through viper's search path in readByFile.
+var configFilePath = ConfigurationFile
+
 func GetInstance() *Config {
 	once.Do(initialize)
 
@@ -80,7 +87,7 @@ func create() {
 
 	_ = os.MkdirAll("/etc/kvm", 0o755)
 
-	file, err = os.OpenFile("/etc/kvm/server.yaml", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	file, err = os.OpenFile(configFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		log.Printf("open config failed: %s", err)
 		return
@@ -104,7 +111,7 @@ func create() {
 		return
 	}
 
-	log.Println("create file /etc/kvm/server.yaml with default configuration")
+	log.Printf("create file %s with default configuration", configFilePath)
 }
 
 // Validate the configuration. This is to ensure compatibility with earlier versions.
@@ -113,7 +120,7 @@ func validate() error {
 		return nil
 	}
 
-	_ = os.Remove("/etc/kvm/server.yaml")
+	_ = os.Remove(configFilePath)
 	log.Println("delete empty configuration file")
 
 	create()
@@ -128,9 +135,11 @@ func Save() {
 	persistConfig()
 }
 
-// persistConfig writes the current in-memory config back to disk.
-// This is used to save generated values (e.g. JWT secret key) so they
-// survive server restarts.
+// persistConfig writes the current in-memory config back to disk. It saves
+// generated values (e.g. the JWT secret key) so they survive restarts, and
+// it is what makes the one-time discovery migration stick — see
+// migrateDiscovery. It marshals the whole struct, so nothing else in the
+// config is lost by a rewrite.
 func persistConfig() {
 	data, err := yaml.Marshal(&instance)
 	if err != nil {
@@ -140,10 +149,10 @@ func persistConfig() {
 
 	_ = os.MkdirAll("/etc/kvm", 0o755)
 
-	if err := os.WriteFile("/etc/kvm/server.yaml", data, 0o600); err != nil {
+	if err := os.WriteFile(configFilePath, data, 0o600); err != nil {
 		log.Printf("failed to persist config: %s", err)
 		return
 	}
 
-	log.Println("persisted generated JWT secret key to /etc/kvm/server.yaml")
+	log.Printf("persisted configuration to %s", configFilePath)
 }

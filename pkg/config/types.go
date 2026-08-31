@@ -23,10 +23,15 @@ type Config struct {
 	Power      Power      `yaml:"power"`
 	Telemetry  Telemetry  `yaml:"telemetry"`
 	AutoUpdate AutoUpdate `yaml:"autoUpdate"`
-	// MDNS is the pre-discovery top-level spelling, kept only as the landing
-	// spot viper unmarshals a legacy server.yaml's mdns: block into — see
-	// migrateDiscovery. Discovery.MDNS is what the mDNS/SSDP responders read.
-	MDNS      MDNS      `yaml:"mdns"`
+	// MDNS is the pre-discovery top-level spelling. It is only the landing
+	// spot viper unmarshals a legacy server.yaml's mdns: block into;
+	// migrateDiscovery folds it into Discovery.MDNS and clears it on the
+	// first load after upgrade, and Discovery.MDNS is what the mDNS/SSDP
+	// responders read. A pointer so that clearing it also erases the key
+	// from the rewritten file — a plain struct with omitempty is not
+	// reliably omitted by yaml.v3, and re-emitting the key would put the
+	// file back to carrying two spellings of the same setting.
+	MDNS      *MDNS     `yaml:"mdns,omitempty"`
 	Discovery Discovery `yaml:"discovery"`
 	Network   Network   `yaml:"network"`
 	TimeSync  TimeSync  `yaml:"timeSync"`

@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -11,11 +12,16 @@ import (
 // before discovery.mdns existed: the top-level mdns: block must still land
 // somewhere the SSDP/mDNS responders read from.
 func TestLegacyMDNSBlockMigratesIntoDiscovery(t *testing.T) {
-	c := &Config{MDNS: MDNS{Enabled: true, Interface: "eth1", Hostname: "old"}}
+	c := &Config{MDNS: &MDNS{Enabled: true, Interface: "eth1", Hostname: "old"}}
 	migrateDiscovery(c, false /* discoveryKeySet */)
 
 	if c.Discovery.MDNS.Interface != "eth1" || c.Discovery.MDNS.Hostname != "old" {
 		t.Errorf("legacy mdns: block did not migrate: %+v", c.Discovery.MDNS)
+	}
+	// Cleared so the rewrite that follows drops the key rather than
+	// re-emitting it alongside discovery:.
+	if c.MDNS != nil {
+		t.Errorf("legacy mdns: block survived the migration: %+v", c.MDNS)
 	}
 }
 
@@ -25,7 +31,7 @@ func TestLegacyMDNSBlockMigratesIntoDiscovery(t *testing.T) {
 // by the legacy one.
 func TestExplicitDiscoveryBlockWinsOverLegacy(t *testing.T) {
 	c := &Config{
-		MDNS:      MDNS{Interface: "eth1"},
+		MDNS:      &MDNS{Interface: "eth1"},
 		Discovery: Discovery{MDNS: MDNS{Interface: "eth0"}},
 	}
 	migrateDiscovery(c, true /* discoveryKeySet */)
@@ -33,6 +39,11 @@ func TestExplicitDiscoveryBlockWinsOverLegacy(t *testing.T) {
 	if c.Discovery.MDNS.Interface != "eth0" {
 		t.Errorf("legacy block overwrote an explicit discovery block: %q",
 			c.Discovery.MDNS.Interface)
+	}
+	// Ignored, but still dropped: leaving it would keep two spellings of the
+	// same setting in the file the next Save() writes.
+	if c.MDNS != nil {
+		t.Errorf("stale legacy mdns: block survived the migration: %+v", c.MDNS)
 	}
 }
 
@@ -43,9 +54,19 @@ func TestExplicitDiscoveryBlockWinsOverLegacy(t *testing.T) {
 // in the regression these cases cover (a "discovery.mdns key absent" check
 // that didn't also account for a legacy mdns: block having just been folded
 // in). jwt.secretKey is set in every fixture so checkDefaultValue doesn't
-// take its needsPersist path and try to write /etc/kvm/server.yaml.
-func loadConfigFromYAML(t *testing.T, yamlText string) Config {
+// take its needsPersist path for the generated secret.
+//
+// checkDefaultValue can still persist — a legacy mdns: block asks for the
+// one-time migration rewrite — so the config file is redirected into
+// t.TempDir() and its path returned. No test writes /etc/kvm, and a test
+// that cares can assert on the rewritten bytes, or on the file's absence.
+func loadConfigFromYAML(t *testing.T, yamlText string) (Config, string) {
 	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "server.yaml")
+	origPath := configFilePath
+	configFilePath = path
+	t.Cleanup(func() { configFilePath = origPath })
 
 	viper.Reset()
 	t.Cleanup(viper.Reset)
@@ -60,7 +81,7 @@ func loadConfigFromYAML(t *testing.T, yamlText string) Config {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 	checkDefaultValue()
-	return instance
+	return instance, path
 }
 
 // TestDiscoveryMigrationSurvivesDefaulting is the regression test for commit
@@ -161,7 +182,7 @@ func TestDiscoveryMigrationSurvivesDefaulting(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			c := loadConfigFromYAML(t, tc.yaml)
+			c, _ := loadConfigFromYAML(t, tc.yaml)
 
 			if c.Discovery.MDNS.Interface != tc.wantInterface {
 				t.Errorf("Discovery.MDNS.Interface = %q, want %q", c.Discovery.MDNS.Interface, tc.wantInterface)
