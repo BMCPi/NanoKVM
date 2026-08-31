@@ -7,6 +7,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -42,7 +43,7 @@ func startTestServer(t *testing.T, passwordAuth bool) string {
 	})
 
 	Stop() // ensure a clean slate if a previous test left one running
-	if err := Start(); err != nil {
+	if err := Start(slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	if !IsRunning() {
@@ -455,7 +456,7 @@ func TestGeneratedHostKeyIsPrivate(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nested", "ssh_host_ed25519_key")
 
-	signer, err := loadOrCreateHostKey(path)
+	signer, err := loadOrCreateHostKey(path, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("loadOrCreateHostKey: %v", err)
 	}
@@ -480,7 +481,7 @@ func TestGeneratedHostKeyIsPrivate(t *testing.T) {
 	}
 
 	// A second load must reuse the key, not mint a new one.
-	again, err := loadOrCreateHostKey(path)
+	again, err := loadOrCreateHostKey(path, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("reload: %v", err)
 	}

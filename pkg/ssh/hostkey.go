@@ -18,12 +18,13 @@ import (
 const hostKeyComment = "nanokvm-bmc"
 
 // loadOrCreateHostKey returns the server's host key signer, generating and
-// persisting an ed25519 key on first start.
+// persisting an ed25519 key on first start. log is the caller's (newServer's)
+// component logger — this file has no struct of its own to store it on.
 //
 // The key must survive reboots or every reconnecting client gets a host-key
 // mismatch warning, which is why the default path is on the data partition and
 // not on the volatile root overlay.
-func loadOrCreateHostKey(path string) (ssh.Signer, error) {
+func loadOrCreateHostKey(path string, log *slog.Logger) (ssh.Signer, error) {
 	data, err := os.ReadFile(path)
 	switch {
 	case err == nil:
@@ -34,14 +35,14 @@ func loadOrCreateHostKey(path string) (ssh.Signer, error) {
 		return signer, nil
 
 	case errors.Is(err, os.ErrNotExist):
-		return generateHostKey(path)
+		return generateHostKey(path, log)
 
 	default:
 		return nil, fmt.Errorf("read host key %s: %w", path, err)
 	}
 }
 
-func generateHostKey(path string) (ssh.Signer, error) {
+func generateHostKey(path string, log *slog.Logger) (ssh.Signer, error) {
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("generate host key: %w", err)
@@ -71,7 +72,7 @@ func generateHostKey(path string) (ssh.Signer, error) {
 		return nil, fmt.Errorf("host key signer: %w", err)
 	}
 
-	slog.Info("ssh: generated ed25519 host key",
+	log.Info("ssh: generated ed25519 host key",
 		slog.String("path", path),
 		slog.String("fingerprint", ssh.FingerprintSHA256(signer.PublicKey())))
 	return signer, nil

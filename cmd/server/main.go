@@ -221,7 +221,7 @@ func initialize(ctx context.Context) {
 	// SSH listener, authenticating against the same account as the web UI plus
 	// the configured authorized_keys, and running sessions on the shared PTY
 	// plumbing the web terminal uses. No-op when ssh.enabled is false.
-	if err := sshd.Start(); err != nil {
+	if err := sshd.Start(rootLog.With("component", "ssh")); err != nil {
 		slog.ErrorContext(ctx, "SSH server start failed", slog.Any("err", err))
 	}
 

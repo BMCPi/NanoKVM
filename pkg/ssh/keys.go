@@ -107,7 +107,7 @@ func WriteAuthorizedKeys(sshKey string) error {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("remove authorized keys: %w", err)
 		}
-		slog.Info("ssh: authorized keys cleared")
+		pkgLog().Info("ssh: authorized keys cleared")
 		return nil
 	}
 
@@ -122,7 +122,7 @@ func WriteAuthorizedKeys(sshKey string) error {
 		return fmt.Errorf("write authorized keys: %w", err)
 	}
 
-	slog.Info("ssh: authorized keys updated")
+	pkgLog().Info("ssh: authorized keys updated")
 	return nil
 }
 
@@ -132,7 +132,7 @@ func WriteAuthorizedKeys(sshKey string) error {
 func authorizedKeys() []ssh.PublicKey {
 	content, err := ReadAuthorizedKeys()
 	if err != nil {
-		slog.Warn("ssh: read authorized keys failed", slog.Any("err", err))
+		pkgLog().Warn("ssh: read authorized keys failed", slog.Any("err", err))
 		return nil
 	}
 
