@@ -7,8 +7,8 @@ import (
 
 const (
 	// GitHub repository for release downloads.
-	GitHubOwner = "BMCPi"
-	GitHubRepo  = "NanoKVM"
+	GitHubOwner = "pi-bmc"
+	GitHubRepo  = "nanokvm-app"
 
 	// BuiltinAppDir is the copy of the app baked into the read-only squashfs
 	// image. Never written to; it is the last-resort fallback when no

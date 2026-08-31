@@ -58,9 +58,6 @@ checksum:
   name_template: "checksums.txt"
 
 release:
-  github:
-    owner: BMCPi
-    name: NanoKVM
   draft: false
   prerelease: auto
   name_template: "{{ .Tag }}"
