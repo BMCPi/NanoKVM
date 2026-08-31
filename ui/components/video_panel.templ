@@ -3,6 +3,7 @@ package components
 import (
 	"github.com/pi-bmc/nanokvm-app/ui/components/badge"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
+	"github.com/pi-bmc/nanokvm-app/ui/components/empty"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
 )
 
@@ -21,110 +22,174 @@ import (
 // would come back with &quot; in it and fail to parse.
 templ VideoPanel(iceServersJSON string) {
 	@videoPanelStyles()
-	<div id="video-pane" class="flex h-full min-h-0 flex-col" data-ice-servers={ iceServersJSON }>
-		@videoToolbar()
-		<div id="video-wrap" class="relative flex-1 min-h-0 overflow-hidden rounded-b-md border border-t-0 border-border bg-black">
-			// muted + playsinline are what let autoplay through: a stream with
-			// no audio track still counts as "with sound" to some browsers
-			// unless muted is set, and the play() would be rejected.
-			<video id="video-stream" class="h-full w-full object-contain" autoplay muted playsinline></video>
-			// Overlay for every non-playing state. Sits above the video so a
-			// stale last frame cannot be mistaken for a live picture.
-			<div id="video-overlay" class="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 text-center">
-				@icon.MonitorOff(icon.Props{Class: "size-10 text-muted-foreground"})
-				<div>
-					<p id="video-overlay-title" class="text-sm font-medium text-foreground">HDMI not connected</p>
-					<p id="video-overlay-detail" class="mt-1 max-w-md text-xs text-muted-foreground">
-						Select Connect to start streaming the host&#39;s HDMI output.
-					</p>
-				</div>
+	<div id="video-pane" class="flex h-full min-h-0 flex-col">
+		// The stage is the layout container. It owns whatever space the tab
+		// gives it and centers the picture inside — the frame never stretches
+		// to the pane, so a 4:3 host does not sit in a 16:9 letterbox with
+		// chrome pinned to the black bars.
+		<div id="video-stage" class="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black/40 p-2" data-ice-servers={ iceServersJSON }>
+			// The frame IS the picture box: its aspect ratio tracks the
+			// stream's, so everything pinned to it lands on the video rather
+			// than on letterbox. See videoPanelStyles for how it fits.
+			<div id="video-frame" class="relative overflow-hidden rounded-lg bg-black shadow-2xl ring-1 ring-white/10">
+				// muted + playsinline are what let autoplay through: a stream
+				// with no audio track still counts as "with sound" to some
+				// browsers unless muted is set, and the play() would be
+				// rejected.
+				<video id="video-stream" class="absolute inset-0 block h-full w-full object-contain" autoplay muted playsinline></video>
+				@videoToolbar()
+				@videoStatusFooter()
+				@videoOverlay()
 			</div>
 		</div>
 	</div>
 	@videoPanelScript()
 }
 
-// videoToolbar mirrors ConsoleToolbar's shape so the two tabs do not visibly
-// reflow when switching between them: same height, same badge vocabulary, same
-// button sizes and order.
+// videoToolbar is the discreet top chrome: the controls that change how the
+// picture is presented, and nothing else. It floats over the video on a scrim
+// rather than sitting in a bar above it, so the frame stays the whole panel.
+//
+// pointer-events-none on the strip with pointer-events-auto on the buttons:
+// the scrim spans the full width for legibility, but only the controls should
+// swallow clicks — the rest of that band is still video the operator may want
+// to click through to the host.
 templ videoToolbar() {
-	<div class="flex flex-wrap items-center justify-between gap-y-1.5 rounded-t-md border border-border bg-card px-3 py-1.5 sm:flex-nowrap">
-		<div class="flex items-center gap-3">
-			<span class="text-xs font-medium">HDMI</span>
-			<span id="video-mode" class="text-xs text-muted-foreground">—</span>
-			// Same hidden-ATTRIBUTE swap the serial toolbar uses; see the note
-			// in console_toolbar.templ for why the class would not work here.
-			@badge.Badge(badge.Props{ID: "video-status-disconnected", Variant: badge.VariantDestructive}) {
-				Disconnected
+	<div id="video-toolbar" class="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-end bg-gradient-to-b from-black/70 via-black/25 to-transparent p-2 pb-6">
+		<div class="pointer-events-auto flex items-center gap-1">
+			@videoChromeButton("btn-video-mouse-mode", "toggleVideoMouseMode()",
+				"Absolute pointing puts the host cursor under yours; relative captures the pointer for hosts that ignore an absolute one") {
+				@icon.MousePointer2(icon.Props{Class: "size-4"})
+				<span id="video-mouse-mode-label" class="text-[11px] font-medium">Absolute</span>
 			}
-			@badge.Badge(badge.Props{
-				ID:         "video-status-connecting",
-				Variant:    badge.VariantSecondary,
-				Class:      "bg-yellow-500/15 text-yellow-500",
-				Attributes: templ.Attributes{"hidden": true},
-			}) {
-				Connecting…
+			@videoChromeButton("btn-video-expand", "toggleVideoExpand()", "Expand video") {
+				@icon.Maximize2(icon.Props{Class: "size-4"})
 			}
-			@badge.Badge(badge.Props{
-				ID:         "video-status-connected",
-				Variant:    badge.VariantSecondary,
-				Class:      "bg-green-500/15 text-green-500",
-				Attributes: templ.Attributes{"hidden": true},
-			}) {
-				Streaming
-			}
-			@badge.Badge(badge.Props{
-				ID:         "video-status-nosignal",
-				Variant:    badge.VariantSecondary,
-				Class:      "bg-orange-500/15 text-orange-500",
-				Attributes: templ.Attributes{"hidden": true},
-			}) {
-				No signal
-			}
-		</div>
-		<div class="ml-auto flex items-center gap-1">
-			@button.Button(button.Props{
-				ID:         "btn-video-connect",
-				Variant:    button.VariantOutline,
-				Size:       button.SizeSm,
-				Class:      "border-green-700 text-green-500",
-				Attributes: templ.Attributes{"onclick": "connectVideo()"},
-			}) {
-				@icon.Plug()
-				<span>Connect</span>
-			}
-			@button.Button(button.Props{
-				ID:         "btn-video-disconnect",
-				Variant:    button.VariantDestructive,
-				Size:       button.SizeSm,
-				Attributes: templ.Attributes{"onclick": "disconnectVideo()", "hidden": true},
-			}) {
-				@icon.X()
-				<span>Disconnect</span>
-			}
-			@button.Button(button.Props{
-				ID:      "btn-video-mouse-mode",
-				Variant: button.VariantOutline,
-				Size:    button.SizeSm,
-				Attributes: templ.Attributes{
-					"onclick": "toggleVideoMouseMode()",
-					"title":   "Absolute pointing puts the host cursor under yours; relative captures the pointer for hosts that ignore an absolute one",
-				},
-			}) {
-				@icon.MousePointer2()
-				<span id="video-mouse-mode-label">Absolute</span>
-			}
-			@button.Button(button.Props{
-				ID:         "btn-video-fullscreen",
-				Variant:    button.VariantOutline,
-				Size:       button.SizeIcon,
-				Class:      "size-8",
-				Attributes: templ.Attributes{"onclick": "toggleVideoFullscreen()", "title": "Fullscreen"},
-			}) {
-				@icon.Expand()
+			@videoChromeButton("btn-video-fullscreen", "toggleVideoFullscreen()", "Fullscreen") {
+				@icon.Expand(icon.Props{Class: "size-4"})
 			}
 		</div>
 	</div>
+}
+
+// videoStatusFooter carries what the old toolbar said about the connection —
+// source, mode, state — plus the one action that ends the session. Transparent
+// over the picture, on a scrim so the text survives a white host desktop.
+templ videoStatusFooter() {
+	<div class="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-3 bg-gradient-to-t from-black/70 via-black/25 to-transparent p-2 pt-6">
+		<div class="flex min-w-0 items-center gap-2 text-[11px] text-white/70">
+			<span class="font-medium text-white/90">HDMI</span>
+			<span id="video-mode" class="truncate tabular-nums">—</span>
+			// One dot + label per state, swapped by the hidden PROPERTY the
+			// same way the badges were. A dot rather than a badge: the footer
+			// sits over live video and a filled pill is a hole in the picture.
+			@videoStatusPill("disconnected", "bg-destructive", "Disconnected", false)
+			@videoStatusPill("connecting", "bg-yellow-500", "Connecting…", true)
+			@videoStatusPill("connected", "bg-green-500", "Streaming", true)
+			@videoStatusPill("nosignal", "bg-orange-500", "No signal", true)
+		</div>
+		<div class="pointer-events-auto shrink-0">
+			// The only destructive control on the panel, and deliberately the
+			// quietest thing in it: ending a session is a decision, not a
+			// thing to be nudged into by a red button under the cursor.
+			@button.Button(button.Props{
+				ID:      "btn-video-disconnect",
+				Variant: button.VariantGhost,
+				Size:    button.SizeSm,
+				Class:   "h-7 gap-1 bg-black/40 px-2 text-[11px] text-white/70 backdrop-blur-sm hover:bg-destructive/80 hover:text-white",
+				Attributes: templ.Attributes{
+					"onclick": "disconnectVideo()",
+					"title":   "Stop streaming and release the encoder",
+					"hidden":  true,
+				},
+			}) {
+				@icon.X(icon.Props{Class: "size-3.5"})
+				<span>Disconnect</span>
+			}
+		</div>
+	</div>
+}
+
+// videoStatusPill is one connection state. Badge rather than a hand-rolled
+// span: the variants, sizing and typography are the same ones every other
+// status in this app uses, and a bespoke pill here would drift from them the
+// first time the palette moves.
+//
+// Softened with a translucent background because this one sits over live
+// video — the default solid fill punches a hole in the picture — but the
+// component still owns the shape.
+func videoStatusPillID(state string) string { return "video-status-" + state }
+
+templ videoStatusPill(state, dot, label string, hidden bool) {
+	@badge.Badge(badge.Props{
+		ID:      videoStatusPillID(state),
+		Variant: badge.VariantSecondary,
+		Class:   "h-5 gap-1.5 border-white/10 bg-black/50 px-1.5 text-[10px] text-white/80 backdrop-blur-sm",
+		Attributes: templ.Attributes{
+			"hidden": hidden,
+		},
+	}) {
+		<span class={ "size-1.5 shrink-0 rounded-full " + dot }></span>
+		{ label }
+	}
+}
+
+// videoOverlay covers the frame whenever there is nothing to watch, and holds
+// the call to action for the state it is reporting. Connect lives here rather
+// than in the toolbar: when the panel is dark, starting the stream is the only
+// thing an operator wants, and the middle of the picture is where they are
+// already looking.
+templ videoOverlay() {
+	<div id="video-overlay" class="absolute inset-0 z-20 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+		// The Empty component is exactly this shape — media, title,
+		// description, one action — so the icon sizing, spacing and text
+		// scale come from the same place as every other empty state here
+		// rather than being re-guessed.
+		@empty.Empty(empty.Props{Class: "w-full max-w-md border-0 bg-transparent p-0"}) {
+			@empty.Header() {
+				@empty.Media(empty.MediaProps{Variant: empty.MediaVariantIcon}) {
+					@icon.MonitorOff()
+				}
+				@empty.Title(empty.TitleProps{ID: "video-overlay-title"}) {
+					HDMI not connected
+				}
+				@empty.Description(empty.DescriptionProps{ID: "video-overlay-detail"}) {
+					Select Connect to start streaming the host&#39;s HDMI output.
+				}
+			}
+			@empty.Content() {
+				// Connect lives here rather than in the toolbar: when the
+				// panel is dark, starting the stream is the only thing an
+				// operator wants, and the middle of the picture is where they
+				// are already looking.
+				@button.Button(button.Props{
+					ID:         "btn-video-connect",
+					Size:       button.SizeSm,
+					Attributes: templ.Attributes{"onclick": "connectVideo()"},
+				}) {
+					@icon.Plug(icon.Props{Class: "size-4"})
+					<span>Connect</span>
+				}
+			}
+		}
+	</div>
+}
+
+// videoChromeButton is the shared look for the floating top controls: quiet
+// until hovered, legible over any picture behind them.
+templ videoChromeButton(id, onclick, title string) {
+	@button.Button(button.Props{
+		ID:      id,
+		Variant: button.VariantGhost,
+		Size:    button.SizeSm,
+		Class:   "h-7 gap-1 bg-black/40 px-2 text-white/80 backdrop-blur-sm hover:bg-black/70 hover:text-white",
+		Attributes: templ.Attributes{
+			"onclick": onclick,
+			"title":   title,
+		},
+	}) {
+		{ children... }
+	}
 }
 
 templ videoPanelStyles() {
@@ -133,6 +198,55 @@ templ videoPanelStyles() {
 		   cannot collide with the tabs component, which owns the `hidden`
 		   class on the panes above it. */
 		#video-overlay[data-state="hidden"] { display: none; }
+
+		/* Fit-contain, in CSS, for a container rather than a replaced element.
+		   A plain aspect-ratio box cannot do this: with width:100% the height
+		   is derived and then merely clamped by max-height, which letterboxes
+		   instead of shrinking the width to match. Container query units give
+		   the stage's own content box, so the frame can take the smaller of
+		   "as wide as the stage" and "as wide as the stage is tall, times the
+		   ratio" — which is exactly object-fit:contain, applied to the box.
+
+		   Why the box and not just object-contain on the video: the toolbar,
+		   the status footer and the overlay are pinned to this element. If it
+		   stretched to the pane while the picture letterboxed inside it, every
+		   one of them would float over black bars instead of over the video. */
+		#video-stage { container-type: size; }
+		#video-frame {
+			--video-aspect: 1.7777778;
+			aspect-ratio: var(--video-aspect);
+			width: min(100cqw, calc(100cqh * var(--video-aspect)));
+		}
+
+		/* The top controls stay out of the way until wanted.
+		   Written here rather than as Tailwind's group-hover utility for one
+		   reason: Tailwind v4 emits hover variants inside
+		   @media (hover:hover), which guards the REVEAL but not the HIDE. On
+		   a touch device the opacity-0 would still apply and the reveal never
+		   would, leaving fullscreen and the mouse-mode toggle permanently
+		   invisible with no way to reach them. Keeping all three states — 
+		   hidden, revealed, and the pointerless exception — in one block is
+		   what makes that failure impossible to reintroduce by editing one
+		   half of it. */
+		#video-toolbar {
+			opacity: 0;
+			transition: opacity 150ms ease;
+		}
+		#video-frame:hover #video-toolbar,
+		#video-frame:focus-within #video-toolbar { opacity: 1; }
+		/* No hover on a touch screen, so never hide them there. */
+		@media (hover: none) {
+			#video-toolbar { opacity: 1; }
+		}
+
+		/* Expanded takes the whole viewport, matching the serial pane's own
+		   expand so the two tabs behave the same way. */
+		#video-pane.expanded {
+			position: fixed;
+			inset: 0;
+			z-index: 40;
+			background: var(--background);
+		}
 	</style>
 }
 
@@ -158,10 +272,23 @@ templ videoPanelScript() {
 					const b = el('video-status-' + s);
 					if (b) b.hidden = (s !== state);
 				});
+				// Connect is in the overlay and Disconnect in the footer, so
+				// the two are never on screen together and neither needs to
+				// reason about the other.
 				const c = el('btn-video-connect');
 				const d = el('btn-video-disconnect');
 				if (c) c.hidden = (state !== 'disconnected');
 				if (d) d.hidden = (state === 'disconnected');
+			}
+
+			// The frame is aspect-locked so the chrome pinned to it lands on
+			// the picture. Told rather than measured: the hub reports the
+			// capture size before a frame has decoded, so the box is right
+			// the first time instead of snapping when metadata lands.
+			function setVideoAspect(w, h) {
+				const f = el('video-frame');
+				if (!f || !w || !h) return;
+				f.style.setProperty('--video-aspect', String(w / h));
 			}
 
 			function setOverlay(title, detail) {
@@ -204,6 +331,7 @@ templ videoPanelScript() {
 				if (s && s.Ready && s.Width && s.Height) {
 					const fps = s.FramePerSecond ? ' @ ' + Math.round(s.FramePerSecond) + 'fps' : '';
 					el('video-mode').textContent = s.Width + '×' + s.Height + fps;
+					setVideoAspect(s.Width, s.Height);
 				} else {
 					el('video-mode').textContent = '—';
 				}
@@ -257,7 +385,7 @@ templ videoPanelScript() {
 				// its browser are usually on the same L2 segment, where host
 				// candidates alone complete the connection.
 				let iceServers = [];
-				try { iceServers = JSON.parse(el('video-pane').dataset.iceServers || '[]'); } catch (e) {}
+				try { iceServers = JSON.parse(el('video-stage').dataset.iceServers || '[]'); } catch (e) {}
 
 				pc = new RTCPeerConnection({ iceServers });
 
@@ -377,7 +505,7 @@ templ videoPanelScript() {
 			// the keyboard and pointer work at a host that is mid-POST with no
 			// picture yet — which is exactly when an operator needs them.
 			function attachInput() {
-				window.hidAttach?.(el('video-wrap'), el('video-stream'));
+				window.hidAttach?.(el('video-frame'), el('video-stream'));
 			}
 
 			window.toggleVideoMouseMode = function () {
@@ -394,18 +522,46 @@ templ videoPanelScript() {
 				if (mode === 'relative' && overlay && overlay.dataset.state === 'hidden') {
 					// Pointer lock needs a click to engage, and a captured
 					// pointer with no hint is disorienting.
-					el('video-wrap')?.setAttribute('title', 'Click to capture the pointer; press Esc to release');
+					el('video-frame')?.setAttribute('title', 'Click to capture the pointer; press Esc to release');
 				} else {
-					el('video-wrap')?.removeAttribute('title');
+					el('video-frame')?.removeAttribute('title');
 				}
 			};
 
+			// Fullscreen the pane, not the frame: the stage inside it is what
+			// centers the picture, and taking the frame alone would strand the
+			// toolbar and footer on a box that no longer has a container to
+			// measure against.
 			window.toggleVideoFullscreen = function () {
-				const w = el('video-wrap');
-				if (!w) return;
+				const p = el('video-pane');
+				if (!p) return;
 				if (document.fullscreenElement) document.exitFullscreen();
-				else w.requestFullscreen?.();
+				else p.requestFullscreen?.();
 			};
+
+			// Expand mirrors the serial pane's: fill the viewport without
+			// asking the browser for fullscreen, so the operator keeps their
+			// tab strip and the BMC's own chrome one Escape away.
+			window.toggleVideoExpand = function () {
+				const p = el('video-pane');
+				const b = el('btn-video-expand');
+				if (!p) return;
+				const on = p.classList.toggle('expanded');
+				if (b) {
+					b.classList.toggle('bg-black/70', on);
+					b.title = on ? 'Collapse video' : 'Expand video';
+				}
+				const header = document.querySelector('header');
+				if (header) header.style.display = on ? 'none' : '';
+			};
+
+			document.addEventListener('keydown', (e) => {
+				if (e.key !== 'Escape') return;
+				const p = el('video-pane');
+				if (p && p.classList.contains('expanded') && !document.fullscreenElement) {
+					window.toggleVideoExpand();
+				}
+			});
 
 			// Called by the tab strip. Connecting lazily keeps the encoder idle
 			// while the serial tab is in front.

@@ -11,6 +11,7 @@ import templruntime "github.com/a-h/templ/runtime"
 import (
 	"github.com/pi-bmc/nanokvm-app/ui/components/badge"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
+	"github.com/pi-bmc/nanokvm-app/ui/components/empty"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
 )
 
@@ -52,20 +53,20 @@ func VideoPanel(iceServersJSON string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div id=\"video-pane\" class=\"flex h-full min-h-0 flex-col\" data-ice-servers=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div id=\"video-pane\" class=\"flex h-full min-h-0 flex-col\"><div id=\"video-stage\" class=\"relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black/40 p-2\" data-ice-servers=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(iceServersJSON)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/video_panel.templ`, Line: 24, Col: 92}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/video_panel.templ`, Line: 30, Col: 154}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\"><div id=\"video-frame\" class=\"relative overflow-hidden rounded-lg bg-black shadow-2xl ring-1 ring-white/10\"><video id=\"video-stream\" class=\"absolute inset-0 block h-full w-full object-contain\" autoplay muted playsinline></video>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -73,15 +74,15 @@ func VideoPanel(iceServersJSON string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<div id=\"video-wrap\" class=\"relative flex-1 min-h-0 overflow-hidden rounded-b-md border border-t-0 border-border bg-black\"><video id=\"video-stream\" class=\"h-full w-full object-contain\" autoplay muted playsinline></video><div id=\"video-overlay\" class=\"absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 text-center\">")
+		templ_7745c5c3_Err = videoStatusFooter().Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = icon.MonitorOff(icon.Props{Class: "size-10 text-muted-foreground"}).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = videoOverlay().Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<div><p id=\"video-overlay-title\" class=\"text-sm font-medium text-foreground\">HDMI not connected</p><p id=\"video-overlay-detail\" class=\"mt-1 max-w-md text-xs text-muted-foreground\">Select Connect to start streaming the host&#39;s HDMI output.</p></div></div></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</div></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -93,9 +94,14 @@ func VideoPanel(iceServersJSON string) templ.Component {
 	})
 }
 
-// videoToolbar mirrors ConsoleToolbar's shape so the two tabs do not visibly
-// reflow when switching between them: same height, same badge vocabulary, same
-// button sizes and order.
+// videoToolbar is the discreet top chrome: the controls that change how the
+// picture is presented, and nothing else. It floats over the video on a scrim
+// rather than sitting in a bar above it, so the frame stays the whole panel.
+//
+// pointer-events-none on the strip with pointer-events-auto on the buttons:
+// the scrim spans the full width for legibility, but only the controls should
+// swallow clicks — the rest of that band is still video the operator may want
+// to click through to the host.
 func videoToolbar() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -117,7 +123,7 @@ func videoToolbar() templ.Component {
 			templ_7745c5c3_Var3 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<div class=\"flex flex-wrap items-center justify-between gap-y-1.5 rounded-t-md border border-border bg-card px-3 py-1.5 sm:flex-nowrap\"><div class=\"flex items-center gap-3\"><span class=\"text-xs font-medium\">HDMI</span> <span id=\"video-mode\" class=\"text-xs text-muted-foreground\">—</span>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<div id=\"video-toolbar\" class=\"pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-end bg-gradient-to-b from-black/70 via-black/25 to-transparent p-2 pb-6\"><div class=\"pointer-events-auto flex items-center gap-1\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -133,13 +139,18 @@ func videoToolbar() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "Disconnected")
+			templ_7745c5c3_Err = icon.MousePointer2(icon.Props{Class: "size-4"}).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, " <span id=\"video-mouse-mode-label\" class=\"text-[11px] font-medium\">Absolute</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = badge.Badge(badge.Props{ID: "video-status-disconnected", Variant: badge.VariantDestructive}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = videoChromeButton("btn-video-mouse-mode", "toggleVideoMouseMode()",
+			"Absolute pointing puts the host cursor under yours; relative captures the pointer for hosts that ignore an absolute one").Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -155,18 +166,13 @@ func videoToolbar() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "Connecting…")
+			templ_7745c5c3_Err = icon.Maximize2(icon.Props{Class: "size-4"}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = badge.Badge(badge.Props{
-			ID:         "video-status-connecting",
-			Variant:    badge.VariantSecondary,
-			Class:      "bg-yellow-500/15 text-yellow-500",
-			Attributes: templ.Attributes{"hidden": true},
-		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var5), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = videoChromeButton("btn-video-expand", "toggleVideoExpand()", "Expand video").Render(templ.WithChildren(ctx, templ_7745c5c3_Var5), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -182,49 +188,69 @@ func videoToolbar() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "Streaming")
+			templ_7745c5c3_Err = icon.Expand(icon.Props{Class: "size-4"}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = badge.Badge(badge.Props{
-			ID:         "video-status-connected",
-			Variant:    badge.VariantSecondary,
-			Class:      "bg-green-500/15 text-green-500",
-			Attributes: templ.Attributes{"hidden": true},
-		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var6), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = videoChromeButton("btn-video-fullscreen", "toggleVideoFullscreen()", "Fullscreen").Render(templ.WithChildren(ctx, templ_7745c5c3_Var6), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Var7 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-			if !templ_7745c5c3_IsBuffer {
-				defer func() {
-					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err == nil {
-						templ_7745c5c3_Err = templ_7745c5c3_BufErr
-					}
-				}()
-			}
-			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "No signal")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			return nil
-		})
-		templ_7745c5c3_Err = badge.Badge(badge.Props{
-			ID:         "video-status-nosignal",
-			Variant:    badge.VariantSecondary,
-			Class:      "bg-orange-500/15 text-orange-500",
-			Attributes: templ.Attributes{"hidden": true},
-		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var7), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</div><div class=\"ml-auto flex items-center gap-1\">")
+		return nil
+	})
+}
+
+// videoStatusFooter carries what the old toolbar said about the connection —
+// source, mode, state — plus the one action that ends the session. Transparent
+// over the picture, on a scrim so the text survives a white host desktop.
+func videoStatusFooter() templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var7 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var7 == nil {
+			templ_7745c5c3_Var7 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<div class=\"pointer-events-none absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-3 bg-gradient-to-t from-black/70 via-black/25 to-transparent p-2 pt-6\"><div class=\"flex min-w-0 items-center gap-2 text-[11px] text-white/70\"><span class=\"font-medium text-white/90\">HDMI</span> <span id=\"video-mode\" class=\"truncate tabular-nums\">—</span>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = videoStatusPill("disconnected", "bg-destructive", "Disconnected", false).Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = videoStatusPill("connecting", "bg-yellow-500", "Connecting…", true).Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = videoStatusPill("connected", "bg-green-500", "Streaming", true).Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = videoStatusPill("nosignal", "bg-orange-500", "No signal", true).Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</div><div class=\"pointer-events-auto shrink-0\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -240,57 +266,69 @@ func videoToolbar() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = icon.Plug().Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = icon.X(icon.Props{Class: "size-3.5"}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, " <span>Connect</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, " <span>Disconnect</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
 		templ_7745c5c3_Err = button.Button(button.Props{
-			ID:         "btn-video-connect",
-			Variant:    button.VariantOutline,
-			Size:       button.SizeSm,
-			Class:      "border-green-700 text-green-500",
-			Attributes: templ.Attributes{"onclick": "connectVideo()"},
+			ID:      "btn-video-disconnect",
+			Variant: button.VariantGhost,
+			Size:    button.SizeSm,
+			Class:   "h-7 gap-1 bg-black/40 px-2 text-[11px] text-white/70 backdrop-blur-sm hover:bg-destructive/80 hover:text-white",
+			Attributes: templ.Attributes{
+				"onclick": "disconnectVideo()",
+				"title":   "Stop streaming and release the encoder",
+				"hidden":  true,
+			},
 		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var8), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Var9 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-			if !templ_7745c5c3_IsBuffer {
-				defer func() {
-					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err == nil {
-						templ_7745c5c3_Err = templ_7745c5c3_BufErr
-					}
-				}()
-			}
-			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = icon.X().Render(ctx, templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, " <span>Disconnect</span>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			return nil
-		})
-		templ_7745c5c3_Err = button.Button(button.Props{
-			ID:         "btn-video-disconnect",
-			Variant:    button.VariantDestructive,
-			Size:       button.SizeSm,
-			Attributes: templ.Attributes{"onclick": "disconnectVideo()", "hidden": true},
-		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var9), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
+		return nil
+	})
+}
+
+// videoStatusPill is one connection state. Badge rather than a hand-rolled
+// span: the variants, sizing and typography are the same ones every other
+// status in this app uses, and a bespoke pill here would drift from them the
+// first time the palette moves.
+//
+// Softened with a translucent background because this one sits over live
+// video — the default solid fill punches a hole in the picture — but the
+// component still owns the shape.
+func videoStatusPillID(state string) string { return "video-status-" + state }
+
+func videoStatusPill(state, dot, label string, hidden bool) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var9 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var9 == nil {
+			templ_7745c5c3_Var9 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
 		templ_7745c5c3_Var10 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
@@ -303,29 +341,85 @@ func videoToolbar() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = icon.MousePointer2().Render(ctx, templ_7745c5c3_Buffer)
+			var templ_7745c5c3_Var11 = []any{"size-1.5 shrink-0 rounded-full " + dot}
+			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var11...)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, " <span id=\"video-mouse-mode-label\">Absolute</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<span class=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var12 string
+			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var11).String())
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/video_panel.templ`, Line: 1, Col: 0}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "\"></span> ")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var13 string
+			templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(label)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/video_panel.templ`, Line: 133, Col: 9}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = button.Button(button.Props{
-			ID:      "btn-video-mouse-mode",
-			Variant: button.VariantOutline,
-			Size:    button.SizeSm,
+		templ_7745c5c3_Err = badge.Badge(badge.Props{
+			ID:      videoStatusPillID(state),
+			Variant: badge.VariantSecondary,
+			Class:   "h-5 gap-1.5 border-white/10 bg-black/50 px-1.5 text-[10px] text-white/80 backdrop-blur-sm",
 			Attributes: templ.Attributes{
-				"onclick": "toggleVideoMouseMode()",
-				"title":   "Absolute pointing puts the host cursor under yours; relative captures the pointer for hosts that ignore an absolute one",
+				"hidden": hidden,
 			},
 		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var10), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Var11 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		return nil
+	})
+}
+
+// videoOverlay covers the frame whenever there is nothing to watch, and holds
+// the call to action for the state it is reporting. Connect lives here rather
+// than in the toolbar: when the panel is dark, starting the stream is the only
+// thing an operator wants, and the middle of the picture is where they are
+// already looking.
+func videoOverlay() templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var14 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var14 == nil {
+			templ_7745c5c3_Var14 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<div id=\"video-overlay\" class=\"absolute inset-0 z-20 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Var15 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -337,23 +431,219 @@ func videoToolbar() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = icon.Expand().Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Var16 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+				if !templ_7745c5c3_IsBuffer {
+					defer func() {
+						templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+						if templ_7745c5c3_Err == nil {
+							templ_7745c5c3_Err = templ_7745c5c3_BufErr
+						}
+					}()
+				}
+				ctx = templ.InitializeContext(ctx)
+				templ_7745c5c3_Var17 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+					if !templ_7745c5c3_IsBuffer {
+						defer func() {
+							templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+							if templ_7745c5c3_Err == nil {
+								templ_7745c5c3_Err = templ_7745c5c3_BufErr
+							}
+						}()
+					}
+					ctx = templ.InitializeContext(ctx)
+					templ_7745c5c3_Err = icon.MonitorOff().Render(ctx, templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					return nil
+				})
+				templ_7745c5c3_Err = empty.Media(empty.MediaProps{Variant: empty.MediaVariantIcon}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var17), templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, " ")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Var18 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+					if !templ_7745c5c3_IsBuffer {
+						defer func() {
+							templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+							if templ_7745c5c3_Err == nil {
+								templ_7745c5c3_Err = templ_7745c5c3_BufErr
+							}
+						}()
+					}
+					ctx = templ.InitializeContext(ctx)
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "HDMI not connected")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					return nil
+				})
+				templ_7745c5c3_Err = empty.Title(empty.TitleProps{ID: "video-overlay-title"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var18), templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, " ")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Var19 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+					if !templ_7745c5c3_IsBuffer {
+						defer func() {
+							templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+							if templ_7745c5c3_Err == nil {
+								templ_7745c5c3_Err = templ_7745c5c3_BufErr
+							}
+						}()
+					}
+					ctx = templ.InitializeContext(ctx)
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "Select Connect to start streaming the host&#39;s HDMI output.")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					return nil
+				})
+				templ_7745c5c3_Err = empty.Description(empty.DescriptionProps{ID: "video-overlay-detail"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var19), templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				return nil
+			})
+			templ_7745c5c3_Err = empty.Header().Render(templ.WithChildren(ctx, templ_7745c5c3_Var16), templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, " ")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Var20 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+				if !templ_7745c5c3_IsBuffer {
+					defer func() {
+						templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+						if templ_7745c5c3_Err == nil {
+							templ_7745c5c3_Err = templ_7745c5c3_BufErr
+						}
+					}()
+				}
+				ctx = templ.InitializeContext(ctx)
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "    ")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Var21 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+					if !templ_7745c5c3_IsBuffer {
+						defer func() {
+							templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+							if templ_7745c5c3_Err == nil {
+								templ_7745c5c3_Err = templ_7745c5c3_BufErr
+							}
+						}()
+					}
+					ctx = templ.InitializeContext(ctx)
+					templ_7745c5c3_Err = icon.Plug(icon.Props{Class: "size-4"}).Render(ctx, templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, " <span>Connect</span>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					return nil
+				})
+				templ_7745c5c3_Err = button.Button(button.Props{
+					ID:         "btn-video-connect",
+					Size:       button.SizeSm,
+					Attributes: templ.Attributes{"onclick": "connectVideo()"},
+				}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var21), templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				return nil
+			})
+			templ_7745c5c3_Err = empty.Content().Render(templ.WithChildren(ctx, templ_7745c5c3_Var20), templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			return nil
+		})
+		templ_7745c5c3_Err = empty.Empty(empty.Props{Class: "w-full max-w-md border-0 bg-transparent p-0"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var15), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "</div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+// videoChromeButton is the shared look for the floating top controls: quiet
+// until hovered, legible over any picture behind them.
+func videoChromeButton(id, onclick, title string) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var22 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var22 == nil {
+			templ_7745c5c3_Var22 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Var23 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Err = templ_7745c5c3_Var22.Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
 		templ_7745c5c3_Err = button.Button(button.Props{
-			ID:         "btn-video-fullscreen",
-			Variant:    button.VariantOutline,
-			Size:       button.SizeIcon,
-			Class:      "size-8",
-			Attributes: templ.Attributes{"onclick": "toggleVideoFullscreen()", "title": "Fullscreen"},
-		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var11), templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</div></div>")
+			ID:      id,
+			Variant: button.VariantGhost,
+			Size:    button.SizeSm,
+			Class:   "h-7 gap-1 bg-black/40 px-2 text-white/80 backdrop-blur-sm hover:bg-black/70 hover:text-white",
+			Attributes: templ.Attributes{
+				"onclick": onclick,
+				"title":   title,
+			},
+		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var23), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -377,12 +667,12 @@ func videoPanelStyles() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var12 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var12 == nil {
-			templ_7745c5c3_Var12 = templ.NopComponent
+		templ_7745c5c3_Var24 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var24 == nil {
+			templ_7745c5c3_Var24 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<style>\n\t\t/* The overlay is driven by a data attribute rather than a class so it\n\t\t   cannot collide with the tabs component, which owns the `hidden`\n\t\t   class on the panes above it. */\n\t\t#video-overlay[data-state=\"hidden\"] { display: none; }\n\t</style>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<style>\n\t\t/* The overlay is driven by a data attribute rather than a class so it\n\t\t   cannot collide with the tabs component, which owns the `hidden`\n\t\t   class on the panes above it. */\n\t\t#video-overlay[data-state=\"hidden\"] { display: none; }\n\n\t\t/* Fit-contain, in CSS, for a container rather than a replaced element.\n\t\t   A plain aspect-ratio box cannot do this: with width:100% the height\n\t\t   is derived and then merely clamped by max-height, which letterboxes\n\t\t   instead of shrinking the width to match. Container query units give\n\t\t   the stage's own content box, so the frame can take the smaller of\n\t\t   \"as wide as the stage\" and \"as wide as the stage is tall, times the\n\t\t   ratio\" — which is exactly object-fit:contain, applied to the box.\n\n\t\t   Why the box and not just object-contain on the video: the toolbar,\n\t\t   the status footer and the overlay are pinned to this element. If it\n\t\t   stretched to the pane while the picture letterboxed inside it, every\n\t\t   one of them would float over black bars instead of over the video. */\n\t\t#video-stage { container-type: size; }\n\t\t#video-frame {\n\t\t\t--video-aspect: 1.7777778;\n\t\t\taspect-ratio: var(--video-aspect);\n\t\t\twidth: min(100cqw, calc(100cqh * var(--video-aspect)));\n\t\t}\n\n\t\t/* The top controls stay out of the way until wanted.\n\t\t   Written here rather than as Tailwind's group-hover utility for one\n\t\t   reason: Tailwind v4 emits hover variants inside\n\t\t   @media (hover:hover), which guards the REVEAL but not the HIDE. On\n\t\t   a touch device the opacity-0 would still apply and the reveal never\n\t\t   would, leaving fullscreen and the mouse-mode toggle permanently\n\t\t   invisible with no way to reach them. Keeping all three states — \n\t\t   hidden, revealed, and the pointerless exception — in one block is\n\t\t   what makes that failure impossible to reintroduce by editing one\n\t\t   half of it. */\n\t\t#video-toolbar {\n\t\t\topacity: 0;\n\t\t\ttransition: opacity 150ms ease;\n\t\t}\n\t\t#video-frame:hover #video-toolbar,\n\t\t#video-frame:focus-within #video-toolbar { opacity: 1; }\n\t\t/* No hover on a touch screen, so never hide them there. */\n\t\t@media (hover: none) {\n\t\t\t#video-toolbar { opacity: 1; }\n\t\t}\n\n\t\t/* Expanded takes the whole viewport, matching the serial pane's own\n\t\t   expand so the two tabs behave the same way. */\n\t\t#video-pane.expanded {\n\t\t\tposition: fixed;\n\t\t\tinset: 0;\n\t\t\tz-index: 40;\n\t\t\tbackground: var(--background);\n\t\t}\n\t</style>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -412,12 +702,12 @@ func videoPanelScript() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var13 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var13 == nil {
-			templ_7745c5c3_Var13 = templ.NopComponent
+		templ_7745c5c3_Var25 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var25 == nil {
+			templ_7745c5c3_Var25 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<script>\n\t\t(function () {\n\t\t\tlet pc = null;\n\t\t\tlet vws = null;\n\t\t\tlet connected = false;\n\n\t\t\tfunction el(id) { return document.getElementById(id); }\n\n\t\t\t// Mirrors setConnStatus in console_script: exactly one badge\n\t\t\t// visible, swapped via the hidden PROPERTY.\n\t\t\tfunction setVideoStatus(state) {\n\t\t\t\t['disconnected', 'connecting', 'connected', 'nosignal'].forEach((s) => {\n\t\t\t\t\tconst b = el('video-status-' + s);\n\t\t\t\t\tif (b) b.hidden = (s !== state);\n\t\t\t\t});\n\t\t\t\tconst c = el('btn-video-connect');\n\t\t\t\tconst d = el('btn-video-disconnect');\n\t\t\t\tif (c) c.hidden = (state !== 'disconnected');\n\t\t\t\tif (d) d.hidden = (state === 'disconnected');\n\t\t\t}\n\n\t\t\tfunction setOverlay(title, detail) {\n\t\t\t\tconst o = el('video-overlay');\n\t\t\t\tif (!o) return;\n\t\t\t\tif (title === null) {\n\t\t\t\t\to.dataset.state = 'hidden';\n\t\t\t\t\treturn;\n\t\t\t\t}\n\t\t\t\to.dataset.state = 'shown';\n\t\t\t\tel('video-overlay-title').textContent = title;\n\t\t\t\tel('video-overlay-detail').textContent = detail || '';\n\t\t\t}\n\n\t\t\t// State pushed by the hub: Ready false means the bridge sees no\n\t\t\t// input. That is a normal condition for a BMC (host powered off,\n\t\t\t// cable out), so it is reported as its own state and not an error.\n\t\t\t//\n\t\t\t// Kept rather than acted on directly, because it and the peer\n\t\t\t// connection arrive in either order. The hub sends the current\n\t\t\t// state as soon as the socket opens -- before the browser has\n\t\t\t// negotiated anything -- and then only when the state actually\n\t\t\t// changes. A host that is sitting there quietly never changes it.\n\t\t\t// So acting only on arrival meant a session that connected\n\t\t\t// perfectly was left showing \"Connecting…\" indefinitely, because\n\t\t\t// the only state message it ever received was one it discarded\n\t\t\t// for arriving too early.\n\t\t\tlet lastState = null;\n\n\t\t\tfunction onState(s) {\n\t\t\t\tif (!s) return;\n\t\t\t\tlastState = s;\n\t\t\t\trender();\n\t\t\t}\n\n\t\t\t// Draws whatever the two halves currently say. Safe to call from\n\t\t\t// either of them, in any order, as many times as they like.\n\t\t\tfunction render() {\n\t\t\t\tconst s = lastState;\n\t\t\t\tif (s && s.Ready && s.Width && s.Height) {\n\t\t\t\t\tconst fps = s.FramePerSecond ? ' @ ' + Math.round(s.FramePerSecond) + 'fps' : '';\n\t\t\t\t\tel('video-mode').textContent = s.Width + '×' + s.Height + fps;\n\t\t\t\t} else {\n\t\t\t\t\tel('video-mode').textContent = '—';\n\t\t\t\t}\n\n\t\t\t\t// Until the peer connection is up there is nothing to say\n\t\t\t\t// beyond what connectVideo already put on screen.\n\t\t\t\tif (!connected) return;\n\n\t\t\t\tif (!s) {\n\t\t\t\t\t// Connected, but the BMC has not said anything about the\n\t\t\t\t\t// capture yet. Distinct from \"no signal\": the difference\n\t\t\t\t\t// is whether we have been told, and saying so beats a\n\t\t\t\t\t// spinner that means nothing.\n\t\t\t\t\tsetVideoStatus('connecting');\n\t\t\t\t\tsetOverlay('Connected', 'Waiting for the BMC to report the capture state.');\n\t\t\t\t\treturn;\n\t\t\t\t}\n\t\t\t\tif (s.Ready) {\n\t\t\t\t\tsetVideoStatus('connected');\n\t\t\t\t\tsetOverlay(null);\n\t\t\t\t} else {\n\t\t\t\t\tsetVideoStatus('nosignal');\n\t\t\t\t\tsetOverlay('No signal', s.Err || 'The host is not sending HDMI output. Check that it is powered on and the cable is connected.');\n\t\t\t\t}\n\t\t\t}\n\n\t\t\tfunction fail(title, detail) {\n\t\t\t\tteardown();\n\t\t\t\tsetVideoStatus('disconnected');\n\t\t\t\tsetOverlay(title, detail);\n\t\t\t}\n\n\t\t\tfunction teardown() {\n\t\t\t\tconnected = false;\n\t\t\t\tlastState = null;\n\t\t\t\t// Whatever was held goes with the session: a key still down on\n\t\t\t\t// the host after the pane closes looks like broken hardware.\n\t\t\t\twindow.hidReleaseAll?.();\n\t\t\t\tif (vws) { try { vws.close(); } catch (e) {} vws = null; }\n\t\t\t\tif (pc) { try { pc.close(); } catch (e) {} pc = null; }\n\t\t\t\tconst v = el('video-stream');\n\t\t\t\tif (v) v.srcObject = null;\n\t\t\t}\n\n\t\t\twindow.connectVideo = async function () {\n\t\t\t\tif (pc) return;\n\t\t\t\tsetVideoStatus('connecting');\n\t\t\t\tsetOverlay('Connecting…', 'Negotiating a WebRTC session with the BMC.');\n\n\t\t\t\t// No configured STUN/TURN is normal and not an error: a BMC and\n\t\t\t\t// its browser are usually on the same L2 segment, where host\n\t\t\t\t// candidates alone complete the connection.\n\t\t\t\tlet iceServers = [];\n\t\t\t\ttry { iceServers = JSON.parse(el('video-pane').dataset.iceServers || '[]'); } catch (e) {}\n\n\t\t\t\tpc = new RTCPeerConnection({ iceServers });\n\n\t\t\t\t// Receive-only: the BMC never wants media from the browser.\n\t\t\t\tpc.addTransceiver('video', { direction: 'recvonly' });\n\n\t\t\t\tpc.ontrack = (e) => {\n\t\t\t\t\tconst v = el('video-stream');\n\t\t\t\t\tif (v && e.streams && e.streams[0]) v.srcObject = e.streams[0];\n\t\t\t\t};\n\t\t\t\tpc.onicecandidate = (e) => {\n\t\t\t\t\tif (!vws || vws.readyState !== WebSocket.OPEN) return;\n\t\t\t\t\t// End-of-candidates is the candidate field being absent, not\n\t\t\t\t\t// an empty one: handleCandidate treats nil as the terminator\n\t\t\t\t\t// and would otherwise hand pion a blank candidate string.\n\t\t\t\t\t// This is also the shape the BMC sends in the other\n\t\t\t\t\t// direction.\n\t\t\t\t\tconst msg = e.candidate\n\t\t\t\t\t\t? { type: 'candidate', candidate: e.candidate.toJSON() }\n\t\t\t\t\t\t: { type: 'candidate' };\n\t\t\t\t\tvws.send(JSON.stringify(msg));\n\t\t\t\t};\n\t\t\t\t// The peer connection, not the answer, is what \"connected\"\n\t\t\t\t// means. An answer only says the two sides agree on what to\n\t\t\t\t// negotiate; media cannot arrive until ICE has actually found\n\t\t\t\t// a path, and on a network where it never does, treating the\n\t\t\t\t// answer as success leaves the UI claiming a working session\n\t\t\t\t// over a black frame.\n\t\t\t\tpc.onconnectionstatechange = () => {\n\t\t\t\t\tif (!pc) return;\n\t\t\t\t\tswitch (pc.connectionState) {\n\t\t\t\t\t\tcase 'connected':\n\t\t\t\t\t\t\tconnected = true;\n\t\t\t\t\t\t\trender();\n\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\tcase 'disconnected':\n\t\t\t\t\t\t\t// Transient by nature and usually self-healing, so\n\t\t\t\t\t\t\t// this reports rather than tears down. The BMC\n\t\t\t\t\t\t\t// gives it a bounded grace period and drops the\n\t\t\t\t\t\t\t// session if it does not come back.\n\t\t\t\t\t\t\tsetVideoStatus('connecting');\n\t\t\t\t\t\t\tsetOverlay('Reconnecting…', 'The media connection dropped. Waiting for it to recover.');\n\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\tcase 'failed':\n\t\t\t\t\t\t\tfail('Connection failed', 'The WebRTC session could not be established. Check that the browser can reach the BMC directly or that a TURN server is configured.');\n\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t}\n\t\t\t\t};\n\n\t\t\t\tvws = new WebSocket(getWsUrl() + '/api/vm/video');\n\n\t\t\t\tvws.onopen = async () => {\n\t\t\t\t\ttry {\n\t\t\t\t\t\tconst offer = await pc.createOffer();\n\t\t\t\t\t\tawait pc.setLocalDescription(offer);\n\t\t\t\t\t\tvws.send(JSON.stringify({ type: 'offer', sdp: offer.sdp }));\n\t\t\t\t\t} catch (err) {\n\t\t\t\t\t\tfail('Negotiation failed', String(err));\n\t\t\t\t\t}\n\t\t\t\t};\n\n\t\t\t\tvws.onmessage = async (ev) => {\n\t\t\t\t\tlet m;\n\t\t\t\t\ttry { m = JSON.parse(ev.data); } catch (e) { return; }\n\t\t\t\t\tif (!pc) return;\n\t\t\t\t\tswitch (m.type) {\n\t\t\t\t\t\tcase 'answer':\n\t\t\t\t\t\t\ttry {\n\t\t\t\t\t\t\t\tawait pc.setRemoteDescription({ type: 'answer', sdp: m.sdp });\n\t\t\t\t\t\t\t\t// Negotiated, but not yet connected: ICE still\n\t\t\t\t\t\t\t\t// has to find a path. Say which of the two is\n\t\t\t\t\t\t\t\t// outstanding rather than leaving the earlier\n\t\t\t\t\t\t\t\t// \"negotiating\" text up, which is now wrong.\n\t\t\t\t\t\t\t\tsetOverlay('Connecting…', 'Negotiated. Waiting for the media connection.');\n\t\t\t\t\t\t\t} catch (err) {\n\t\t\t\t\t\t\t\tfail('Negotiation failed', String(err));\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\tcase 'candidate':\n\t\t\t\t\t\t\tif (m.candidate && m.candidate.candidate) {\n\t\t\t\t\t\t\t\ttry { await pc.addIceCandidate(m.candidate); } catch (e) {}\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\tcase 'state':\n\t\t\t\t\t\t\tonState(m.state);\n\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\tcase 'error':\n\t\t\t\t\t\t\tfail('Video unavailable', m.error || 'The BMC reported an error starting the capture pipeline.');\n\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t}\n\t\t\t\t};\n\n\t\t\t\t// The socket carries signaling only, but closing it is what ends\n\t\t\t\t// the session server-side, so a close before we are connected is\n\t\t\t\t// a real failure and after it is a normal teardown.\n\t\t\t\tvws.onclose = () => {\n\t\t\t\t\tif (!connected) {\n\t\t\t\t\t\tfail('Video unavailable', 'The BMC closed the signaling connection. HDMI capture may not be available on this device.');\n\t\t\t\t\t} else {\n\t\t\t\t\t\tteardown();\n\t\t\t\t\t\tsetVideoStatus('disconnected');\n\t\t\t\t\t\tsetOverlay('Disconnected', 'The video session ended.');\n\t\t\t\t\t}\n\t\t\t\t};\n\t\t\t\tvws.onerror = () => {\n\t\t\t\t\tif (!connected) fail('Video unavailable', 'Could not open the video signaling socket.');\n\t\t\t\t};\n\t\t\t};\n\n\t\t\twindow.disconnectVideo = function () {\n\t\t\t\tteardown();\n\t\t\t\tsetVideoStatus('disconnected');\n\t\t\t\tsetOverlay('HDMI not connected', 'Select Connect to start streaming the host’s HDMI output.');\n\t\t\t};\n\n\t\t\t// Input capture is wired to the pane, not to the media session, so\n\t\t\t// the keyboard and pointer work at a host that is mid-POST with no\n\t\t\t// picture yet — which is exactly when an operator needs them.\n\t\t\tfunction attachInput() {\n\t\t\t\twindow.hidAttach?.(el('video-wrap'), el('video-stream'));\n\t\t\t}\n\n\t\t\twindow.toggleVideoMouseMode = function () {\n\t\t\t\tconst next = window.hidMouseMode?.() === 'relative' ? 'absolute' : 'relative';\n\t\t\t\twindow.hidSetMouseMode?.(next);\n\t\t\t};\n\n\t\t\t// Kept in the input client so the label follows the mode however it\n\t\t\t// was changed (button, or pointer lock being lost).\n\t\t\twindow.onHidMouseMode = function (mode) {\n\t\t\t\tconst label = el('video-mouse-mode-label');\n\t\t\t\tif (label) label.textContent = mode === 'relative' ? 'Relative' : 'Absolute';\n\t\t\t\tconst overlay = el('video-overlay');\n\t\t\t\tif (mode === 'relative' && overlay && overlay.dataset.state === 'hidden') {\n\t\t\t\t\t// Pointer lock needs a click to engage, and a captured\n\t\t\t\t\t// pointer with no hint is disorienting.\n\t\t\t\t\tel('video-wrap')?.setAttribute('title', 'Click to capture the pointer; press Esc to release');\n\t\t\t\t} else {\n\t\t\t\t\tel('video-wrap')?.removeAttribute('title');\n\t\t\t\t}\n\t\t\t};\n\n\t\t\twindow.toggleVideoFullscreen = function () {\n\t\t\t\tconst w = el('video-wrap');\n\t\t\t\tif (!w) return;\n\t\t\t\tif (document.fullscreenElement) document.exitFullscreen();\n\t\t\t\telse w.requestFullscreen?.();\n\t\t\t};\n\n\t\t\t// Called by the tab strip. Connecting lazily keeps the encoder idle\n\t\t\t// while the serial tab is in front.\n\t\t\twindow.onVideoTabShown = function () {\n\t\t\t\tattachInput();\n\t\t\t\tif (!pc) connectVideo();\n\t\t\t};\n\t\t\twindow.onVideoTabHidden = function () {\n\t\t\t\tif (pc) disconnectVideo();\n\t\t\t};\n\n\t\t\t// Attach on load rather than only on tab-show: hidAttach is\n\t\t\t// idempotent, and input has to work whether or not the operator has\n\t\t\t// ever opened the HDMI tab — the virtual keyboard and macros reach\n\t\t\t// the host through the same client.\n\t\t\tif (document.readyState === 'loading') {\n\t\t\t\tdocument.addEventListener('DOMContentLoaded', attachInput);\n\t\t\t} else {\n\t\t\t\tattachInput();\n\t\t\t}\n\n\t\t\twindow.addEventListener('beforeunload', () => { window.hidReleaseAll?.(); teardown(); });\n\t\t})();\n\t</script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<script>\n\t\t(function () {\n\t\t\tlet pc = null;\n\t\t\tlet vws = null;\n\t\t\tlet connected = false;\n\n\t\t\tfunction el(id) { return document.getElementById(id); }\n\n\t\t\t// Mirrors setConnStatus in console_script: exactly one badge\n\t\t\t// visible, swapped via the hidden PROPERTY.\n\t\t\tfunction setVideoStatus(state) {\n\t\t\t\t['disconnected', 'connecting', 'connected', 'nosignal'].forEach((s) => {\n\t\t\t\t\tconst b = el('video-status-' + s);\n\t\t\t\t\tif (b) b.hidden = (s !== state);\n\t\t\t\t});\n\t\t\t\t// Connect is in the overlay and Disconnect in the footer, so\n\t\t\t\t// the two are never on screen together and neither needs to\n\t\t\t\t// reason about the other.\n\t\t\t\tconst c = el('btn-video-connect');\n\t\t\t\tconst d = el('btn-video-disconnect');\n\t\t\t\tif (c) c.hidden = (state !== 'disconnected');\n\t\t\t\tif (d) d.hidden = (state === 'disconnected');\n\t\t\t}\n\n\t\t\t// The frame is aspect-locked so the chrome pinned to it lands on\n\t\t\t// the picture. Told rather than measured: the hub reports the\n\t\t\t// capture size before a frame has decoded, so the box is right\n\t\t\t// the first time instead of snapping when metadata lands.\n\t\t\tfunction setVideoAspect(w, h) {\n\t\t\t\tconst f = el('video-frame');\n\t\t\t\tif (!f || !w || !h) return;\n\t\t\t\tf.style.setProperty('--video-aspect', String(w / h));\n\t\t\t}\n\n\t\t\tfunction setOverlay(title, detail) {\n\t\t\t\tconst o = el('video-overlay');\n\t\t\t\tif (!o) return;\n\t\t\t\tif (title === null) {\n\t\t\t\t\to.dataset.state = 'hidden';\n\t\t\t\t\treturn;\n\t\t\t\t}\n\t\t\t\to.dataset.state = 'shown';\n\t\t\t\tel('video-overlay-title').textContent = title;\n\t\t\t\tel('video-overlay-detail').textContent = detail || '';\n\t\t\t}\n\n\t\t\t// State pushed by the hub: Ready false means the bridge sees no\n\t\t\t// input. That is a normal condition for a BMC (host powered off,\n\t\t\t// cable out), so it is reported as its own state and not an error.\n\t\t\t//\n\t\t\t// Kept rather than acted on directly, because it and the peer\n\t\t\t// connection arrive in either order. The hub sends the current\n\t\t\t// state as soon as the socket opens -- before the browser has\n\t\t\t// negotiated anything -- and then only when the state actually\n\t\t\t// changes. A host that is sitting there quietly never changes it.\n\t\t\t// So acting only on arrival meant a session that connected\n\t\t\t// perfectly was left showing \"Connecting…\" indefinitely, because\n\t\t\t// the only state message it ever received was one it discarded\n\t\t\t// for arriving too early.\n\t\t\tlet lastState = null;\n\n\t\t\tfunction onState(s) {\n\t\t\t\tif (!s) return;\n\t\t\t\tlastState = s;\n\t\t\t\trender();\n\t\t\t}\n\n\t\t\t// Draws whatever the two halves currently say. Safe to call from\n\t\t\t// either of them, in any order, as many times as they like.\n\t\t\tfunction render() {\n\t\t\t\tconst s = lastState;\n\t\t\t\tif (s && s.Ready && s.Width && s.Height) {\n\t\t\t\t\tconst fps = s.FramePerSecond ? ' @ ' + Math.round(s.FramePerSecond) + 'fps' : '';\n\t\t\t\t\tel('video-mode').textContent = s.Width + '×' + s.Height + fps;\n\t\t\t\t\tsetVideoAspect(s.Width, s.Height);\n\t\t\t\t} else {\n\t\t\t\t\tel('video-mode').textContent = '—';\n\t\t\t\t}\n\n\t\t\t\t// Until the peer connection is up there is nothing to say\n\t\t\t\t// beyond what connectVideo already put on screen.\n\t\t\t\tif (!connected) return;\n\n\t\t\t\tif (!s) {\n\t\t\t\t\t// Connected, but the BMC has not said anything about the\n\t\t\t\t\t// capture yet. Distinct from \"no signal\": the difference\n\t\t\t\t\t// is whether we have been told, and saying so beats a\n\t\t\t\t\t// spinner that means nothing.\n\t\t\t\t\tsetVideoStatus('connecting');\n\t\t\t\t\tsetOverlay('Connected', 'Waiting for the BMC to report the capture state.');\n\t\t\t\t\treturn;\n\t\t\t\t}\n\t\t\t\tif (s.Ready) {\n\t\t\t\t\tsetVideoStatus('connected');\n\t\t\t\t\tsetOverlay(null);\n\t\t\t\t} else {\n\t\t\t\t\tsetVideoStatus('nosignal');\n\t\t\t\t\tsetOverlay('No signal', s.Err || 'The host is not sending HDMI output. Check that it is powered on and the cable is connected.');\n\t\t\t\t}\n\t\t\t}\n\n\t\t\tfunction fail(title, detail) {\n\t\t\t\tteardown();\n\t\t\t\tsetVideoStatus('disconnected');\n\t\t\t\tsetOverlay(title, detail);\n\t\t\t}\n\n\t\t\tfunction teardown() {\n\t\t\t\tconnected = false;\n\t\t\t\tlastState = null;\n\t\t\t\t// Whatever was held goes with the session: a key still down on\n\t\t\t\t// the host after the pane closes looks like broken hardware.\n\t\t\t\twindow.hidReleaseAll?.();\n\t\t\t\tif (vws) { try { vws.close(); } catch (e) {} vws = null; }\n\t\t\t\tif (pc) { try { pc.close(); } catch (e) {} pc = null; }\n\t\t\t\tconst v = el('video-stream');\n\t\t\t\tif (v) v.srcObject = null;\n\t\t\t}\n\n\t\t\twindow.connectVideo = async function () {\n\t\t\t\tif (pc) return;\n\t\t\t\tsetVideoStatus('connecting');\n\t\t\t\tsetOverlay('Connecting…', 'Negotiating a WebRTC session with the BMC.');\n\n\t\t\t\t// No configured STUN/TURN is normal and not an error: a BMC and\n\t\t\t\t// its browser are usually on the same L2 segment, where host\n\t\t\t\t// candidates alone complete the connection.\n\t\t\t\tlet iceServers = [];\n\t\t\t\ttry { iceServers = JSON.parse(el('video-stage').dataset.iceServers || '[]'); } catch (e) {}\n\n\t\t\t\tpc = new RTCPeerConnection({ iceServers });\n\n\t\t\t\t// Receive-only: the BMC never wants media from the browser.\n\t\t\t\tpc.addTransceiver('video', { direction: 'recvonly' });\n\n\t\t\t\tpc.ontrack = (e) => {\n\t\t\t\t\tconst v = el('video-stream');\n\t\t\t\t\tif (v && e.streams && e.streams[0]) v.srcObject = e.streams[0];\n\t\t\t\t};\n\t\t\t\tpc.onicecandidate = (e) => {\n\t\t\t\t\tif (!vws || vws.readyState !== WebSocket.OPEN) return;\n\t\t\t\t\t// End-of-candidates is the candidate field being absent, not\n\t\t\t\t\t// an empty one: handleCandidate treats nil as the terminator\n\t\t\t\t\t// and would otherwise hand pion a blank candidate string.\n\t\t\t\t\t// This is also the shape the BMC sends in the other\n\t\t\t\t\t// direction.\n\t\t\t\t\tconst msg = e.candidate\n\t\t\t\t\t\t? { type: 'candidate', candidate: e.candidate.toJSON() }\n\t\t\t\t\t\t: { type: 'candidate' };\n\t\t\t\t\tvws.send(JSON.stringify(msg));\n\t\t\t\t};\n\t\t\t\t// The peer connection, not the answer, is what \"connected\"\n\t\t\t\t// means. An answer only says the two sides agree on what to\n\t\t\t\t// negotiate; media cannot arrive until ICE has actually found\n\t\t\t\t// a path, and on a network where it never does, treating the\n\t\t\t\t// answer as success leaves the UI claiming a working session\n\t\t\t\t// over a black frame.\n\t\t\t\tpc.onconnectionstatechange = () => {\n\t\t\t\t\tif (!pc) return;\n\t\t\t\t\tswitch (pc.connectionState) {\n\t\t\t\t\t\tcase 'connected':\n\t\t\t\t\t\t\tconnected = true;\n\t\t\t\t\t\t\trender();\n\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\tcase 'disconnected':\n\t\t\t\t\t\t\t// Transient by nature and usually self-healing, so\n\t\t\t\t\t\t\t// this reports rather than tears down. The BMC\n\t\t\t\t\t\t\t// gives it a bounded grace period and drops the\n\t\t\t\t\t\t\t// session if it does not come back.\n\t\t\t\t\t\t\tsetVideoStatus('connecting');\n\t\t\t\t\t\t\tsetOverlay('Reconnecting…', 'The media connection dropped. Waiting for it to recover.');\n\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\tcase 'failed':\n\t\t\t\t\t\t\tfail('Connection failed', 'The WebRTC session could not be established. Check that the browser can reach the BMC directly or that a TURN server is configured.');\n\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t}\n\t\t\t\t};\n\n\t\t\t\tvws = new WebSocket(getWsUrl() + '/api/vm/video');\n\n\t\t\t\tvws.onopen = async () => {\n\t\t\t\t\ttry {\n\t\t\t\t\t\tconst offer = await pc.createOffer();\n\t\t\t\t\t\tawait pc.setLocalDescription(offer);\n\t\t\t\t\t\tvws.send(JSON.stringify({ type: 'offer', sdp: offer.sdp }));\n\t\t\t\t\t} catch (err) {\n\t\t\t\t\t\tfail('Negotiation failed', String(err));\n\t\t\t\t\t}\n\t\t\t\t};\n\n\t\t\t\tvws.onmessage = async (ev) => {\n\t\t\t\t\tlet m;\n\t\t\t\t\ttry { m = JSON.parse(ev.data); } catch (e) { return; }\n\t\t\t\t\tif (!pc) return;\n\t\t\t\t\tswitch (m.type) {\n\t\t\t\t\t\tcase 'answer':\n\t\t\t\t\t\t\ttry {\n\t\t\t\t\t\t\t\tawait pc.setRemoteDescription({ type: 'answer', sdp: m.sdp });\n\t\t\t\t\t\t\t\t// Negotiated, but not yet connected: ICE still\n\t\t\t\t\t\t\t\t// has to find a path. Say which of the two is\n\t\t\t\t\t\t\t\t// outstanding rather than leaving the earlier\n\t\t\t\t\t\t\t\t// \"negotiating\" text up, which is now wrong.\n\t\t\t\t\t\t\t\tsetOverlay('Connecting…', 'Negotiated. Waiting for the media connection.');\n\t\t\t\t\t\t\t} catch (err) {\n\t\t\t\t\t\t\t\tfail('Negotiation failed', String(err));\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\tcase 'candidate':\n\t\t\t\t\t\t\tif (m.candidate && m.candidate.candidate) {\n\t\t\t\t\t\t\t\ttry { await pc.addIceCandidate(m.candidate); } catch (e) {}\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\tcase 'state':\n\t\t\t\t\t\t\tonState(m.state);\n\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\tcase 'error':\n\t\t\t\t\t\t\tfail('Video unavailable', m.error || 'The BMC reported an error starting the capture pipeline.');\n\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t}\n\t\t\t\t};\n\n\t\t\t\t// The socket carries signaling only, but closing it is what ends\n\t\t\t\t// the session server-side, so a close before we are connected is\n\t\t\t\t// a real failure and after it is a normal teardown.\n\t\t\t\tvws.onclose = () => {\n\t\t\t\t\tif (!connected) {\n\t\t\t\t\t\tfail('Video unavailable', 'The BMC closed the signaling connection. HDMI capture may not be available on this device.');\n\t\t\t\t\t} else {\n\t\t\t\t\t\tteardown();\n\t\t\t\t\t\tsetVideoStatus('disconnected');\n\t\t\t\t\t\tsetOverlay('Disconnected', 'The video session ended.');\n\t\t\t\t\t}\n\t\t\t\t};\n\t\t\t\tvws.onerror = () => {\n\t\t\t\t\tif (!connected) fail('Video unavailable', 'Could not open the video signaling socket.');\n\t\t\t\t};\n\t\t\t};\n\n\t\t\twindow.disconnectVideo = function () {\n\t\t\t\tteardown();\n\t\t\t\tsetVideoStatus('disconnected');\n\t\t\t\tsetOverlay('HDMI not connected', 'Select Connect to start streaming the host’s HDMI output.');\n\t\t\t};\n\n\t\t\t// Input capture is wired to the pane, not to the media session, so\n\t\t\t// the keyboard and pointer work at a host that is mid-POST with no\n\t\t\t// picture yet — which is exactly when an operator needs them.\n\t\t\tfunction attachInput() {\n\t\t\t\twindow.hidAttach?.(el('video-frame'), el('video-stream'));\n\t\t\t}\n\n\t\t\twindow.toggleVideoMouseMode = function () {\n\t\t\t\tconst next = window.hidMouseMode?.() === 'relative' ? 'absolute' : 'relative';\n\t\t\t\twindow.hidSetMouseMode?.(next);\n\t\t\t};\n\n\t\t\t// Kept in the input client so the label follows the mode however it\n\t\t\t// was changed (button, or pointer lock being lost).\n\t\t\twindow.onHidMouseMode = function (mode) {\n\t\t\t\tconst label = el('video-mouse-mode-label');\n\t\t\t\tif (label) label.textContent = mode === 'relative' ? 'Relative' : 'Absolute';\n\t\t\t\tconst overlay = el('video-overlay');\n\t\t\t\tif (mode === 'relative' && overlay && overlay.dataset.state === 'hidden') {\n\t\t\t\t\t// Pointer lock needs a click to engage, and a captured\n\t\t\t\t\t// pointer with no hint is disorienting.\n\t\t\t\t\tel('video-frame')?.setAttribute('title', 'Click to capture the pointer; press Esc to release');\n\t\t\t\t} else {\n\t\t\t\t\tel('video-frame')?.removeAttribute('title');\n\t\t\t\t}\n\t\t\t};\n\n\t\t\t// Fullscreen the pane, not the frame: the stage inside it is what\n\t\t\t// centers the picture, and taking the frame alone would strand the\n\t\t\t// toolbar and footer on a box that no longer has a container to\n\t\t\t// measure against.\n\t\t\twindow.toggleVideoFullscreen = function () {\n\t\t\t\tconst p = el('video-pane');\n\t\t\t\tif (!p) return;\n\t\t\t\tif (document.fullscreenElement) document.exitFullscreen();\n\t\t\t\telse p.requestFullscreen?.();\n\t\t\t};\n\n\t\t\t// Expand mirrors the serial pane's: fill the viewport without\n\t\t\t// asking the browser for fullscreen, so the operator keeps their\n\t\t\t// tab strip and the BMC's own chrome one Escape away.\n\t\t\twindow.toggleVideoExpand = function () {\n\t\t\t\tconst p = el('video-pane');\n\t\t\t\tconst b = el('btn-video-expand');\n\t\t\t\tif (!p) return;\n\t\t\t\tconst on = p.classList.toggle('expanded');\n\t\t\t\tif (b) {\n\t\t\t\t\tb.classList.toggle('bg-black/70', on);\n\t\t\t\t\tb.title = on ? 'Collapse video' : 'Expand video';\n\t\t\t\t}\n\t\t\t\tconst header = document.querySelector('header');\n\t\t\t\tif (header) header.style.display = on ? 'none' : '';\n\t\t\t};\n\n\t\t\tdocument.addEventListener('keydown', (e) => {\n\t\t\t\tif (e.key !== 'Escape') return;\n\t\t\t\tconst p = el('video-pane');\n\t\t\t\tif (p && p.classList.contains('expanded') && !document.fullscreenElement) {\n\t\t\t\t\twindow.toggleVideoExpand();\n\t\t\t\t}\n\t\t\t});\n\n\t\t\t// Called by the tab strip. Connecting lazily keeps the encoder idle\n\t\t\t// while the serial tab is in front.\n\t\t\twindow.onVideoTabShown = function () {\n\t\t\t\tattachInput();\n\t\t\t\tif (!pc) connectVideo();\n\t\t\t};\n\t\t\twindow.onVideoTabHidden = function () {\n\t\t\t\tif (pc) disconnectVideo();\n\t\t\t};\n\n\t\t\t// Attach on load rather than only on tab-show: hidAttach is\n\t\t\t// idempotent, and input has to work whether or not the operator has\n\t\t\t// ever opened the HDMI tab — the virtual keyboard and macros reach\n\t\t\t// the host through the same client.\n\t\t\tif (document.readyState === 'loading') {\n\t\t\t\tdocument.addEventListener('DOMContentLoaded', attachInput);\n\t\t\t} else {\n\t\t\t\tattachInput();\n\t\t\t}\n\n\t\t\twindow.addEventListener('beforeunload', () => { window.hidReleaseAll?.(); teardown(); });\n\t\t})();\n\t</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
