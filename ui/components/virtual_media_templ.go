@@ -1079,6 +1079,29 @@ func VMAddBody(files []string) templ.Component {
 						ID:      "vm-delete-submit",
 						Size:    button.SizeSm,
 						Variant: button.VariantDestructive,
+						// Two fixes to sit correctly in the group.
+						//
+						// border-l! because ButtonGroup strips the left
+						// border off every child after the first — a rule
+						// that assumes siblings share the screen. These
+						// two are alternatives: Delete replaces Mount, so
+						// when it shows it IS the first element and needs
+						// the 1px Mount has. Important, because the
+						// group's positional rule is the more specific
+						// selector; CN's tailwind-merge cannot reach a
+						// class that lives on the parent.
+						//
+						// border-destructive/40 because the divider
+						// between an action and the chevron is a 1px
+						// TRANSPARENT gutter (bg-clip-padding), which only
+						// reads against a bright fill. Mount is solid
+						// primary so the gutter shows as a line; the
+						// destructive variant's bg-destructive/10 is all
+						// but black, so the seam disappeared and the
+						// chevron looked unattached. A real border colour
+						// gives the edge back. /40 matches the variant's
+						// own focus-visible:border-destructive/40.
+						Class: "border-l! border-destructive/40",
 						Attributes: utils.MergeAttributes(
 							mediaActionAttrs("/ui/media/delete"),
 							// The hidden ATTRIBUTE: preflight's
@@ -1477,7 +1500,7 @@ func VMFetchProgress(name string, loaded, total int64, format string) templ.Comp
 		var templ_7745c5c3_Var55 string
 		templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.JoinStringErrs(fetchPhaseLabel(format))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 428, Col: 71}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 451, Col: 71}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var55))
 		if templ_7745c5c3_Err != nil {
@@ -1490,7 +1513,7 @@ func VMFetchProgress(name string, loaded, total int64, format string) templ.Comp
 		var templ_7745c5c3_Var56 string
 		templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs(name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 428, Col: 80}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 451, Col: 80}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 		if templ_7745c5c3_Err != nil {
@@ -1513,7 +1536,7 @@ func VMFetchProgress(name string, loaded, total int64, format string) templ.Comp
 			var templ_7745c5c3_Var57 string
 			templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.JoinStringErrs(formatBytes(loaded))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 432, Col: 67}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 455, Col: 67}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var57))
 			if templ_7745c5c3_Err != nil {
@@ -1526,7 +1549,7 @@ func VMFetchProgress(name string, loaded, total int64, format string) templ.Comp
 			var templ_7745c5c3_Var58 string
 			templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.JoinStringErrs(formatBytes(total))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 432, Col: 92}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 455, Col: 92}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var58))
 			if templ_7745c5c3_Err != nil {
@@ -1548,7 +1571,7 @@ func VMFetchProgress(name string, loaded, total int64, format string) templ.Comp
 			var templ_7745c5c3_Var59 string
 			templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.JoinStringErrs(formatBytes(loaded))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 436, Col: 25}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 459, Col: 25}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var59))
 			if templ_7745c5c3_Err != nil {

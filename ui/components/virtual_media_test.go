@@ -283,3 +283,30 @@ func TestActionToggleScriptMatchesTheMarkup(t *testing.T) {
 		}
 	}
 }
+
+// Two easily-tidied-away classes hold the Delete button's edges in the group.
+//
+// ButtonGroup strips the left border off every child after the first, a rule
+// written for siblings that share the screen; Mount and Delete are
+// alternatives, so the one that shows is always the first element. And the
+// divider between an action and the chevron is a 1px TRANSPARENT gutter
+// (bg-clip-padding), which only reads against a bright fill — Mount is solid
+// primary, the destructive variant's bg-destructive/10 is all but black, so
+// the seam vanished and the chevron looked unattached to anything.
+func TestDeleteButtonKeepsItsEdgesInTheGroup(t *testing.T) {
+	html := renderVMAdd(t, []string{"alpine.iso"})
+	del := buttonTag(t, html, "vm-delete-submit")
+
+	if !strings.Contains(del, "border-l!") {
+		t.Errorf("no left-border override: ButtonGroup's [&>[data-slot]~[data-slot]]"+
+			":border-l-0 leaves Delete a pixel short on the side Mount has one, "+
+			"so the group's left edge shifts when the mode changes: %s", del)
+	}
+	if strings.Contains(del, "border-transparent") {
+		t.Errorf("the delete button's border is transparent, so the gutter that "+
+			"separates it from the chevron has nothing to show against: %s", del)
+	}
+	if !strings.Contains(del, "border-destructive/") {
+		t.Errorf("no visible border colour; the chevron reads as detached: %s", del)
+	}
+}

@@ -285,6 +285,29 @@ templ VMAddBody(files []string) {
 							ID:      "vm-delete-submit",
 							Size:    button.SizeSm,
 							Variant: button.VariantDestructive,
+							// Two fixes to sit correctly in the group.
+							//
+							// border-l! because ButtonGroup strips the left
+							// border off every child after the first — a rule
+							// that assumes siblings share the screen. These
+							// two are alternatives: Delete replaces Mount, so
+							// when it shows it IS the first element and needs
+							// the 1px Mount has. Important, because the
+							// group's positional rule is the more specific
+							// selector; CN's tailwind-merge cannot reach a
+							// class that lives on the parent.
+							//
+							// border-destructive/40 because the divider
+							// between an action and the chevron is a 1px
+							// TRANSPARENT gutter (bg-clip-padding), which only
+							// reads against a bright fill. Mount is solid
+							// primary so the gutter shows as a line; the
+							// destructive variant's bg-destructive/10 is all
+							// but black, so the seam disappeared and the
+							// chevron looked unattached. A real border colour
+							// gives the edge back. /40 matches the variant's
+							// own focus-visible:border-destructive/40.
+							Class:   "border-l! border-destructive/40",
 							Attributes: utils.MergeAttributes(
 								mediaActionAttrs("/ui/media/delete"),
 								// The hidden ATTRIBUTE: preflight's
