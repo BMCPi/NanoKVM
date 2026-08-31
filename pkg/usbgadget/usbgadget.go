@@ -20,6 +20,7 @@ import (
 	"sync"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 )
 
 // configfs locations. These are package vars (not consts) so tests can point
@@ -55,6 +56,7 @@ type Gadget struct {
 	mu  sync.Mutex
 	cfg config.UsbGadget
 	fs  *sysfs
+	log *slog.Logger
 }
 
 var (
@@ -62,12 +64,17 @@ var (
 	once     sync.Once
 )
 
-// Get returns the singleton Gadget.
+// Get returns the singleton Gadget. Its logger defaults to the process
+// logger (see Init) so a caller that reaches it before Init has run — every
+// method here locks g.mu, which Init also holds while setting g.log, so
+// there is no race, only a possibly-untagged logger for that narrow window
+// — never dereferences a nil field.
 func Get() *Gadget {
 	once.Do(func() {
 		instance = &Gadget{
 			cfg: config.GetInstance().UsbGadget,
 			fs:  newSysfs(sysfsRootPath),
+			log: logger.Or(nil),
 		}
 	})
 	return instance
@@ -78,9 +85,11 @@ func Get() *Gadget {
 // common server-restart case) it leaves the bound gadget undisturbed rather
 // than re-enumerating the host. No-op when disabled in config. Call once at
 // server startup, before firmware.Controller.Init presents the capsule volume.
-func (g *Gadget) Init() error {
+func (g *Gadget) Init(log *slog.Logger) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
+	g.log = logger.Or(log)
 
 	// The config is the source of truth for the whole gadget topology. (The
 	// old /data/usbgadget/state.json fold-in is gone: /data no longer exists
@@ -88,7 +97,7 @@ func (g *Gadget) Init() error {
 	g.cfg = config.GetInstance().UsbGadget
 
 	if !g.cfg.Enabled {
-		slog.Info("usbgadget: disabled by config; leaving gadget untouched")
+		g.log.Info("usbgadget: disabled by config; leaving gadget untouched")
 		return nil
 	}
 
@@ -99,7 +108,7 @@ func (g *Gadget) Init() error {
 		return fmt.Errorf("build gadget: %w", err)
 	}
 
-	slog.Info("usbgadget: g0 ready",
+	g.log.Info("usbgadget: g0 ready",
 		slog.String("vid", g.cfg.VendorID),
 		slog.String("pid", g.cfg.ProductID),
 		slog.Bool("hid", g.cfg.HID),

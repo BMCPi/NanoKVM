@@ -188,7 +188,7 @@ func (g *Gadget) reconcileLinks() error {
 	// Topology change ⇒ full relink. Unbind first so configfs lets us edit the
 	// config's function list.
 	if err := g.unbindUDCLocked(); err != nil {
-		slog.Warn("usbgadget: unbind before relink failed", slog.Any("err", err))
+		g.log.Warn("usbgadget: unbind before relink failed", slog.Any("err", err))
 	}
 
 	// Remove every existing function symlink, then recreate the desired set in
@@ -204,7 +204,7 @@ func (g *Gadget) reconcileLinks() error {
 		}
 	}
 
-	slog.Info("usbgadget: relinked functions", slog.Any("functions", desired))
+	g.log.Info("usbgadget: relinked functions", slog.Any("functions", desired))
 	return g.ensureBindState()
 }
 
@@ -220,7 +220,7 @@ func (g *Gadget) ensureBindState() error {
 		}
 	}
 	if err := g.setOTGRoleLocked("device"); err != nil {
-		slog.Warn("usbgadget: set otg role failed", slog.Any("err", err))
+		g.log.Warn("usbgadget: set otg role failed", slog.Any("err", err))
 	}
 	return nil
 }

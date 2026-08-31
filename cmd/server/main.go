@@ -195,7 +195,7 @@ func initialize(ctx context.Context) {
 	// capsule volume. usbgadget is the sole owner of the gadget configfs — this
 	// replaces the old S03usbdev init script — so the host-visible topology and
 	// a bound UDC come up independent of the capsule volume's availability.
-	if err := usbgadget.Get().Init(); err != nil {
+	if err := usbgadget.Get().Init(rootLog.With("component", "usbgadget")); err != nil {
 		slog.ErrorContext(ctx, "USB gadget init failed", slog.Any("err", err))
 	}
 
