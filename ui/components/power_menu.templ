@@ -51,16 +51,7 @@ templ PowerMenu() {
 				templ.Attributes{"aria-label": "Power menu"},
 			),
 		}) {
-			if pwrKnown && pwrOn {
-				<span id="power-dot" class="inline-block size-2 rounded-full bg-green-500 shrink-0"></span>
-				<span id="power-text" class="hidden sm:inline">Power On</span>
-			} else if pwrKnown {
-				<span id="power-dot" class="inline-block size-2 rounded-full bg-destructive shrink-0"></span>
-				<span id="power-text" class="hidden sm:inline">Power Off</span>
-			} else {
-				<span id="power-dot" class="inline-block size-2 rounded-full bg-muted-foreground shrink-0"></span>
-				<span id="power-text" class="hidden sm:inline">Checking…</span>
-			}
+			@PowerPill(pwrOn, pwrKnown)
 			@icon.ChevronDown()
 		}
 		// Wide enough for the power group's intrinsic width: three labelled
@@ -99,6 +90,23 @@ templ PowerMenu() {
 	@powerMenuScript()
 }
 
+// PowerPill is the navbar power-state indicator: the dot + label pair shown
+// on the menu trigger. Exported so the SSE stream (ui/fragments_power_events.go)
+// can render the same markup into a swap fragment instead of the JavaScript
+// side re-deriving the dot's class and the label text from a JSON payload.
+templ PowerPill(on, known bool) {
+	if known && on {
+		<span id="power-dot" class="inline-block size-2 rounded-full bg-green-500 shrink-0"></span>
+		<span id="power-text" class="hidden sm:inline">Power On</span>
+	} else if known {
+		<span id="power-dot" class="inline-block size-2 rounded-full bg-destructive shrink-0"></span>
+		<span id="power-text" class="hidden sm:inline">Power Off</span>
+	} else {
+		<span id="power-dot" class="inline-block size-2 rounded-full bg-muted-foreground shrink-0"></span>
+		<span id="power-text" class="hidden sm:inline">Checking…</span>
+	}
+}
+
 // powerActionGroup is the three power controls, welded into one group.
 //
 // Power on and power off are one button rather than two, because they are not
@@ -108,7 +116,7 @@ templ PowerMenu() {
 // LED — so the button and the pill can never disagree.
 templ powerActionGroup(on bool) {
 	@buttongroup.ButtonGroup(buttongroup.Props{Class: "w-full"}) {
-		@powerToggleBtn(on)
+		@PowerToggleBtn(on)
 		// Welding drops the left border of every button after the first, so
 		// without these three destructive-adjacent targets share one unbroken
 		// outline. On this row that is worth more than tidiness: Force Off
@@ -129,7 +137,11 @@ templ powerActionGroup(on bool) {
 	}
 }
 
-// powerToggleBtn is the on/off half of the group.
+// PowerToggleBtn is the on/off half of the group. Exported so the SSE stream
+// (ui/fragments_power_events.go) can render it into a swap fragment — the
+// same markup the full page paints, instead of the client rewriting hx-post
+// and the icon `hidden` flags after the fact (see powerTogglePath/
+// powerToggleLabel history in the htmx-sse migration).
 //
 // Both icons are rendered and one is hidden, rather than the script swapping
 // SVG markup: the icons are inline <svg> the server already knows how to
@@ -137,7 +149,7 @@ templ powerActionGroup(on bool) {
 // handler can do correctly. The `hidden` ATTRIBUTE is load-bearing —
 // preflight's `[hidden] { display: none !important }` beats the icon's own
 // display, which a utility class would lose to.
-templ powerToggleBtn(on bool) {
+templ PowerToggleBtn(on bool) {
 	@button.Button(button.Props{
 		ID:      powerToggleID,
 		Variant: button.VariantOutline,
