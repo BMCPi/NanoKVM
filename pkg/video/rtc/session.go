@@ -192,6 +192,23 @@ func (h *Hub) NewSession(sig Signaler) (*Session, error) {
 
 		case webrtc.PeerConnectionStateFailed, webrtc.PeerConnectionStateClosed:
 			s.Close()
+
+		case webrtc.PeerConnectionStateNew, webrtc.PeerConnectionStateConnecting:
+			// Transient states on the way up (or back down through
+			// Disconnected/Failed); there is nothing to do here beyond the
+			// debug log above.
+
+		default:
+			// webrtc.PeerConnectionStateUnknown. pion's updateConnectionState
+			// (peerconnection.go) always starts its local from
+			// PeerConnectionStateNew and only ever assigns one of the named
+			// states above, so this never fires with the pion version this
+			// package pins -- but an unrecognized state is not one this state
+			// machine can reason about, so if a future pion release ever adds
+			// one, close rather than silently leaving the session (and the
+			// capture pipeline behind it) attached under a status nothing here
+			// understands.
+			s.Close()
 		}
 	})
 

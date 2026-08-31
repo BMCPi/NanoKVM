@@ -63,7 +63,14 @@ func Start(opts Options) (*Session, error) {
 		args = []string{"-c", opts.Command}
 	}
 	// The session's lifetime is the caller's connection, not a context's —
-	// Close is what tears the process down.
+	// Close is what tears the process down (SIGHUP then SIGKILL to the
+	// process group). Neither caller has a context that actually maps to
+	// that lifetime: the SSH server's request loop (golang.org/x/crypto/ssh)
+	// hands this package no context at all, and the WebSocket HTTP handler's
+	// request context isn't tied to the hijacked connection -- it only ends
+	// when the handler returns, which is after Close has already run. Binding
+	// CommandContext to either would be unavailable or a no-op, not a fix.
+	//nolint:noctx // no context maps to this session's lifetime; see comment above
 	cmd := exec.Command(sh, args...)
 	cmd.Dir = Dir()
 	cmd.Env = append(baseEnv(sh), opts.Env...)

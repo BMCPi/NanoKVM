@@ -464,6 +464,7 @@ func mapLFtoCRLF(data []byte) []byte {
 	var out bytes.Buffer
 	out.Grow(len(data) + 16)
 	for i, b := range data {
+		//nolint:gosec // i ranges over [0,len(data)) and the i==0 check short-circuits before data[i-1] is evaluated, so i-1 is always in [0,len(data)-2] here
 		if b == '\n' && (i == 0 || data[i-1] != '\r') {
 			out.WriteByte('\r')
 		}

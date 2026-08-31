@@ -33,7 +33,7 @@ func newFakeCapturer() *fakeCapturer {
 	}
 }
 
-func (f *fakeCapturer) Start(cfg video.Config) error {
+func (f *fakeCapturer) Start(_ video.Config) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.startErr != nil {
@@ -107,9 +107,9 @@ func (c *chanSignaler) Send(m Message) error {
 	return nil
 }
 
-func newTestHub(t *testing.T, cap video.Capturer) *Hub {
+func newTestHub(t *testing.T, capturer video.Capturer) *Hub {
 	t.Helper()
-	hub, err := NewHub(cap, Options{Capture: video.Config{Codec: video.CodecH264}})
+	hub, err := NewHub(capturer, Options{Capture: video.Config{Codec: video.CodecH264}})
 	if err != nil {
 		t.Fatalf("NewHub: %v", err)
 	}
@@ -128,16 +128,16 @@ func shortenLinger(t *testing.T) {
 // waitForStops blocks until the capturer has been stopped want times. The stop
 // is deferred by the linger and runs on a timer goroutine, so it cannot be
 // asserted synchronously the way the start can.
-func waitForStops(t *testing.T, cap *fakeCapturer, want int) {
+func waitForStops(t *testing.T, capturer *fakeCapturer, want int) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, stops, _ := cap.counts(); stops >= want {
+		if _, stops, _ := capturer.counts(); stops >= want {
 			return
 		}
 		time.Sleep(time.Millisecond)
 	}
-	_, stops, _ := cap.counts()
+	_, stops, _ := capturer.counts()
 	t.Fatalf("pipeline stopped %d times, want %d", stops, want)
 }
 
@@ -154,14 +154,14 @@ func TestNewHubRejectsCodecWebRTCCannotCarry(t *testing.T) {
 func TestPipelineRunsOnlyWhileWatched(t *testing.T) {
 	shortenLinger(t)
 
-	cap := newFakeCapturer()
-	hub := newTestHub(t, cap)
+	capturer := newFakeCapturer()
+	hub := newTestHub(t, capturer)
 
 	first, err := hub.NewSession(newChanSignaler())
 	if err != nil {
 		t.Fatalf("first session: %v", err)
 	}
-	if starts, stops, _ := cap.counts(); starts != 1 || stops != 0 {
+	if starts, stops, _ := capturer.counts(); starts != 1 || stops != 0 {
 		t.Fatalf("after first session: starts=%d stops=%d, want 1/0", starts, stops)
 	}
 
@@ -169,12 +169,12 @@ func TestPipelineRunsOnlyWhileWatched(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second session: %v", err)
 	}
-	if starts, stops, _ := cap.counts(); starts != 1 || stops != 0 {
+	if starts, stops, _ := capturer.counts(); starts != 1 || stops != 0 {
 		t.Fatalf("second session restarted the pipeline: starts=%d stops=%d, want 1/0", starts, stops)
 	}
 
 	first.Close()
-	if starts, stops, _ := cap.counts(); starts != 1 || stops != 0 {
+	if starts, stops, _ := capturer.counts(); starts != 1 || stops != 0 {
 		t.Fatalf("pipeline stopped while a viewer remained: starts=%d stops=%d, want 1/0", starts, stops)
 	}
 
@@ -183,8 +183,8 @@ func TestPipelineRunsOnlyWhileWatched(t *testing.T) {
 	// the capture chain down for that is both slow and where this hardware
 	// breaks.
 	second.Close()
-	waitForStops(t, cap, 1)
-	if starts, _, _ := cap.counts(); starts != 1 {
+	waitForStops(t, capturer, 1)
+	if starts, _, _ := capturer.counts(); starts != 1 {
 		t.Fatalf("pipeline restarted while idle: starts=%d, want 1", starts)
 	}
 
@@ -193,7 +193,7 @@ func TestPipelineRunsOnlyWhileWatched(t *testing.T) {
 	if err != nil {
 		t.Fatalf("third session: %v", err)
 	}
-	if starts, _, _ := cap.counts(); starts != 2 {
+	if starts, _, _ := capturer.counts(); starts != 2 {
 		t.Fatalf("pipeline did not restart for a new viewer: starts=%d, want 2", starts)
 	}
 	third.Close()
@@ -204,9 +204,9 @@ func TestPipelineRunsOnlyWhileWatched(t *testing.T) {
 }
 
 func TestSessionRefusedWhenPipelineWillNotStart(t *testing.T) {
-	cap := newFakeCapturer()
-	cap.startErr = errors.New("no capture hardware")
-	hub := newTestHub(t, cap)
+	capturer := newFakeCapturer()
+	capturer.startErr = errors.New("no capture hardware")
+	hub := newTestHub(t, capturer)
 	defer func() { _ = hub.Close() }()
 
 	if _, err := hub.NewSession(newChanSignaler()); err == nil {
@@ -278,8 +278,8 @@ func TestSessionStreamsToPeer(t *testing.T) {
 		t.Skip("needs loopback UDP for ICE")
 	}
 
-	cap := newFakeCapturer()
-	hub := newTestHub(t, cap)
+	capturer := newFakeCapturer()
+	hub := newTestHub(t, capturer)
 	defer func() { _ = hub.Close() }()
 
 	// The browser side. Default codecs so negotiation has to actually agree
@@ -405,7 +405,7 @@ func TestSessionStreamsToPeer(t *testing.T) {
 	for {
 		select {
 		case <-gotRTP:
-			if _, _, keyframes := cap.counts(); keyframes == 0 {
+			if _, _, keyframes := capturer.counts(); keyframes == 0 {
 				t.Error("no keyframe requested when the viewer connected")
 			}
 			if hub.FramesWritten() == 0 {
@@ -417,7 +417,7 @@ func TestSessionStreamsToPeer(t *testing.T) {
 		case <-send.C:
 			frame.PTS += 20 * time.Millisecond
 			select {
-			case cap.frames <- frame:
+			case capturer.frames <- frame:
 			default:
 			}
 		}
@@ -528,8 +528,8 @@ func TestDisconnectGraceDoesNotRestartOnRepeatedNotifications(t *testing.T) {
 func TestReloadReusesTheRunningPipeline(t *testing.T) {
 	shortenLinger(t)
 
-	cap := newFakeCapturer()
-	hub := newTestHub(t, cap)
+	capturer := newFakeCapturer()
+	hub := newTestHub(t, capturer)
 	defer func() { _ = hub.Close() }()
 
 	first, err := hub.NewSession(newChanSignaler())
@@ -545,7 +545,7 @@ func TestReloadReusesTheRunningPipeline(t *testing.T) {
 	}
 	defer second.Close()
 
-	starts, stops, _ := cap.counts()
+	starts, stops, _ := capturer.counts()
 	if stops != 0 {
 		t.Errorf("reload tore the pipeline down: stops=%d, want 0", stops)
 	}
@@ -557,7 +557,7 @@ func TestReloadReusesTheRunningPipeline(t *testing.T) {
 	// still up well after the linger would have expired, because a viewer
 	// arrived in the meantime.
 	time.Sleep(20 * time.Millisecond)
-	if _, stops, _ := cap.counts(); stops != 0 {
+	if _, stops, _ := capturer.counts(); stops != 0 {
 		t.Errorf("pipeline stopped under an attached viewer: stops=%d, want 0", stops)
 	}
 }

@@ -27,7 +27,7 @@ func buildRecord(seq uint32, tempMilliC int32, uptime, status uint32) []byte {
 	b[24] = 2  // fan_level
 	b[25] = 4  // fan_max_level
 	b[26] = 49 // fan_duty_pct
-	b[27] = byte(FanValidFlag)
+	b[27] = FanValidFlag
 	binary.LittleEndian.PutUint16(b[28:30], 0) // fan_rpm
 	// b[30:32] reserved0, b[32:36] throttle, b[36:44] reserved — left zero.
 	binary.LittleEndian.PutUint32(b[RecordSize-4:RecordSize], crc32.ChecksumIEEE(b[:RecordSize-4]))

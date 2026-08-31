@@ -294,6 +294,12 @@ func (b *Bridge) writeEDIDLocked(edid []byte) error {
 			if err := b.write(regFlashAddM, 0x80); err != nil {
 				return err
 			}
+			// edid is always edidSize (256) bytes here -- EnsureEDID checks
+			// ValidEDID(payload), which requires len(e) == edidSize, before
+			// ever calling this -- and this branch only runs while !last,
+			// i.e. i < len(edid)/edidChunk = 8. So edidChunk*i tops out at
+			// 224, always within a byte.
+			//nolint:gosec // bounded by edidSize/edidChunk; see comment above
 			if err := b.write(regFlashAddL, byte(edidChunk*i)); err != nil {
 				return err
 			}

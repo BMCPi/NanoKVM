@@ -124,10 +124,10 @@ type Hub struct {
 	state   atomic.Pointer[video.State]
 }
 
-// NewHub builds a Hub over cap. It does not start the pipeline; the first
-// session to connect does that.
-func NewHub(cap video.Capturer, opts Options) (*Hub, error) {
-	if cap == nil {
+// NewHub builds a Hub over capturer. It does not start the pipeline; the
+// first session to connect does that.
+func NewHub(capturer video.Capturer, opts Options) (*Hub, error) {
+	if capturer == nil {
 		return nil, errors.New("rtc: nil capturer")
 	}
 
@@ -159,14 +159,14 @@ func NewHub(cap video.Capturer, opts Options) (*Hub, error) {
 	}
 
 	h := &Hub{
-		cap:      cap,
+		cap:      capturer,
 		opts:     opts,
 		api:      webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithInterceptorRegistry(ir)),
 		cfg:      webrtc.Configuration{ICEServers: opts.ICEServers},
 		track:    track,
 		sessions: make(map[*Session]struct{}),
 	}
-	s := cap.State()
+	s := capturer.State()
 	h.state.Store(&s)
 
 	return h, nil

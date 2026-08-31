@@ -265,7 +265,7 @@ func TestBrokerCloseDisconnectsAll(t *testing.T) {
 	}
 }
 
-func TestBrokerCloseIdempotent(t *testing.T) {
+func TestBrokerCloseIdempotent(_ *testing.T) {
 	b := newTestBroker()
 	// Close on a never-active broker should not panic.
 	b.Close()
