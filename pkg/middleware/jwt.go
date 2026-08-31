@@ -15,18 +15,33 @@ import (
 
 const cookieName = "nano-kvm-token"
 
-// pkgLogHolder backs ParseJWT's debug logging for callers that cannot hand it
-// an injected logger directly: CheckPageAuth (below) and api/redfish's
-// sessionUsername both call ParseJWT straight, with no constructor of their
-// own to thread a logger through. CheckToken and ResolveAuth seed the holder
-// with the logger their caller gave them, so ParseJWT logs at the right
-// component when reached through them; callers that never go through either
-// leave it at the process default. See logger.Holder's doc comment for why a
-// sync.Once-guarded var would get at least one of those callers wrong.
+// pkgLogHolder backs ParseJWT's debug logging. ParseJWT is reached from many
+// places — CheckToken and ResolveAuth below, but also CheckPageAuth and
+// api/redfish's sessionUsername, which have no logger of their own to hand
+// it. Rather than let whichever caller happens to construct CheckToken or
+// ResolveAuth first (or last) stamp this shared debug line with its own
+// component forever — main.go, ui.go, api/auth and api/redfish's Register
+// all build one, in an order this package does not control — the line gets
+// one fixed identity, set exactly once by main via SetLogger. CheckToken and
+// ResolveAuth's own log parameters are NOT written here; they stay scoped to
+// their own closures (see their doc comments). See logger.Holder's doc
+// comment for why a sync.Once-guarded var would still get this wrong for a
+// caller that reaches ParseJWT before SetLogger has run.
 var pkgLogHolder logger.Holder
 
-// pkgLog returns the package's component logger, defaulting to the process
-// logger before CheckToken or ResolveAuth has seeded the holder.
+// SetLogger seeds the component identity for pkg/middleware's shared,
+// caller-independent log sites — currently just ParseJWT's debug line, which
+// CheckToken and ResolveAuth both reach indirectly. Call it once, at startup;
+// per the design's component taxonomy this rides the same "http" component
+// as RequestLogger/Recovery, so main seeds it right alongside them. Safe to
+// call more than once (e.g. in tests), but doing so from more than one
+// component defeats the point — this is not a per-caller logger.
+func SetLogger(log *slog.Logger) {
+	pkgLogHolder.Set(log)
+}
+
+// pkgLog returns the package's fixed-identity logger, defaulting to the
+// process logger before SetLogger has run.
 func pkgLog() *slog.Logger {
 	return pkgLogHolder.Get()
 }
@@ -46,14 +61,20 @@ type Token struct {
 	jwt.RegisteredClaims
 }
 
+// CheckToken gates API routes on a valid token, aborting with 401 otherwise.
+// Rejections are logged through the caller's own logger (its component, not
+// the shared identity ParseJWT's debug line uses — see pkgLogHolder's doc
+// comment) since "who rejected this request" belongs to the caller's chain.
 func CheckToken(log *slog.Logger) gin.HandlerFunc {
-	pkgLogHolder.Set(log)
+	log = logger.Or(log)
 	return func(c *gin.Context) {
 		if allowByToken(c) {
 			c.Next()
 			return
 		}
 
+		log.DebugContext(c.Request.Context(), "check token: rejected",
+			slog.String("path", c.Request.URL.Path))
 		abortUnauthorized(c)
 	}
 }
@@ -62,8 +83,12 @@ func CheckToken(log *slog.Logger) gin.HandlerFunc {
 // the authedKey context flag accordingly. It NEVER redirects or aborts;
 // downstream handlers may render different content for authed vs guest.
 // If the cookie is present but invalid/expired it is cleared.
+//
+// Like CheckToken, it logs through the caller's own logger — the cookie is
+// scoped to the caller's chain (ui, api/auth, ...), not the shared identity
+// ParseJWT's debug line carries.
 func ResolveAuth(log *slog.Logger) gin.HandlerFunc {
-	pkgLogHolder.Set(log)
+	log = logger.Or(log)
 	return func(c *gin.Context) {
 		conf := config.GetInstance()
 		if conf.Authentication == "disable" {
@@ -80,6 +105,7 @@ func ResolveAuth(log *slog.Logger) gin.HandlerFunc {
 
 		if _, err := ParseJWT(cookie); err != nil {
 			// Clear stale cookie so the browser stops sending it.
+			log.DebugContext(c.Request.Context(), "resolve auth: clearing stale cookie")
 			ClearAuthCookie(c)
 			c.Next()
 			return

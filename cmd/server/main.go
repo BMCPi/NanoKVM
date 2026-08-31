@@ -296,6 +296,12 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 	telemetry.Middleware(r)
 	r.Use(middleware.Recovery(rootLog.With("component", "http")))
 	r.Use(middleware.RequestLogger(rootLog.With("component", "http")))
+	// Seeds pkg/middleware's shared, caller-independent log sites (currently
+	// just ParseJWT's debug line) with one fixed identity, so it does not end
+	// up stamped with whichever of api/api.go, ui/ui.go, api/auth or
+	// api/redfish happens to construct CheckToken/ResolveAuth last. See
+	// middleware.SetLogger's doc comment.
+	middleware.SetLogger(rootLog.With("component", "http"))
 	if conf.Authentication == "disable" {
 		r.Use(cors.Default())
 	}

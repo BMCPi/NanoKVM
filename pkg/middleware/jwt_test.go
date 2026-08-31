@@ -1,9 +1,11 @@
 package middleware
 
 import (
+	"bytes"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -288,5 +290,56 @@ func TestParseJWT_DifferentSecret_Fails(t *testing.T) {
 	_, err = ParseJWT(tok)
 	if err == nil {
 		t.Error("expected parse to fail with rotated secret, but it succeeded")
+	}
+}
+
+// TestParseJWTUsesFixedIdentityNotCaller pins the fix for a global
+// pkgLogHolder that let whichever caller constructed CheckToken or
+// ResolveAuth first (or last) stamp ParseJWT's shared debug line with its
+// own component forever. The line now has one fixed identity, seeded once
+// via SetLogger (mirroring main's real wiring); CheckToken built with a
+// different, differently-tagged logger must not redirect it.
+func TestParseJWTUsesFixedIdentityNotCaller(t *testing.T) {
+	initTestConfig()
+
+	var sharedBuf bytes.Buffer
+	sharedLog := slog.New(slog.NewTextHandler(&sharedBuf, &slog.HandlerOptions{Level: slog.LevelDebug})).
+		With("component", "http")
+	SetLogger(sharedLog)
+	t.Cleanup(func() { SetLogger(nil) })
+
+	// A ParseJWT failure reached directly must log through the fixed identity.
+	if _, err := ParseJWT("not-a-jwt"); err == nil {
+		t.Fatal("expected parse error")
+	}
+	if !strings.Contains(sharedBuf.String(), "parse jwt error") {
+		t.Fatalf("shared logger saw no parse-error line; buf=%q", sharedBuf.String())
+	}
+
+	// CheckToken built with an unrelated, differently-tagged logger must not
+	// steal ParseJWT's shared line: it should still land in sharedBuf, tagged
+	// "http", not in the caller's own "redfish"-tagged buffer.
+	sharedBuf.Reset()
+	var callerBuf bytes.Buffer
+	callerLog := slog.New(slog.NewTextHandler(&callerBuf, &slog.HandlerOptions{Level: slog.LevelDebug})).
+		With("component", "redfish")
+
+	w := httptest.NewRecorder()
+	c, r := gin.CreateTestContext(w)
+	r.GET("/api/test", CheckToken(callerLog), func(c *gin.Context) {
+		c.String(http.StatusOK, "ok")
+	})
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	c.Request.AddCookie(&http.Cookie{Name: cookieName, Value: "not-a-jwt"})
+	r.ServeHTTP(w, c.Request)
+
+	if strings.Contains(callerBuf.String(), "parse jwt error") {
+		t.Errorf("caller-tagged logger captured ParseJWT's shared line; buf=%q", callerBuf.String())
+	}
+	if !strings.Contains(sharedBuf.String(), "parse jwt error") {
+		t.Errorf("shared logger did not see the parse-error line after CheckToken(callerLog); buf=%q", sharedBuf.String())
+	}
+	if !strings.Contains(sharedBuf.String(), "component=http") {
+		t.Errorf("shared logger line missing component=http; buf=%q", sharedBuf.String())
 	}
 }
