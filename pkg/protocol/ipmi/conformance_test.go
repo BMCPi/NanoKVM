@@ -20,7 +20,7 @@ import (
 	"github.com/bougou/go-ipmi/pkg/types"
 
 	"github.com/pi-bmc/nanokvm-app/api/redfish"
-	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
+	"github.com/pi-bmc/nanokvm-app/pkg/app/firmware"
 )
 
 func TestClientConformance(t *testing.T) {

@@ -16,18 +16,18 @@ import (
 	"github.com/gin-gonic/gin"
 
 	apivm "github.com/pi-bmc/nanokvm-app/api/vm"
-	"github.com/pi-bmc/nanokvm-app/pkg/application"
-	"github.com/pi-bmc/nanokvm-app/pkg/autoupdate"
+	"github.com/pi-bmc/nanokvm-app/pkg/app/application"
+	"github.com/pi-bmc/nanokvm-app/pkg/app/autoupdate"
+	"github.com/pi-bmc/nanokvm-app/pkg/app/network"
+	"github.com/pi-bmc/nanokvm-app/pkg/app/timesync"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/serial"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/usbgadget"
 	"github.com/pi-bmc/nanokvm-app/pkg/logger"
-	"github.com/pi-bmc/nanokvm-app/pkg/network"
 	"github.com/pi-bmc/nanokvm-app/pkg/protocol/discovery"
 	sshsvc "github.com/pi-bmc/nanokvm-app/pkg/protocol/ssh"
 	"github.com/pi-bmc/nanokvm-app/pkg/sysinfo"
-	"github.com/pi-bmc/nanokvm-app/pkg/timesync"
 	"github.com/pi-bmc/nanokvm-app/ui/components"
 )
 

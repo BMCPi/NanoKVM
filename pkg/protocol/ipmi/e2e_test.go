@@ -22,9 +22,9 @@ import (
 	"github.com/bougou/go-ipmi/pkg/types"
 
 	"github.com/pi-bmc/nanokvm-app/api/redfish"
+	"github.com/pi-bmc/nanokvm-app/pkg/app/firmware"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/bmcsensor"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/serial"
-	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 )
 
 // --- fakes -------------------------------------------------------------------

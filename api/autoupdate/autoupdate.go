@@ -3,7 +3,7 @@ package autoupdate
 import (
 	"net/http"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/autoupdate"
+	"github.com/pi-bmc/nanokvm-app/pkg/app/autoupdate"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 

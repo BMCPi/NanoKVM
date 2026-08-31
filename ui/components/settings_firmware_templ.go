@@ -20,7 +20,7 @@ import templruntime "github.com/a-h/templ/runtime"
 // obvious.
 
 import (
-	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
+	"github.com/pi-bmc/nanokvm-app/pkg/app/firmware"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/field"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"

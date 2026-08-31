@@ -10,8 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stmcginnis/gofish/schemas"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/app/firmware"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/power"
-	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 )
 
 func (h *handlers) GetSystemCollection(c *gin.Context) {

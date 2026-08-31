@@ -7,7 +7,7 @@ import (
 	"github.com/bougou/go-ipmi/pkg/handlers"
 	"github.com/bougou/go-ipmi/pkg/types"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
+	"github.com/pi-bmc/nanokvm-app/pkg/app/firmware"
 )
 
 // firmwareStatus is the slice of firmware.Controller the OEM handler needs.

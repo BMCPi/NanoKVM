@@ -27,9 +27,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/app/firmware"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
-	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 )
 
 // firmwareRouter mounts the firmware fragment routes against a Controller

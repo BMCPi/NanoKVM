@@ -5,7 +5,7 @@ package components
 // in, both for the first paint and for every htmx swap, so one template
 // definition covers both.
 
-import "github.com/pi-bmc/nanokvm-app/pkg/firmware"
+import "github.com/pi-bmc/nanokvm-app/pkg/app/firmware"
 
 // SettingsGeneral backs the General panel — the BMC's own identity plus the
 // background updater's configuration.

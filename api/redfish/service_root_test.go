@@ -6,10 +6,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/app/firmware"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/power"
-	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 )
 
 // ServiceRoot and Manager must agree: a client that keys off either one has

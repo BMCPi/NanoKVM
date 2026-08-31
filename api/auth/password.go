@@ -5,7 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	pkgauth "github.com/pi-bmc/nanokvm-app/pkg/auth"
+	pkgauth "github.com/pi-bmc/nanokvm-app/pkg/app/auth"
 	"github.com/pi-bmc/nanokvm-app/pkg/proto"
 )
 

@@ -1,9 +1,9 @@
 package redfish
 
 import (
+	"github.com/pi-bmc/nanokvm-app/pkg/app/firmware"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/power"
-	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 )
 
 // Service handles Redfish REST API requests.

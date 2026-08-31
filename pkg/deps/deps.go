@@ -21,12 +21,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/auth"
+	"github.com/pi-bmc/nanokvm-app/pkg/app/auth"
+	"github.com/pi-bmc/nanokvm-app/pkg/app/firmware"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/hid"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/power"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/video/rtc"
-	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 )
 
 // Deps holds the process-wide subsystem controllers built once at startup.
