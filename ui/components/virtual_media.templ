@@ -231,6 +231,10 @@ templ VMAddBody(files []string) {
 						Size:     button.SizeSm,
 						Type:     button.TypeSubmit,
 						Disabled: true,
+						// Ungated by input_gate.js once the file input has a
+						// value. The attribute travels with the button so the
+						// gate cannot be lost when this markup is copied.
+						Attributes: templ.Attributes{"data-gate-input": "#vm-upload-file"},
 					}) {
 						Upload
 					}
@@ -267,6 +271,9 @@ templ VMAddBody(files []string) {
 							Size:     button.SizeSm,
 							Type:     button.TypeSubmit,
 							Disabled: true,
+							// See the upload submit above: the gate rides the
+							// button, not a list in a script.
+							Attributes: templ.Attributes{"data-gate-input": "#vm-fetch-url"},
 						}) {
 							Fetch
 						}

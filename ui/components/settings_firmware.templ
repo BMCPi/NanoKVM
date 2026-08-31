@@ -155,6 +155,11 @@ templ SettingsFirmwareBody(m SettingsFirmware) {
 								Size:     button.SizeSm,
 								Type:     button.TypeSubmit,
 								Disabled: true,
+								// THE bug this panel shipped with: the button
+								// rendered disabled and nothing enabled it, so
+								// choosing a file left Upload unclickable.
+								// input_gate.js ungates it from this attribute.
+								Attributes: templ.Attributes{"data-gate-input": "#fw-upload-file"},
 							}) {
 								Upload
 							}

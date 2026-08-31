@@ -727,6 +727,11 @@ func SettingsFirmwareBody(m SettingsFirmware) templ.Component {
 							Size:     button.SizeSm,
 							Type:     button.TypeSubmit,
 							Disabled: true,
+							// THE bug this panel shipped with: the button
+							// rendered disabled and nothing enabled it, so
+							// choosing a file left Upload unclickable.
+							// input_gate.js ungates it from this attribute.
+							Attributes: templ.Attributes{"data-gate-input": "#fw-upload-file"},
 						}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var28), templ_7745c5c3_Buffer)
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
@@ -941,7 +946,7 @@ func firmwareCapsuleRow(c firmware.Capsule, staging bool) templ.Component {
 					var templ_7745c5c3_Var36 string
 					templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(c.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/settings_firmware.templ`, Line: 219, Col: 12}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/settings_firmware.templ`, Line: 224, Col: 12}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 					if templ_7745c5c3_Err != nil {
@@ -972,7 +977,7 @@ func firmwareCapsuleRow(c firmware.Capsule, staging bool) templ.Component {
 					var templ_7745c5c3_Var38 string
 					templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(formatBytes(c.Size))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/settings_firmware.templ`, Line: 222, Col: 25}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/settings_firmware.templ`, Line: 227, Col: 25}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 					if templ_7745c5c3_Err != nil {
