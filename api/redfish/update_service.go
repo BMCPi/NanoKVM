@@ -39,7 +39,7 @@ const capsuleStageTimeout = 30 * time.Minute
 const maxCapsulePushBytes = 128 << 20 // 128 MiB
 
 // GetUpdateService returns the UpdateService root.
-func (s *Service) GetUpdateService(c *gin.Context) {
+func (h *handlers) GetUpdateService(c *gin.Context) {
 	c.JSON(http.StatusOK, UpdateService{
 		Resource: Resource{
 			ODataType:    "#UpdateService.v1_11_0.UpdateService",
@@ -64,7 +64,7 @@ func (s *Service) GetUpdateService(c *gin.Context) {
 // GetFirmwareInventoryCollection returns the firmware inventory collection:
 // the members the host has PATCHed, or the synthesized BiosFirmware entry
 // before the first report so the branch is never empty.
-func (s *Service) GetFirmwareInventoryCollection(c *gin.Context) {
+func (h *handlers) GetFirmwareInventoryCollection(c *gin.Context) {
 	links := Links{}
 	for _, id := range hostCollectionIDs(firmwareOf) {
 		links = append(links, Link(firmwareInventoryPath+"/"+id))
@@ -83,7 +83,7 @@ func (s *Service) GetFirmwareInventoryCollection(c *gin.Context) {
 // BiosFirmware member and its legacy "BIOS" spelling — a minimal entry built
 // from the BiosVersion the host reported on Systems/1. The BMC has no other
 // window into what the host is actually running.
-func (s *Service) GetFirmwareInventoryMember(c *gin.Context) {
+func (h *handlers) GetFirmwareInventoryMember(c *gin.Context) {
 	id := c.Param("id")
 	resPath := firmwareInventoryPath + "/" + id
 
@@ -125,7 +125,7 @@ func (s *Service) GetFirmwareInventoryMember(c *gin.Context) {
 // PATCH merges per DSP0266; the host re-reports the full document each boot
 // so the merged result tracks it, while a boot that omits LastAttempt* keeps
 // the last known attempt visible.
-func (s *Service) PatchFirmwareInventoryMember(c *gin.Context) {
+func (h *handlers) PatchFirmwareInventoryMember(c *gin.Context) {
 	if !hostWritable(c) {
 		return
 	}
@@ -157,7 +157,7 @@ func (s *Service) PatchFirmwareInventoryMember(c *gin.Context) {
 
 // SimpleUpdate downloads the FMP capsule at ImageURI and stages it on the
 // capsule volume. ImageURI is required: there is no implicit "latest".
-func (s *Service) SimpleUpdate(c *gin.Context) {
+func (h *handlers) SimpleUpdate(c *gin.Context) {
 	var req struct {
 		ImageURI         string   `json:"ImageURI"`
 		TransferProtocol string   `json:"TransferProtocol"`
@@ -170,7 +170,7 @@ func (s *Service) SimpleUpdate(c *gin.Context) {
 		return
 	}
 
-	ctrl := s.Firmware
+	ctrl := h.d.Firmware
 	if ctrl.IsStaging() {
 		redfishErrorResponse(c, http.StatusConflict, "a capsule is already being staged")
 		return
@@ -180,11 +180,11 @@ func (s *Service) SimpleUpdate(c *gin.Context) {
 	// download runs on past it — but NOT from the process: the context comes
 	// from deps, so SIGTERM aborts a transfer in flight instead of leaving it
 	// to be killed mid-write. See deps.ActionContext.
-	ctx, cancel := s.Deps.ActionContext(capsuleStageTimeout)
+	ctx, cancel := h.d.ActionContext(capsuleStageTimeout)
 	go func(url string) {
 		defer cancel()
 		if err := ctrl.StageCapsuleFromURL(ctx, url, ""); err != nil {
-			slog.ErrorContext(ctx, "redfish: capsule staging failed", slog.Any("err", err))
+			h.log.ErrorContext(ctx, "redfish: capsule staging failed", slog.Any("err", err))
 		}
 	}(req.ImageURI)
 
@@ -200,8 +200,8 @@ func (s *Service) SimpleUpdate(c *gin.Context) {
 // and the BMC stages them directly, no outbound fetch involved. Accepts a raw
 // body (application/octet-stream) or multipart form field "UpdateFile" —
 // Redfish's MultipartHttpPushUri field name — falling back to "file".
-func (s *Service) PushCapsule(c *gin.Context) {
-	ctrl := s.Firmware
+func (h *handlers) PushCapsule(c *gin.Context) {
+	ctrl := h.d.Firmware
 	if ctrl.IsStaging() {
 		redfishErrorResponse(c, http.StatusConflict, "a capsule is already being staged")
 		return
@@ -240,7 +240,7 @@ func (s *Service) PushCapsule(c *gin.Context) {
 		redfishErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	slog.InfoContext(c.Request.Context(), "redfish: staged pushed capsule",
+	h.log.InfoContext(c.Request.Context(), "redfish: staged pushed capsule",
 		slog.String("name", name), slog.Int64("bytes", written))
 
 	c.JSON(http.StatusAccepted, Message{

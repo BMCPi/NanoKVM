@@ -23,20 +23,21 @@ func authTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	svc := NewService(testDeps())
+	h := testHandlers()
 	r := gin.New()
 
 	r.GET(ServiceRootPath, svc.GetServiceRoot)
 	r.GET(strings.TrimSuffix(ServiceRootPath, "/"), svc.GetServiceRoot)
-	r.GET(sessionServicePath, svc.GetSessionService)
-	r.POST(sessionsPath, svc.CreateSession)
+	r.GET(sessionServicePath, h.GetSessionService)
+	r.POST(sessionsPath, h.CreateSession)
 
 	api := r.Group("/redfish/v1").Use(CheckAuth())
 	{
-		api.GET("/Systems", svc.GetSystemCollection)
-		api.GET("/Systems/1", svc.GetSystem)
-		api.GET("/SessionService/Sessions", svc.GetSessionCollection)
-		api.GET("/SessionService/Sessions/:id", svc.GetSession)
-		api.DELETE("/SessionService/Sessions/:id", svc.DeleteSession)
+		api.GET("/Systems", h.GetSystemCollection)
+		api.GET("/Systems/1", h.GetSystem)
+		api.GET("/SessionService/Sessions", h.GetSessionCollection)
+		api.GET("/SessionService/Sessions/:id", h.GetSession)
+		api.DELETE("/SessionService/Sessions/:id", h.DeleteSession)
 	}
 
 	ts := httptest.NewServer(r)

@@ -24,6 +24,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/bmcsensor"
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 	"github.com/stmcginnis/gofish/schemas"
 )
 
@@ -100,7 +101,7 @@ type SensorOemPowerHealth struct {
 // The collection is empty rather than absent when the slave EEPROM is not
 // configured: a client walking Chassis should find a well-formed collection
 // and learn there is nothing in it, not a 404 that ends the walk.
-func (s *Service) GetSensorCollection(c *gin.Context) {
+func (h *handlers) GetSensorCollection(c *gin.Context) {
 	var members []Link
 	if socReader.Available() {
 		members = append(members, Link(sensorItemPath(socSensorID)))
@@ -110,12 +111,12 @@ func (s *Service) GetSensorCollection(c *gin.Context) {
 }
 
 // GetSensor serves one sensor.
-func (s *Service) GetSensor(c *gin.Context) {
+func (h *handlers) GetSensor(c *gin.Context) {
 	if c.Param("sensor") != socSensorID {
 		redfishErrorResponse(c, http.StatusNotFound, "no such sensor: "+c.Param("sensor"))
 		return
 	}
-	c.JSON(http.StatusOK, socSensorResource())
+	c.JSON(http.StatusOK, socSensorResource(h.log))
 }
 
 // socSensorResource builds the sensor from whatever the EEPROM currently
@@ -126,7 +127,7 @@ func (s *Service) GetSensor(c *gin.Context) {
 // the same thing: no trustworthy temperature right now. The distinctions go
 // to the log, where they say whether to look at the host, the bus or the
 // device tree.
-func socSensorResource() Sensor {
+func socSensorResource(log *slog.Logger) Sensor {
 	sensor := Sensor{
 		Resource: Resource{
 			ODataType:    odataTypeSensor,
@@ -143,7 +144,7 @@ func socSensorResource() Sensor {
 
 	reading, err := socReader.Read()
 	if err != nil {
-		slog.Debug("redfish: SoC sensor unavailable", slog.Any("err", err))
+		logger.Or(log).Debug("redfish: SoC sensor unavailable", slog.Any("err", err))
 		return sensor
 	}
 

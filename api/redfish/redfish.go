@@ -1,36 +1,72 @@
 package redfish
 
 import (
+	"log/slog"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 )
+
+// handlers holds what a route handler in this package's log-touched files
+// needs: process-lifetime dependencies (through d) and the "redfish"
+// component logger, built once in Register. Most of this package's handlers
+// still hang off Service (service.go) — this task moved only the files that
+// actually log (see task-17-report.md) rather than renaming every receiver in
+// the package, so the two types coexist and Register wires each route to
+// whichever one its handler lives on.
+type handlers struct {
+	d   *deps.Deps
+	log *slog.Logger
+}
+
+// pkgLogHolder backs the "redfish" component logger for package-level helpers
+// that log but cannot receive it as a constructor argument: hostStateSave and
+// hostStateFlush (hoststate.go) run both from *handlers methods below and
+// from *Service methods this task did not touch (chassis.go, hostreports.go),
+// and applyBootPatch (systems.go) runs from the exported ApplyBootOverride the
+// ui package calls directly, with no logger to hand it. Register seeds the
+// holder with the same logger every *handlers method uses; LoadHostState and
+// FlushHostState (called by cmd/server/main.go outside Register — one of them
+// before Register ever runs) seed it too, so the early-boot and shutdown
+// windows still log at the right component instead of silently falling back
+// to the process default. See logger.Holder's doc comment for why a
+// sync.Once-guarded var would get at least one of those callers wrong.
+var pkgLogHolder logger.Holder
+
+// pkgLog returns the package's component logger, defaulting to the process
+// logger before anything has seeded the holder.
+func pkgLog() *slog.Logger {
+	return pkgLogHolder.Get()
+}
 
 func Register(r *gin.Engine, d *deps.Deps) {
 	service := NewService(d)
+	h := &handlers{d: d, log: logger.Or(d.Log).With("component", "redfish")}
+	pkgLogHolder.Set(h.log)
 
 	// Public endpoints. HostTrace records requests arriving over the USB
 	// host interface — the only boot-time record of what the managed host's
 	// firmware did, since its RELEASE builds log nothing themselves.
-	r.GET("/redfish", HostTrace(), service.GetRedfishBase)
+	r.GET("/redfish", HostTrace(h.log), service.GetRedfishBase)
 
 	// The service root is served at both spellings. The canonical form is
 	// schemas.DefaultServiceRoot ("/redfish/v1/", trailing slash) — that is
 	// what gofish requests on Login and what we now emit as @odata.id. The
 	// bare "/redfish/v1" stays registered so existing callers keep working
 	// rather than relying on gin's 301 redirect.
-	r.GET(ServiceRootPath, HostTrace(), service.GetServiceRoot)
-	r.GET(strings.TrimSuffix(ServiceRootPath, "/"), HostTrace(), service.GetServiceRoot)
+	r.GET(ServiceRootPath, HostTrace(h.log), service.GetServiceRoot)
+	r.GET(strings.TrimSuffix(ServiceRootPath, "/"), HostTrace(h.log), service.GetServiceRoot)
 
 	// $metadata is referenced by the @odata.context of every response, so it
 	// has to resolve for anyone who can read a response at all — including
 	// the unauthenticated service root.
 	r.GET("/redfish/v1/$metadata", service.GetMetadata)
 
-	r.GET("/redfish/v1/SessionService", service.GetSessionService)
-	r.POST("/redfish/v1/SessionService/Sessions", service.CreateSession)
+	r.GET("/redfish/v1/SessionService", h.GetSessionService)
+	r.POST("/redfish/v1/SessionService/Sessions", h.CreateSession)
 
 	// OpenAPI documentation — public so clients (bmclib, gofish, etc.)
 	// can introspect the surface before authenticating. The rendered
@@ -42,14 +78,14 @@ func Register(r *gin.Engine, d *deps.Deps) {
 	// Protected endpoints. CheckAuth passes host-interface requests through
 	// unauthenticated (DSP0270); handlers guard host-owned writes with
 	// hostWritable instead.
-	api := r.Group("/redfish/v1").Use(HostTrace(), CheckAuth())
+	api := r.Group("/redfish/v1").Use(HostTrace(h.log), CheckAuth())
 	{
 		// Systems. PATCH carries both write directions: operators stage the
 		// boot override, the host firmware reports identity/boot progress.
-		api.GET("/Systems", service.GetSystemCollection)
-		api.GET("/Systems/1", service.GetSystem)
-		api.POST("/Systems/1/Actions/ComputerSystem.Reset", service.ResetSystem)
-		api.PATCH("/Systems/1", service.PatchSystem)
+		api.GET("/Systems", h.GetSystemCollection)
+		api.GET("/Systems/1", h.GetSystem)
+		api.POST("/Systems/1/Actions/ComputerSystem.Reset", h.ResetSystem)
+		api.PATCH("/Systems/1", h.PatchSystem)
 
 		// Bios — host-reported attributes; operators stage changes on the
 		// SettingsObject and the host firmware applies them at boot. The
@@ -129,8 +165,8 @@ func Register(r *gin.Engine, d *deps.Deps) {
 		// Sensors the BMC reads itself, as opposed to Thermal, which is
 		// whatever the host published. Read-only: the host has no say in
 		// what this side measures.
-		api.GET("/Chassis/1/Sensors", service.GetSensorCollection)
-		api.GET("/Chassis/1/Sensors/:sensor", service.GetSensor)
+		api.GET("/Chassis/1/Sensors", h.GetSensorCollection)
+		api.GET("/Chassis/1/Sensors/:sensor", h.GetSensor)
 
 		// Managers
 		api.GET("/Managers", service.GetManagerCollection)
@@ -147,32 +183,32 @@ func Register(r *gin.Engine, d *deps.Deps) {
 		api.GET("/Managers/1/NetworkInterfaces", service.GetManagerNetworkInterfaceCollection)
 
 		// Serial Interfaces
-		api.GET("/Managers/1/SerialInterfaces", service.GetSerialInterfaceCollection)
-		api.GET("/Managers/1/SerialInterfaces/1", service.GetSerialInterface)
-		api.PATCH("/Managers/1/SerialInterfaces/1", service.PatchSerialInterface)
+		api.GET("/Managers/1/SerialInterfaces", h.GetSerialInterfaceCollection)
+		api.GET("/Managers/1/SerialInterfaces/1", h.GetSerialInterface)
+		api.PATCH("/Managers/1/SerialInterfaces/1", h.PatchSerialInterface)
 
 		// Virtual Media
-		api.GET("/Managers/1/VirtualMedia", service.GetVirtualMediaCollection)
-		api.GET("/Managers/1/VirtualMedia/CD", service.GetVirtualMedia)
-		api.POST("/Managers/1/VirtualMedia/CD/Actions/VirtualMedia.InsertMedia", service.InsertMedia)
-		api.POST("/Managers/1/VirtualMedia/CD/Actions/VirtualMedia.EjectMedia", service.EjectMedia)
+		api.GET("/Managers/1/VirtualMedia", h.GetVirtualMediaCollection)
+		api.GET("/Managers/1/VirtualMedia/CD", h.GetVirtualMedia)
+		api.POST("/Managers/1/VirtualMedia/CD/Actions/VirtualMedia.InsertMedia", h.InsertMedia)
+		api.POST("/Managers/1/VirtualMedia/CD/Actions/VirtualMedia.EjectMedia", h.EjectMedia)
 
 		// Sessions. The per-session member has to resolve: CreateSession
 		// hands the client this URI in the Location header, and gofish
 		// GETs/DELETEs it from there.
-		api.GET("/SessionService/Sessions", service.GetSessionCollection)
-		api.GET("/SessionService/Sessions/:id", service.GetSession)
-		api.DELETE("/SessionService/Sessions/:id", service.DeleteSession)
+		api.GET("/SessionService/Sessions", h.GetSessionCollection)
+		api.GET("/SessionService/Sessions/:id", h.GetSession)
+		api.DELETE("/SessionService/Sessions/:id", h.DeleteSession)
 
 		// UpdateService (FMP capsule staging; the host applies at next boot).
 		// The inventory members are host reports: RpiRedfishSyncDxe PATCHes
 		// SoftwareInventory member "BiosFirmware" once per boot ("BIOS" is the
 		// legacy spelling of the synthesized fallback member).
-		api.GET("/UpdateService", service.GetUpdateService)
-		api.GET("/UpdateService/FirmwareInventory", service.GetFirmwareInventoryCollection)
-		api.GET("/UpdateService/FirmwareInventory/:id", service.GetFirmwareInventoryMember)
-		api.PATCH("/UpdateService/FirmwareInventory/:id", service.PatchFirmwareInventoryMember)
-		api.POST("/UpdateService/Actions/UpdateService.SimpleUpdate", service.SimpleUpdate)
-		api.POST("/UpdateService/update", service.PushCapsule)
+		api.GET("/UpdateService", h.GetUpdateService)
+		api.GET("/UpdateService/FirmwareInventory", h.GetFirmwareInventoryCollection)
+		api.GET("/UpdateService/FirmwareInventory/:id", h.GetFirmwareInventoryMember)
+		api.PATCH("/UpdateService/FirmwareInventory/:id", h.PatchFirmwareInventoryMember)
+		api.POST("/UpdateService/Actions/UpdateService.SimpleUpdate", h.SimpleUpdate)
+		api.POST("/UpdateService/update", h.PushCapsule)
 	}
 }

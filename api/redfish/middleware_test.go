@@ -15,22 +15,16 @@ import (
 func TestHostTraceLogsHostInterfaceOnly(t *testing.T) {
 	resetHostState(t)
 	var buf bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
-	t.Cleanup(func() { slog.SetDefault(prev) })
+	log := slog.New(slog.NewTextHandler(&buf, nil))
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	svc := NewService(testDeps())
-	r.GET("/redfish/v1/Systems/1/Bios/Settings", HostTrace(), svc.GetBiosSettings)
+	r.GET("/redfish/v1/Systems/1/Bios/Settings", HostTrace(log), svc.GetBiosSettings)
 
-	// First request also lazily initializes config, which logs unrelated
-	// startup noise — clear the buffer before asserting, then prove a LAN
+	// The logger is constructed for this test alone (no slog.SetDefault), so
+	// the buffer only ever sees what HostTrace itself writes — prove a LAN
 	// request stays untraced.
-	if w := do(r, http.MethodGet, "/redfish/v1/Systems/1/Bios/Settings", lanIP, "", nil); w.Code != http.StatusOK {
-		t.Fatalf("LAN GET = %d", w.Code)
-	}
-	buf.Reset()
 	if w := do(r, http.MethodGet, "/redfish/v1/Systems/1/Bios/Settings", lanIP, "", nil); w.Code != http.StatusOK {
 		t.Fatalf("LAN GET = %d", w.Code)
 	}

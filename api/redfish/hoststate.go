@@ -18,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 )
 
 // The RHI-only host model, after the JetKVM pattern: the BMC never touches
@@ -222,7 +223,7 @@ func hostStateSave() {
 	}
 	hostSaveTimer = time.AfterFunc(hostStateSaveDelay, func() {
 		if err := hostStateWrite(); err != nil {
-			slog.Warn("persisting BMC host state", slog.Any("err", err))
+			pkgLog().Warn("persisting BMC host state", slog.Any("err", err))
 		}
 	})
 }
@@ -231,7 +232,15 @@ func hostStateSave() {
 // shutdown path: the host's own reports save debounced, so without this a
 // SIGTERM inside the debounce window discards whatever the host last said and
 // the BMC comes back advertising the previous boot's inventory.
-func FlushHostState() { hostStateFlush() }
+//
+// Called from cmd/server/main.go outside Register, after it has already run
+// (this is a shutdown-path call) — the reseed here is cheap and keeps
+// hostStateFlush's logger consistent regardless of that ordering. See
+// pkgLogHolder's doc comment.
+func FlushHostState(log *slog.Logger) {
+	pkgLogHolder.Set(log)
+	hostStateFlush()
+}
 
 // hostStateFlush writes immediately, for operator instructions and shutdown.
 func hostStateFlush() {
@@ -242,7 +251,7 @@ func hostStateFlush() {
 	}
 	hostSaveMu.Unlock()
 	if err := hostStateWrite(); err != nil {
-		slog.Warn("flushing BMC host state", slog.Any("err", err))
+		pkgLog().Warn("flushing BMC host state", slog.Any("err", err))
 	}
 }
 
@@ -285,18 +294,28 @@ func hostStateWrite() error {
 // LoadHostState restores the last snapshot at startup, before any route can
 // serve. A corrupt file is not worth failing startup over; the host rewrites
 // everything on its next boot.
-func LoadHostState() {
+//
+// Called from cmd/server/main.go before Register ever runs, so it seeds
+// pkgLogHolder itself rather than waiting for Register to: anything that
+// reaches hostStateSave/hostStateFlush in the window between this call and
+// Register (a boot-time SetBootOverride from pkg/ipmi, say) still logs at the
+// "redfish" component instead of the process default. See pkgLogHolder's doc
+// comment.
+func LoadHostState(log *slog.Logger) {
+	log = logger.Or(log)
+	pkgLogHolder.Set(log)
+
 	data, err := os.ReadFile(hostStatePath)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			slog.Warn("reading persisted BMC host state", slog.Any("err", err))
+			log.Warn("reading persisted BMC host state", slog.Any("err", err))
 		}
 		return
 	}
 
 	restored := &hostState{}
 	if err := json.Unmarshal(data, restored); err != nil {
-		slog.Warn("persisted BMC host state is unreadable; ignoring it", slog.Any("err", err))
+		log.Warn("persisted BMC host state is unreadable; ignoring it", slog.Any("err", err))
 		return
 	}
 
@@ -341,7 +360,7 @@ func LoadHostState() {
 	if !captured.IsZero() {
 		age = time.Since(captured).Round(time.Second).String()
 	}
-	slog.Info("restored BMC host state; the host overwrites it on its next boot", slog.String("age", age))
+	log.Info("restored BMC host state; the host overwrites it on its next boot", slog.String("age", age))
 }
 
 // dedupeHostCollection removes members whose content is identical to another

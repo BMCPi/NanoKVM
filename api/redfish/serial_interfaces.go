@@ -3,7 +3,6 @@ package redfish
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -56,18 +55,18 @@ type serialPatchRequest struct {
 	FlowControl string      `json:"FlowControl"`
 }
 
-func (s *Service) GetSerialInterfaceCollection(c *gin.Context) {
+func (h *handlers) GetSerialInterfaceCollection(c *gin.Context) {
 	c.JSON(http.StatusOK, newCollection(
 		"SerialInterfaceCollection", "Serial Interface Collection", serialInterfacesPath,
 		Link(serialInterfacePath),
 	))
 }
 
-func (s *Service) GetSerialInterface(c *gin.Context) {
+func (h *handlers) GetSerialInterface(c *gin.Context) {
 	c.JSON(http.StatusOK, buildSerialInterfaceResource())
 }
 
-func (s *Service) PatchSerialInterface(c *gin.Context) {
+func (h *handlers) PatchSerialInterface(c *gin.Context) {
 	var req serialPatchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		redfishErrorResponse(c, http.StatusBadRequest, "invalid request body: "+err.Error())
@@ -94,7 +93,7 @@ func (s *Service) PatchSerialInterface(c *gin.Context) {
 
 	// NOTE: active serial broker sessions will not pick up new settings
 	// until the next Connect(). A broker restart may be needed.
-	slog.DebugContext(c.Request.Context(), "redfish serial interface updated via central config")
+	h.log.DebugContext(c.Request.Context(), "redfish serial interface updated via central config")
 	c.JSON(http.StatusOK, buildSerialInterfaceResource())
 }
 

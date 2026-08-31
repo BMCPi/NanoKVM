@@ -88,7 +88,7 @@ func TestServiceRootIsParsableByGofish(t *testing.T) {
 // is what marshalling a gofish struct would produce — is schema-invalid, so
 // unset properties must be omitted entirely.
 func TestSystemOmitsEmptyEnums(t *testing.T) {
-	body := decodeBody(t, NewService(testDeps()).GetSystem)
+	body := decodeBody(t, testHandlers().GetSystem)
 
 	for _, prop := range []string{
 		"SystemType", "PowerState", "Manufacturer", "Model", "SKU",
@@ -114,7 +114,7 @@ func TestSystemOmitsEmptyEnums(t *testing.T) {
 // The Bios navigation property is the one gofish literally cannot express
 // (ComputerSystem.bios is unexported), so pin its wire form.
 func TestSystemBiosLinkIsODataRef(t *testing.T) {
-	body := decodeBody(t, NewService(testDeps()).GetSystem)
+	body := decodeBody(t, testHandlers().GetSystem)
 
 	bios, ok := body["Bios"].(map[string]any)
 	if !ok {
@@ -128,7 +128,7 @@ func TestSystemBiosLinkIsODataRef(t *testing.T) {
 // Boot must always advertise its allowable values so clients know what to
 // PATCH, and the enums must be the gofish-typed ones.
 func TestSystemBootBlock(t *testing.T) {
-	body := decodeBody(t, NewService(testDeps()).GetSystem)
+	body := decodeBody(t, testHandlers().GetSystem)
 
 	boot, ok := body["Boot"].(map[string]any)
 	if !ok {
@@ -153,10 +153,10 @@ func TestSystemBootBlock(t *testing.T) {
 // drift, which is why newCollection derives one from the other.
 func TestCollectionCountMatchesMembers(t *testing.T) {
 	for name, h := range map[string]gin.HandlerFunc{
-		"Systems":           NewService(testDeps()).GetSystemCollection,
+		"Systems":           testHandlers().GetSystemCollection,
 		"Managers":          NewService(testDeps()).GetManagerCollection,
-		"Sessions":          NewService(testDeps()).GetSessionCollection,
-		"FirmwareInventory": NewService(testDeps()).GetFirmwareInventoryCollection,
+		"Sessions":          testHandlers().GetSessionCollection,
+		"FirmwareInventory": testHandlers().GetFirmwareInventoryCollection,
 	} {
 		t.Run(name, func(t *testing.T) {
 			body := decodeBody(t, h)
@@ -217,7 +217,7 @@ func TestManagerIsParsableByGofish(t *testing.T) {
 
 // Reset must advertise exactly the types ResetSystem can service.
 func TestSystemResetAllowableValues(t *testing.T) {
-	body := decodeBody(t, NewService(testDeps()).GetSystem)
+	body := decodeBody(t, testHandlers().GetSystem)
 
 	actions, ok := body["Actions"].(map[string]any)
 	if !ok {
@@ -257,17 +257,18 @@ func TestRedfishBasePointsAtDefaultServiceRoot(t *testing.T) {
 // Every @odata.id we emit must sit under the service root.
 func TestODataIDsAreRooted(t *testing.T) {
 	svc := NewService(testDeps())
-	for name, h := range map[string]gin.HandlerFunc{
+	h := testHandlers()
+	for name, handler := range map[string]gin.HandlerFunc{
 		"ServiceRoot":       svc.GetServiceRoot,
-		"SystemCollection":  svc.GetSystemCollection,
-		"System":            svc.GetSystem,
+		"SystemCollection":  h.GetSystemCollection,
+		"System":            h.GetSystem,
 		"ManagerCollection": svc.GetManagerCollection,
 		"Manager":           svc.GetManager,
-		"SessionService":    svc.GetSessionService,
-		"UpdateService":     svc.GetUpdateService,
+		"SessionService":    h.GetSessionService,
+		"UpdateService":     h.GetUpdateService,
 	} {
 		t.Run(name, func(t *testing.T) {
-			body := decodeBody(t, h)
+			body := decodeBody(t, handler)
 			id, ok := body["@odata.id"].(string)
 			if !ok {
 				t.Fatal("@odata.id missing")

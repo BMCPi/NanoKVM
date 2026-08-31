@@ -76,10 +76,11 @@ func noEEPROM(t *testing.T) {
 func sensorRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	svc := NewService(testDeps())
+	h := testHandlers()
 	r := gin.New()
 	r.GET(chassisItemPath, svc.GetChassis)
-	r.GET(sensorsPath, svc.GetSensorCollection)
-	r.GET(sensorsPath+"/:sensor", svc.GetSensor)
+	r.GET(sensorsPath, h.GetSensorCollection)
+	r.GET(sensorsPath+"/:sensor", h.GetSensor)
 	return r
 }
 

@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func (s *Service) GetSessionService(c *gin.Context) {
+func (h *handlers) GetSessionService(c *gin.Context) {
 	c.JSON(http.StatusOK, SessionService{
 		Resource: Resource{
 			ODataType:    "#SessionService.v1_1_8.SessionService",
@@ -26,7 +26,7 @@ func (s *Service) GetSessionService(c *gin.Context) {
 	})
 }
 
-func (s *Service) CreateSession(c *gin.Context) {
+func (h *handlers) CreateSession(c *gin.Context) {
 	var req struct {
 		UserName string `json:"UserName"`
 		Password string `json:"Password"`
@@ -51,7 +51,7 @@ func (s *Service) CreateSession(c *gin.Context) {
 	sessionID := fmt.Sprintf("%d", time.Now().UnixNano())
 	sessionURI := sessionsPath + "/" + sessionID
 
-	slog.DebugContext(c.Request.Context(), "redfish session created", slog.String("user", req.UserName))
+	h.log.DebugContext(c.Request.Context(), "redfish session created", slog.String("user", req.UserName))
 
 	c.Header("X-Auth-Token", token)
 	// Location is where the client learns its own session URI. gofish reads
@@ -71,7 +71,7 @@ func (s *Service) CreateSession(c *gin.Context) {
 // Sessions are stateless JWTs: the bearer already proved possession of a
 // valid token to reach CheckAuth, so there is no server-side record to look
 // up and the id is echoed back as given.
-func (s *Service) GetSession(c *gin.Context) {
+func (h *handlers) GetSession(c *gin.Context) {
 	c.JSON(http.StatusOK, sessionResource(c.Param("id"), sessionUsername(c)))
 }
 
@@ -107,14 +107,14 @@ func sessionUsername(c *gin.Context) string {
 	return ""
 }
 
-func (s *Service) GetSessionCollection(c *gin.Context) {
+func (h *handlers) GetSessionCollection(c *gin.Context) {
 	// Sessions are stateless JWTs, so the collection is always empty.
 	c.JSON(http.StatusOK, newCollection(
 		"SessionCollection", "Session Collection", sessionsPath,
 	))
 }
 
-func (s *Service) DeleteSession(c *gin.Context) {
+func (h *handlers) DeleteSession(c *gin.Context) {
 	// Stub — session management is not persisted
 	c.Status(http.StatusNoContent)
 }

@@ -3,6 +3,7 @@ package redfish
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -72,9 +73,10 @@ func hostIP(t *testing.T) string {
 func hostRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	svc := NewService(testDeps())
+	h := testHandlers()
 	r := gin.New()
-	r.GET("/redfish/v1/Systems/1", svc.GetSystem)
-	r.PATCH("/redfish/v1/Systems/1", svc.PatchSystem)
+	r.GET("/redfish/v1/Systems/1", h.GetSystem)
+	r.PATCH("/redfish/v1/Systems/1", h.PatchSystem)
 	r.GET("/redfish/v1/Systems/1/BootOptions", svc.GetBootOptionCollection)
 	r.GET("/redfish/v1/Systems/1/EthernetInterfaces", svc.GetEthernetInterfaceCollection)
 	r.GET("/redfish/v1/Systems/1/EthernetInterfaces/:nic", svc.GetEthernetInterface)
@@ -107,9 +109,9 @@ func hostRouter() *gin.Engine {
 	r.PATCH("/redfish/v1/Systems/1/SecureBoot", svc.PatchSecureBoot)
 	r.GET("/redfish/v1/Chassis/1/Thermal", svc.GetChassisThermal)
 	r.PATCH("/redfish/v1/Chassis/1/Thermal", svc.PatchChassisThermal)
-	r.GET("/redfish/v1/UpdateService/FirmwareInventory", svc.GetFirmwareInventoryCollection)
-	r.GET("/redfish/v1/UpdateService/FirmwareInventory/:id", svc.GetFirmwareInventoryMember)
-	r.PATCH("/redfish/v1/UpdateService/FirmwareInventory/:id", svc.PatchFirmwareInventoryMember)
+	r.GET("/redfish/v1/UpdateService/FirmwareInventory", h.GetFirmwareInventoryCollection)
+	r.GET("/redfish/v1/UpdateService/FirmwareInventory/:id", h.GetFirmwareInventoryMember)
+	r.PATCH("/redfish/v1/UpdateService/FirmwareInventory/:id", h.PatchFirmwareInventoryMember)
 	return r
 }
 
@@ -685,7 +687,7 @@ func TestHostStateRoundTrip(t *testing.T) {
 	host.Host = HostReport{}
 	host.mu.Unlock()
 
-	LoadHostState()
+	LoadHostState(slog.New(slog.DiscardHandler))
 
 	if got, ok := hostCollectionGet(bootOptionsOf, "Boot0000"); !ok || got["DisplayName"] != "SD" {
 		t.Errorf("BootOptions not restored: %v (ok=%v)", got, ok)
@@ -794,7 +796,7 @@ func TestBiosAttributeRegistryPutFromLANPersists(t *testing.T) {
 	host.mu.Lock()
 	host.BiosRegistry = nil
 	host.mu.Unlock()
-	LoadHostState()
+	LoadHostState(slog.New(slog.DiscardHandler))
 
 	w = do(r, http.MethodGet, "/redfish/v1/Systems/1/Bios/BiosAttributeRegistry", lanIP, "", nil)
 	if w.Code != http.StatusOK {
@@ -907,7 +909,7 @@ func TestLoadCollapsesPersistedDuplicates(t *testing.T) {
 	host.mu.Lock()
 	host.Memory = map[string]map[string]any{}
 	host.mu.Unlock()
-	LoadHostState()
+	LoadHostState(slog.New(slog.DiscardHandler))
 
 	host.mu.RLock()
 	defer host.mu.RUnlock()

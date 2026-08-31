@@ -58,7 +58,7 @@ type insertMediaRequest struct {
 }
 
 // GetVirtualMediaCollection returns the VirtualMedia collection for Manager/1.
-func (s *Service) GetVirtualMediaCollection(c *gin.Context) {
+func (h *handlers) GetVirtualMediaCollection(c *gin.Context) {
 	c.JSON(http.StatusOK, newCollection(
 		"VirtualMediaCollection", "Virtual Media Collection", virtualMediaPath,
 		Link(virtualMediaCDPath),
@@ -66,8 +66,8 @@ func (s *Service) GetVirtualMediaCollection(c *gin.Context) {
 }
 
 // GetVirtualMedia returns the single VirtualMedia resource (slot 1).
-func (s *Service) GetVirtualMedia(c *gin.Context) {
-	c.JSON(http.StatusOK, buildVirtualMediaResource(s.Firmware))
+func (h *handlers) GetVirtualMedia(c *gin.Context) {
+	c.JSON(http.StatusOK, buildVirtualMediaResource(h.d.Firmware))
 }
 
 // InsertMedia handles POST …/VirtualMedia/1/Actions/VirtualMedia.InsertMedia.
@@ -88,18 +88,18 @@ func (s *Service) GetVirtualMedia(c *gin.Context) {
 // Redfish-only workflow — which has no delete verb — from accumulating images
 // on the data partition. Media staged through the web UI or /api/firmware
 // keeps its persistent library semantics.
-func (s *Service) InsertMedia(c *gin.Context) {
+func (h *handlers) InsertMedia(c *gin.Context) {
 	ctype, _, _ := mime.ParseMediaType(c.GetHeader("Content-Type"))
 	if ctype == "multipart/form-data" {
-		s.insertMediaUpload(c)
+		h.insertMediaUpload(c)
 		return
 	}
-	s.insertMediaStream(c)
+	h.insertMediaStream(c)
 }
 
 // insertMediaStream handles TransferMethod=Stream: BMC fetches the image
 // from an HTTP(S) URL named in the JSON body.
-func (s *Service) insertMediaStream(c *gin.Context) {
+func (h *handlers) insertMediaStream(c *gin.Context) {
 	var req insertMediaRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		redfishErrorResponse(c, http.StatusBadRequest, "invalid request body")
@@ -149,16 +149,16 @@ func (s *Service) insertMediaStream(c *gin.Context) {
 	defer dr.Close()
 	name = utils.StripCompressionSuffix(name, format)
 
-	if err := stageAndInsert(s.Firmware, name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes)); err != nil {
+	if err := stageAndInsert(h.d.Firmware, name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes)); err != nil {
 		redfishErrorResponse(c, err.status, err.msg)
 		return
 	}
 
 	protocol := strings.ToUpper(parsed.Scheme)
 	recordTransfer("Stream", protocol, req.Image)
-	slog.InfoContext(c.Request.Context(), "redfish: virtual media inserted (stream)",
+	h.log.InfoContext(c.Request.Context(), "redfish: virtual media inserted (stream)",
 		slog.String("name", name))
-	c.JSON(http.StatusOK, buildVirtualMediaResource(s.Firmware))
+	c.JSON(http.StatusOK, buildVirtualMediaResource(h.d.Firmware))
 }
 
 // insertMediaUpload handles TransferMethod=Upload: the client pushes the
@@ -170,7 +170,7 @@ func (s *Service) insertMediaStream(c *gin.Context) {
 // into os.TempDir() first, which on this device is the RAM-backed overlay —
 // a large ISO took the server down mid-upload. See
 // pkg/utils/multipart_stream.go.
-func (s *Service) insertMediaUpload(c *gin.Context) {
+func (h *handlers) insertMediaUpload(c *gin.Context) {
 	// Accept the file under any of the conventional Redfish part names:
 	// Image is the spec'd name, redfishtool uses "file", and some tools use
 	// the resource name VirtualMediaImage.
@@ -207,7 +207,7 @@ func (s *Service) insertMediaUpload(c *gin.Context) {
 	defer dr.Close()
 	name = utils.StripCompressionSuffix(name, format)
 
-	n, err := s.Firmware.SaveMediaFile(name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes))
+	n, err := h.d.Firmware.SaveMediaFile(name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes))
 	if err != nil {
 		redfishErrorResponse(c, http.StatusInternalServerError, "save media failed: "+err.Error())
 		return
@@ -218,8 +218,8 @@ func (s *Service) insertMediaUpload(c *gin.Context) {
 	// into a failure here: the bytes are already on disk.
 	if trailing, err := parseInsertMediaMeta(upload.Rest()); err == nil && trailing.Image != "" {
 		if want := mediaFilename(trailing.Image, upload.Filename); want != name {
-			if renamed, err := renameStagedMedia(s.Firmware, name, want); err != nil {
-				slog.WarnContext(c.Request.Context(), "redfish: keeping staged name",
+			if renamed, err := renameStagedMedia(h.d.Firmware, name, want); err != nil {
+				h.log.WarnContext(c.Request.Context(), "redfish: keeping staged name",
 					slog.String("name", name), slog.Any("err", err))
 			} else {
 				name = renamed
@@ -227,18 +227,18 @@ func (s *Service) insertMediaUpload(c *gin.Context) {
 		}
 	}
 
-	if err := s.Firmware.InsertVirtualMediaEphemeral(name); err != nil {
+	if err := h.d.Firmware.InsertVirtualMediaEphemeral(name); err != nil {
 		// The mount didn't happen, so the bytes staged for it have no owner:
 		// a Redfish client has no delete verb to clean them up later.
-		_ = s.Firmware.DeleteMediaFile(name)
+		_ = h.d.Firmware.DeleteMediaFile(name)
 		redfishErrorResponse(c, http.StatusConflict, "insert media failed: "+err.Error())
 		return
 	}
 
 	recordTransfer("Upload", "", name)
-	slog.InfoContext(c.Request.Context(), "redfish: virtual media inserted (upload)",
+	h.log.InfoContext(c.Request.Context(), "redfish: virtual media inserted (upload)",
 		slog.String("name", name), slog.Int64("bytes", n))
-	c.JSON(http.StatusOK, buildVirtualMediaResource(s.Firmware))
+	c.JSON(http.StatusOK, buildVirtualMediaResource(h.d.Firmware))
 }
 
 // parseInsertMediaMeta decodes the optional InsertMediaRequestBody part and
@@ -312,15 +312,15 @@ func stageAndInsert(fwCtrl *firmware.Controller, name string, r io.Reader) *Inse
 // EjectMedia handles POST …/VirtualMedia/1/Actions/VirtualMedia.EjectMedia.
 // The image a Redfish insert staged is deleted along with the eject; see
 // InsertMedia for why.
-func (s *Service) EjectMedia(c *gin.Context) {
-	fwCtrl := s.Firmware
+func (h *handlers) EjectMedia(c *gin.Context) {
+	fwCtrl := h.d.Firmware
 	if err := fwCtrl.EjectVirtualMedia(); err != nil {
 		redfishErrorResponse(c, http.StatusInternalServerError, "eject media failed: "+err.Error())
 		return
 	}
 
 	recordTransfer("", "", "")
-	slog.InfoContext(c.Request.Context(), "redfish: virtual media ejected")
+	h.log.InfoContext(c.Request.Context(), "redfish: virtual media ejected")
 	c.Status(http.StatusNoContent)
 }
 

@@ -170,7 +170,7 @@ func initialize(ctx context.Context) {
 	// Restore the persisted host state (staged boot override, host-reported
 	// inventory) before anything can serve it — the IPMI server below and
 	// the Redfish routes both read it.
-	redfish.LoadHostState()
+	redfish.LoadHostState(rootLog.With("component", "redfish"))
 
 	// Begin the always-on capture of the host's serial console to a bounded
 	// file on the data partition, so its boot/crash logs are retained even
@@ -405,7 +405,7 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 
 	// Persist before draining: host reports save on a debounce, and the
 	// in-flight timer dies with the process.
-	redfish.FlushHostState()
+	redfish.FlushHostState(rootLog.With("component", "redfish"))
 
 	drainCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()

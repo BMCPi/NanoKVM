@@ -58,13 +58,16 @@ func virtualMediaRouter(t *testing.T) (*gin.Engine, string) {
 	fw := firmware.NewController(cfg, slog.New(slog.DiscardHandler))
 	fw.SetVMGadgetForTest(&fakeVMGadget{})
 
-	svc := NewService(&deps.Deps{
-		Power:    power.NewController(config.Hardware{}, config.Power{}, slog.New(slog.DiscardHandler)),
-		Firmware: fw,
-	})
+	h := &handlers{
+		d: &deps.Deps{
+			Power:    power.NewController(config.Hardware{}, config.Power{}, slog.New(slog.DiscardHandler)),
+			Firmware: fw,
+		},
+		log: slog.New(slog.DiscardHandler),
+	}
 	r := gin.New()
-	r.POST(insertMediaPath, svc.InsertMedia)
-	r.POST(ejectMediaPath, svc.EjectMedia)
+	r.POST(insertMediaPath, h.InsertMedia)
+	r.POST(ejectMediaPath, h.EjectMedia)
 	return r, mediaDir
 }
 

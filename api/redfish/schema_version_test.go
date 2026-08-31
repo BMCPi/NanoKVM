@@ -60,8 +60,9 @@ func TestAdvertisedSchemaVersionsMatchHostClient(t *testing.T) {
 	resetHostState(t)
 	gin.SetMode(gin.TestMode)
 	svc := NewService(testDeps())
+	h := testHandlers()
 	r := gin.New()
-	r.GET(systemPath, svc.GetSystem)
+	r.GET(systemPath, h.GetSystem)
 	r.GET(biosPath, svc.GetBios)
 	r.GET(biosSettingsPath, svc.GetBiosSettings)
 
@@ -126,10 +127,10 @@ var computerSystemV1130Properties = map[string]bool{
 func TestComputerSystemConformsToDeclaredVersion(t *testing.T) {
 	resetHostState(t)
 	gin.SetMode(gin.TestMode)
-	svc := NewService(testDeps())
+	h := testHandlers()
 	r := gin.New()
-	r.GET(systemPath, svc.GetSystem)
-	r.PATCH(systemPath, svc.PatchSystem)
+	r.GET(systemPath, h.GetSystem)
+	r.PATCH(systemPath, h.PatchSystem)
 
 	// Report host state first: several properties are omitted until the host
 	// has reported, and an empty document would conform vacuously.

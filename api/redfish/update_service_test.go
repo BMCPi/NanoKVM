@@ -36,14 +36,17 @@ func updateServiceRouter(t *testing.T) (*gin.Engine, *firmware.Controller) {
 	cfg.Firmware.CapsuleSizeMB = 48
 	fw := firmware.NewController(cfg, slog.New(slog.DiscardHandler))
 
-	svc := NewService(&deps.Deps{
-		Power:    power.NewController(config.Hardware{}, config.Power{}, slog.New(slog.DiscardHandler)),
-		Firmware: fw,
-	})
+	h := &handlers{
+		d: &deps.Deps{
+			Power:    power.NewController(config.Hardware{}, config.Power{}, slog.New(slog.DiscardHandler)),
+			Firmware: fw,
+		},
+		log: slog.New(slog.DiscardHandler),
+	}
 	r := gin.New()
-	r.GET(updateServicePath, svc.GetUpdateService)
-	r.POST(simpleUpdatePath, svc.SimpleUpdate)
-	r.POST(httpPushURIPath, svc.PushCapsule)
+	r.GET(updateServicePath, h.GetUpdateService)
+	r.POST(simpleUpdatePath, h.SimpleUpdate)
+	r.POST(httpPushURIPath, h.PushCapsule)
 	return r, fw
 }
 

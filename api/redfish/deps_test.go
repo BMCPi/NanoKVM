@@ -19,3 +19,11 @@ func testDeps() *deps.Deps {
 		Firmware: firmware.NewController(&config.Config{}, slog.New(slog.DiscardHandler)),
 	}
 }
+
+// testHandlers builds a *handlers over testDeps() with a discard logger, for
+// the routes this package's log-touched files (sensors.go, serial_interfaces.go,
+// sessions.go, systems.go, update_service.go, virtual_media.go) now serve —
+// the rest of the package's routes still come off NewService.
+func testHandlers() *handlers {
+	return &handlers{d: testDeps(), log: slog.New(slog.DiscardHandler)}
+}

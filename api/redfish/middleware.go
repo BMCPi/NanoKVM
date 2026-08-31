@@ -8,6 +8,7 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/auth"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
 )
 
@@ -54,14 +55,15 @@ func CheckAuth() gin.HandlerFunc {
 // feature drivers walked, whether the pending Bios settings were read
 // (GET /Systems/1/Bios/Settings) and consumed (DELETE of the same), and
 // where an exchange stopped. LAN traffic is untouched.
-func HostTrace() gin.HandlerFunc {
+func HostTrace(log *slog.Logger) gin.HandlerFunc {
+	log = logger.Or(log)
 	return func(c *gin.Context) {
 		if !IsHostInterfaceRequest(c) {
 			c.Next()
 			return
 		}
 		c.Next()
-		slog.InfoContext(c.Request.Context(), "redfish host: request",
+		log.InfoContext(c.Request.Context(), "redfish host: request",
 			slog.String("method", c.Request.Method),
 			slog.String("path", c.Request.URL.Path),
 			slog.Int("status", c.Writer.Status()))
