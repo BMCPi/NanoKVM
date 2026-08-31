@@ -20,6 +20,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/api/redfish"
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
+	"github.com/pi-bmc/nanokvm-app/pkg/sysinfo"
 	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
 	"github.com/pi-bmc/nanokvm-app/ui/components"
 )
@@ -42,13 +43,19 @@ func overviewFragmentRoutes(g *gin.RouterGroup, h *handlers) {
 		renderFragment(c, components.MetricsOverviewBody(telemetry.Gather(), telemetry.History()))
 	})
 
+	// Also bound to the open event: the readings move, and a page-load render
+	// would show whatever was true when the tab was opened.
+	o.GET("/resources", func(c *gin.Context) {
+		renderFragment(c, components.OverviewResourcesBody(overviewResourcesModel()))
+	})
+
 	o.GET("/firmware", func(c *gin.Context) {
 		renderFragment(c, components.OverviewHostFirmwareBody(overviewFirmwareModel(c.Request.Context(), h.d)))
 	})
 
-	o.GET("/boot-override", func(c *gin.Context) {
-		renderFragment(c, components.OverviewBootOverrideBody(overviewBootOverrideModel(c.Request.Context(), h.d)))
-	})
+	// POST only: the Server Overview no longer carries a staging form, but
+	// the power menu's still posts here (see PowerBootOverride in
+	// power_menu.templ), so the route outlives the card it was written for.
 	o.POST("/boot-override", h.postOverviewBootOverride)
 }
 
@@ -135,11 +142,6 @@ func overviewFirmwareModel(ctx context.Context, d *deps.Deps) components.Overvie
 	}
 }
 
-// overviewBootOverrideModel feeds the Boot Override card's staging form.
-func overviewBootOverrideModel(ctx context.Context, d *deps.Deps) components.OverviewBootOverride {
-	return stagedBootOverride(ctx, d)
-}
-
 func (h *handlers) postOverviewAppUpdate(c *gin.Context) {
 	// The process context, not the request's: an update replaces the running
 	// binary and then restarts the process, so a browser navigating away must
@@ -207,4 +209,61 @@ func (h *handlers) postOverviewBootOverride(c *gin.Context) {
 	}
 	appendTrigger(c, map[string]any{"fw-changed": nil})
 	c.Status(http.StatusOK)
+}
+
+// overviewResourcesModel turns the sampler's history into the three traces the
+// Resources card draws.
+//
+// Sampling stays false until there are at least two readings, because the
+// first has no CPU figure behind it (a rate needs an interval) and a card that
+// opens with one point is a card showing a single dot.
+func overviewResourcesModel() components.OverviewResources {
+	history := sysinfo.ResourceHistory()
+	if len(history) == 0 {
+		return components.OverviewResources{}
+	}
+
+	cpu := make([]float64, 0, len(history))
+	mem := make([]float64, 0, len(history))
+	disk := make([]float64, 0, len(history))
+	for _, p := range history {
+		cpu = append(cpu, p.CPU)
+		mem = append(mem, p.Memory)
+		disk = append(disk, p.Disk)
+	}
+
+	// The latest reading rather than the last history point: history drops its
+	// first entry, and on a freshly booted BMC the two can differ by a tick.
+	u := sysinfo.LatestUsage()
+	return components.OverviewResources{
+		Sampling: true,
+		CPU: components.ResourceSeries{
+			Label: "Processor", Percent: u.CPUPercent, Points: cpu, Valid: u.CPUValid,
+		},
+		Memory: components.ResourceSeries{
+			Label:   "Memory",
+			Detail:  resourceDetail(u.MemUsedMB, u.MemTotalMB),
+			Percent: u.MemPercent, Points: mem, Valid: u.MemValid,
+		},
+		Disk: components.ResourceSeries{
+			Label:   "Storage",
+			Detail:  resourceDetail(u.DiskUsedMB, u.DiskTotalMB),
+			Percent: u.DiskPercent, Points: disk, Valid: u.DiskValid,
+		},
+	}
+}
+
+// resourceDetail is the absolute figure beside a percentage: "161 / 246 MB" on
+// this device's memory, "1.2 / 6.8 GB" on its data volume. The unit is chosen
+// from the total so both halves are always in the same one — "900 MB / 6.8 GB"
+// makes the reader do arithmetic the card exists to save them.
+func resourceDetail(usedMB, totalMB uint64) string {
+	if totalMB == 0 {
+		return ""
+	}
+	if totalMB < 1024 {
+		return fmt.Sprintf("%d / %d MB", usedMB, totalMB)
+	}
+	const mbPerGB = 1024.0
+	return fmt.Sprintf("%.1f / %.1f GB", float64(usedMB)/mbPerGB, float64(totalMB)/mbPerGB)
 }

@@ -12,7 +12,6 @@ import (
 	"github.com/pi-bmc/nanokvm-app/ui/components/card"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
 	"github.com/pi-bmc/nanokvm-app/ui/components/item"
-	selectcomp "github.com/pi-bmc/nanokvm-app/ui/components/select"
 )
 
 // overviewSidebarID is the ID of the slide-in panel.
@@ -63,11 +62,16 @@ templ OverviewSidebar(log *slog.Logger) {
 				}
 			}
 			<div class="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 py-3 space-y-4">
+				// Activity and Resources lead: they are the only cards whose
+				// numbers move, so they answer "what is happening right now"
+				// before the identity cards answer "what is this". Both are
+				// lazy — see overviewActivityCard for why the drawer's live
+				// cards wait for the open event.
+				@overviewActivityCard()
+				@overviewResourcesCard()
 				@overviewServerCard()
 				@overviewBmcCard(log)
-				@overviewActivityCard()
 				@overviewHostFirmwareCard()
-				@overviewBootOverrideCard()
 			</div>
 		</div>
 	</aside>
@@ -292,98 +296,6 @@ templ OverviewHostFirmwareBody(m OverviewHostFirmware) {
 	}
 }
 
-// overviewBootOverrideCard stages a Redfish boot override on the BMC: the
-// host's firmware reads the staged target over the host interface and
-// applies it at its next boot. One form, submitted by whichever mode button
-// is clicked; the body is a fragment so the select and the staged-state row
-// track the live BMC state.
-templ overviewBootOverrideCard() {
-	@card.Card() {
-		@card.Header() {
-			@card.Title(card.TitleProps{Class: "text-sm"}) {
-				Boot Override
-			}
-			@card.Description(card.DescriptionProps{Class: "text-xs"}) {
-				Staged on the BMC; the host firmware applies it at its next boot.
-			}
-		}
-		<div class="contents" hx-get="/ui/overview/boot-override" hx-trigger="load, fw-changed from:body">
-			@OverviewBootOverrideBody(OverviewBootOverride{})
-		</div>
-	}
-}
-
-// OverviewBootOverrideBody renders the staging form + the currently staged
-// state. The zero model renders with the page (select on None, staged row
-// placeholder); the fragment fills in the live state.
-templ OverviewBootOverrideBody(m OverviewBootOverride) {
-	<form class="contents" hx-post="/ui/overview/boot-override" hx-swap="none">
-		@card.Content(card.ContentProps{Class: "py-2 space-y-1.5"}) {
-			@bootOverrideSelect(m.SelectValue())
-			@statusRow("Staged", m.StagedLabel())
-		}
-		@card.Footer(card.FooterProps{Class: "pt-2 flex items-center gap-2 flex-wrap"}) {
-			@button.Button(button.Props{
-				Variant:    button.VariantOutline,
-				Size:       button.SizeSm,
-				Type:       button.TypeSubmit,
-				Attributes: templ.Attributes{"name": "mode", "value": "once"},
-			}) {
-				Apply once
-			}
-			@button.Button(button.Props{
-				Variant:    button.VariantOutline,
-				Size:       button.SizeSm,
-				Type:       button.TypeSubmit,
-				Attributes: templ.Attributes{"name": "mode", "value": "continuous"},
-			}) {
-				Apply persistent
-			}
-			@button.Button(button.Props{
-				Variant:    button.VariantGhost,
-				Size:       button.SizeSm,
-				Type:       button.TypeSubmit,
-				Attributes: templ.Attributes{"name": "mode", "value": "clear"},
-			}) {
-				Clear
-			}
-		}
-	</form>
-}
-
-// bootOverrideSelect backs the Boot Override form; the hidden input carries
-// name=boot-override. The explicit ID keeps the portaled popup's
-// aria-controls stable across fragment re-renders. The target list mirrors
-// the power menu's (see bootDeviceSelect in power_menu.templ).
-templ bootOverrideSelect(value string) {
-	@selectcomp.Select(selectcomp.Props{ID: "boot-override-select", Name: "boot-override", Value: value}) {
-		@selectcomp.Trigger(selectcomp.TriggerProps{Class: "w-full"}) {
-			@selectcomp.Value(selectcomp.ValueProps{Placeholder: "None (default)"})
-		}
-		@selectcomp.Content() {
-			// Select Props.Value marks the matching item selected.
-			@selectcomp.Item(selectcomp.ItemProps{Value: "None"}) {
-				None (default)
-			}
-			@selectcomp.Item(selectcomp.ItemProps{Value: "Pxe"}) {
-				PXE (network)
-			}
-			@selectcomp.Item(selectcomp.ItemProps{Value: "Hdd"}) {
-				HDD / MMC / NVMe
-			}
-			@selectcomp.Item(selectcomp.ItemProps{Value: "Cd"}) {
-				CD / USB
-			}
-			@selectcomp.Item(selectcomp.ItemProps{Value: "BiosSetup"}) {
-				BIOS Setup
-			}
-			@selectcomp.Item(selectcomp.ItemProps{Value: "UefiHttp"}) {
-				UEFI HTTP Boot
-			}
-		}
-	}
-}
-
 // overviewToggleScript exposes openOverview / closeOverview / toggleOverview
 // globally. The navbar button calls toggleOverview(); ESC closes. Pure
 // open/close UI state — deliberately not htmx.
@@ -413,6 +325,15 @@ templ overviewToggleScript() {
 				}
 			};
 
+			// What the drawer opens to when nothing has been remembered yet.
+			// The vendored panel expands to `panel.expandToSize ?? minSize`,
+			// so without this the very first open lands on MinSize — and
+			// MinSize is a floor for dragging, not a good reading width. The
+			// drawer's content is label/value rows and charts, both of which
+			// want more room than 20rem, so the first open gets its own
+			// width and MinSize goes back to meaning only "no narrower than".
+			const preferredOpenWidth = '28rem';
+
 			// The panel remembers a width across collapse only when it was
 			// collapsed through its own API. Dragging the handle shut stores
 			// the previous size somewhere expand() does not read, so it
@@ -436,9 +357,12 @@ templ overviewToggleScript() {
 					// layout change synchronously, and the listener below
 					// would overwrite it with the width expand just landed on
 					// before this line got to use it.
-					const want = lastOpenPx;
+					const want = lastOpenPx > 0 ? lastOpenPx + 'px' : preferredOpenWidth;
 					r.expand(p);
-					if (want > 0) r.resize(p, want + 'px');
+					// resize() clamps to the group's constraints, so a window
+					// too narrow for 28rem lands on whatever fits instead of
+					// squeezing the console past its own MinSize.
+					r.resize(p, want);
 				}
 				setState('open');
 			};

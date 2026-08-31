@@ -30,6 +30,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/power"
 	"github.com/pi-bmc/nanokvm-app/pkg/serial"
 	sshd "github.com/pi-bmc/nanokvm-app/pkg/ssh"
+	"github.com/pi-bmc/nanokvm-app/pkg/sysinfo"
 	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
 	"github.com/pi-bmc/nanokvm-app/pkg/timesync"
 	"github.com/pi-bmc/nanokvm-app/pkg/usbgadget"
@@ -165,6 +166,12 @@ func initialize(ctx context.Context) {
 	// Record a rolling hour of counter samples for the metrics panel's trend
 	// charts. No-op when telemetry is off, since there is nothing to sample.
 	telemetry.StartSampler(ctx)
+	// The BMC's own cpu/memory/disk, for the Server Overview's graphs. Started
+	// unconditionally, unlike the sampler above: it reads three files rather
+	// than gathering the registry, and the graphs it feeds are what an
+	// operator reaches for when the appliance feels slow — which is not a
+	// moment they can retroactively enable telemetry for.
+	sysinfo.StartResourceSampler(ctx, rootLog.With("component", "sysinfo"))
 
 	// Build the composition-root controllers. These replace the old lazy
 	// singletons: constructed once here, shared by every subsystem that needs

@@ -1056,8 +1056,9 @@ func PowerBootOverride(m OverviewBootOverride) templ.Component {
 	})
 }
 
-// bootDeviceSelect picks the boot-override target. Same target list as the
-// overview card's bootOverrideSelect (overview.templ) — keep them in sync.
+// bootDeviceSelect picks the boot-override target. Sole staging control now
+// that the Server Overview's Boot Override card is gone; the target list is
+// the Redfish BootSource vocabulary api/redfish/inventory.go accepts.
 //
 // The Select portals its popup to <body>, which used to make this a plain
 // <select>: the menu read a press on a portaled option as an outside click and

@@ -53,14 +53,14 @@ func VideoPanel(iceServersJSON string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div id=\"video-pane\" class=\"flex h-full min-h-0 flex-col\"><div id=\"video-stage\" class=\"relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black/40 p-2\" data-ice-servers=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div id=\"video-pane\" class=\"flex h-full min-h-0 flex-col\"><div id=\"video-stage\" class=\"relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-background p-2\" data-ice-servers=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(iceServersJSON)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/video_panel.templ`, Line: 30, Col: 154}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/video_panel.templ`, Line: 37, Col: 156}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -366,7 +366,7 @@ func videoStatusPill(state, dot, label string, hidden bool) templ.Component {
 			var templ_7745c5c3_Var13 string
 			templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/video_panel.templ`, Line: 133, Col: 9}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/video_panel.templ`, Line: 140, Col: 9}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 			if templ_7745c5c3_Err != nil {

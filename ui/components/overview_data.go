@@ -81,17 +81,8 @@ func (m OverviewBootOverride) ModeLabel() string {
 	return "Once"
 }
 
-// StagedLabel renders the staged state for display: "Pxe · Once",
-// "Hdd · Continuous", or "None · Disabled".
-func (m OverviewBootOverride) StagedLabel() string {
-	if !m.Active() {
-		return "None · Disabled"
-	}
-	return m.Target + " · " + m.Enabled
-}
-
-// BootOverrideLabel is StagedLabel for read-only rows (the Host Firmware
-// card) that render "none" when nothing is staged.
+// BootOverrideLabel renders the staged state for the read-only Host Firmware
+// row: "Pxe · once", "Hdd · continuous", or "none" when nothing is staged.
 func (m OverviewBootOverride) BootOverrideLabel() string {
 	if !m.Active() {
 		return "none"

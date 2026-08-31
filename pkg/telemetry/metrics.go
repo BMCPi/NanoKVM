@@ -102,6 +102,11 @@ func initMetrics() {
 	if err != nil {
 		pkgLog.Warn("telemetry: instrument creation", slog.Any("err", err))
 	}
+
+	// The BMC's own cpu/memory/disk, observed from pkg/sysinfo's always-on
+	// sampler. See resources.go for why they are observable rather than
+	// pushed.
+	initResourceMetrics()
 }
 
 // ── Helpers used by service packages. All are nil-safe so calls are free

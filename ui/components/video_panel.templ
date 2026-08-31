@@ -27,7 +27,14 @@ templ VideoPanel(iceServersJSON string) {
 		// gives it and centers the picture inside — the frame never stretches
 		// to the pane, so a 4:3 host does not sit in a 16:9 letterbox with
 		// chrome pinned to the black bars.
-		<div id="video-stage" class="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black/40 p-2" data-ice-servers={ iceServersJSON }>
+		//
+		// bg-background, not a black tint: the mat around the picture is
+		// chrome, so it belongs to the palette like every other surface. In
+		// the dark scheme --background is the darkest token there is, which
+		// is what a video mat wants anyway, and it matches the expanded
+		// state's own background (see videoPanelStyles) so entering and
+		// leaving fullscreen no longer changes the colour behind the frame.
+		<div id="video-stage" class="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-background p-2" data-ice-servers={ iceServersJSON }>
 			// The frame IS the picture box: its aspect ratio tracks the
 			// stream's, so everything pinned to it lands on the video rather
 			// than on letterbox. See videoPanelStyles for how it fits.
