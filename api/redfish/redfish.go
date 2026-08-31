@@ -103,6 +103,9 @@ func Register(r *gin.Engine, d *deps.Deps) {
 		api.GET("/Systems/1/EthernetInterfaces", service.GetEthernetInterfaceCollection)
 		api.GET("/Systems/1/EthernetInterfaces/:nic", service.GetEthernetInterface)
 		api.POST("/Systems/1/EthernetInterfaces", service.PostEthernetInterface)
+		// Operator lane: stages IPv4 configuration onto the EthIp4* Bios
+		// attributes (Bios/Settings) for the host's next boot.
+		api.PATCH("/Systems/1/EthernetInterfaces/:nic", service.PatchEthernetInterface)
 
 		// Storage — subsystem "1" is the host's own storage (drives the host
 		// firmware reports); "BMC" is the USB gadget's LUNs.

@@ -6,6 +6,8 @@ package redfish
 // reads it and applies it at boot. The BMC never reaches into host storage.
 
 import (
+	"slices"
+
 	"github.com/stmcginnis/gofish/schemas"
 )
 
@@ -38,22 +40,12 @@ var supportedResetTypes = []schemas.ResetType{
 
 // bootSourceSupported reports whether target is one we accept.
 func bootSourceSupported(target schemas.BootSource) bool {
-	for _, s := range supportedBootSources {
-		if s == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(supportedBootSources, target)
 }
 
 // overrideEnabledSupported reports whether e is one we accept.
 func overrideEnabledSupported(e schemas.BootSourceOverrideEnabled) bool {
-	for _, s := range supportedOverrideEnabled {
-		if s == e {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(supportedOverrideEnabled, e)
 }
 
 // resetTypeSupported reports whether t is one we can service.

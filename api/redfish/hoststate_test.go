@@ -79,6 +79,7 @@ func hostRouter() *gin.Engine {
 	r.GET("/redfish/v1/Systems/1/EthernetInterfaces", svc.GetEthernetInterfaceCollection)
 	r.GET("/redfish/v1/Systems/1/EthernetInterfaces/:nic", svc.GetEthernetInterface)
 	r.POST("/redfish/v1/Systems/1/EthernetInterfaces", svc.PostEthernetInterface)
+	r.PATCH("/redfish/v1/Systems/1/EthernetInterfaces/:nic", svc.PatchEthernetInterface)
 	r.POST("/redfish/v1/Systems/1/BootOptions", svc.PostBootOption)
 	r.GET("/redfish/v1/Systems/1/BootOptions/:option", svc.GetBootOption)
 	r.PATCH("/redfish/v1/Systems/1/BootOptions/:option", svc.PatchBootOption)
@@ -1087,7 +1088,7 @@ func TestHostLaneIgnoresForwardedForSpoof(t *testing.T) {
 func TestEthernetInterfaceHostReport(t *testing.T) {
 	resetHostState(t)
 	r := hostRouter()
-	body := `{"Id":"NIC-D83ADDC98C28","Name":"Onboard Ethernet",` +
+	body := `{"Id":"eth0","Name":"Onboard Ethernet",` +
 		`"MACAddress":"D8:3A:DD:C9:8C:28","PermanentMACAddress":"D8:3A:DD:C9:8C:28",` +
 		`"LinkStatus":"LinkUp","InterfaceEnabled":true}`
 
@@ -1095,7 +1096,7 @@ func TestEthernetInterfaceHostReport(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("host POST = %d, want 201: %s", w.Code, w.Body.String())
 	}
-	if loc := w.Header().Get("Location"); loc != "/redfish/v1/Systems/1/EthernetInterfaces/NIC-D83ADDC98C28" {
+	if loc := w.Header().Get("Location"); loc != "/redfish/v1/Systems/1/EthernetInterfaces/eth0" {
 		t.Fatalf("Location = %q", loc)
 	}
 
@@ -1118,7 +1119,7 @@ func TestEthernetInterfaceHostReport(t *testing.T) {
 		t.Fatalf("collection = %d members (count %d), want exactly 1", len(coll.Members), coll.Count)
 	}
 
-	w = do(r, http.MethodGet, "/redfish/v1/Systems/1/EthernetInterfaces/NIC-D83ADDC98C28", lanIP, "", nil)
+	w = do(r, http.MethodGet, "/redfish/v1/Systems/1/EthernetInterfaces/eth0", lanIP, "", nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("member GET = %d, want 200", w.Code)
 	}
@@ -1134,7 +1135,7 @@ func TestEthernetInterfaceHostReport(t *testing.T) {
 	}
 
 	// An unreported NIC stays a 404, not an invented member.
-	if w = do(r, http.MethodGet, "/redfish/v1/Systems/1/EthernetInterfaces/NIC-MISSING", lanIP, "", nil); w.Code != http.StatusNotFound {
+	if w = do(r, http.MethodGet, "/redfish/v1/Systems/1/EthernetInterfaces/eth9", lanIP, "", nil); w.Code != http.StatusNotFound {
 		t.Fatalf("missing member GET = %d, want 404", w.Code)
 	}
 }

@@ -473,18 +473,53 @@ paths:
     get:
       tags: [Systems]
       summary: |
-        Host NIC collection. Currently empty — the host does not report
-        NICs over the host interface yet — but the link stays resolvable.
+        Host NIC collection — one member per physical NIC, POSTed by the
+        host firmware each boot (the BMC's own USB gadget link is
+        excluded). Empty until the first report lands.
       responses:
         "200": { $ref: "#/components/responses/Collection" }
+    post:
+      tags: [Systems]
+      summary: |
+        (Host interface only) Report one NIC; keyed upsert on a
+        MAC-derived Id. A report carrying DHCPv4, IPv4StaticAddresses or
+        StaticNameServers also refreshes the live EthIp4* Bios attributes.
+      responses:
+        "201": { description: Stored. }
+        "403": { description: Not the host interface. }
   /redfish/v1/Systems/1/EthernetInterfaces/{nic}:
     get:
       tags: [Systems]
-      summary: Reserved; no NIC inventory is available.
+      summary: |
+        One reported NIC. On the NIC the host firmware manages, the
+        EthIp4* Bios attributes render as DHCPv4.DHCPEnabled,
+        IPv4StaticAddresses and StaticNameServers.
       parameters:
         - { name: nic, in: path, required: true, schema: { type: string } }
       responses:
-        "404": { description: No NIC inventory available. }
+        "200": { description: The NIC. }
+        "404": { description: No such NIC. }
+    patch:
+      tags: [Systems]
+      summary: |
+        Stage IPv4 configuration for the host's next boot.
+        DHCPv4.DHCPEnabled, IPv4StaticAddresses (one entry) and
+        StaticNameServers (up to two) map onto the EthIp4* Bios
+        attributes and land in Bios/Settings, which the host firmware
+        applies and clears on its next boot.
+      parameters:
+        - { name: nic, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Staged; response carries an apply-time message. }
+        "400": { description: No mapped properties, or an invalid address. }
+        "404": { description: No such NIC. }
+        "409":
+          {
+            description:
+              Several NICs reported — the managed one is ambiguous; PATCH
+              Bios/Settings with EthIp4* attributes instead.
+          }
+        "412": { description: If-Match failed. }
   /redfish/v1/Systems/1/Storage:
     get:
       tags: [Systems]

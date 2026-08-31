@@ -13,6 +13,7 @@ package ui
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 
 	"github.com/a-h/templ"
@@ -81,9 +82,7 @@ func appendTrigger(c *gin.Context, add map[string]any) {
 			merged = map[string]any{existing: nil}
 		}
 	}
-	for k, v := range add {
-		merged[k] = v
-	}
+	maps.Copy(merged, add)
 	encoded, err := json.Marshal(merged)
 	if err != nil {
 		return
