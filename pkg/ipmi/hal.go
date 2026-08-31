@@ -7,8 +7,8 @@ import (
 
 	"github.com/bougou/go-ipmi/pkg/hal"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/bmcsensor"
-	"github.com/pi-bmc/nanokvm-app/pkg/serial"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/bmcsensor"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/serial"
 )
 
 // powerController is the slice of power.Controller the chassis HAL needs.

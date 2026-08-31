@@ -7,8 +7,8 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/auth"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/power"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
-	"github.com/pi-bmc/nanokvm-app/pkg/power"
 )
 
 // testDeps builds a Deps backed by real, unconfigured controllers (no GPIO

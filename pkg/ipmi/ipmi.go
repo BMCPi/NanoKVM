@@ -22,12 +22,12 @@ import (
 	"github.com/bougou/go-ipmi/pkg/transport/udp"
 	"github.com/bougou/go-ipmi/pkg/types"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/bmcsensor"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/bmcsensor"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/power"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/serial"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 	"github.com/pi-bmc/nanokvm-app/pkg/logger"
-	"github.com/pi-bmc/nanokvm-app/pkg/power"
-	"github.com/pi-bmc/nanokvm-app/pkg/serial"
 	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
 )
 

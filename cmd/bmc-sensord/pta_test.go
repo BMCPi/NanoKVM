@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/optee"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/optee"
 )
 
 // The pTA UUID is written here as a string but reaches the TEE as 16 octets.

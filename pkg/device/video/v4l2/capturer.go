@@ -12,9 +12,9 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/device/video"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/video/lt6911"
 	"github.com/pi-bmc/nanokvm-app/pkg/logger"
-	"github.com/pi-bmc/nanokvm-app/pkg/video"
-	"github.com/pi-bmc/nanokvm-app/pkg/video/lt6911"
 )
 
 // Defaults applied where video.Config leaves a zero — the same values the

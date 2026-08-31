@@ -16,8 +16,8 @@ import (
 	goserial "go.bug.st/serial"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/serial/circular"
 	"github.com/pi-bmc/nanokvm-app/pkg/logger"
-	"github.com/pi-bmc/nanokvm-app/pkg/serial/circular"
 	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
 )
 

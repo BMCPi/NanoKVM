@@ -10,8 +10,8 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/device/usbgadget"
 	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
-	"github.com/pi-bmc/nanokvm-app/pkg/usbgadget"
 )
 
 // presentVolume presents the FMP capsule volume on the gadget's lun.0.

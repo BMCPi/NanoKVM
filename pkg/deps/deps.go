@@ -23,10 +23,10 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/auth"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/hid"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/power"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/video/rtc"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
-	"github.com/pi-bmc/nanokvm-app/pkg/hid"
-	"github.com/pi-bmc/nanokvm-app/pkg/power"
-	"github.com/pi-bmc/nanokvm-app/pkg/video/rtc"
 )
 
 // Deps holds the process-wide subsystem controllers built once at startup.

@@ -23,7 +23,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/usbgadget"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/usbgadget"
 )
 
 // Hybrid image conversion constants.

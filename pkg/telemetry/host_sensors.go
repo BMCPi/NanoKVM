@@ -20,7 +20,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/bmcsensor"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/bmcsensor"
 )
 
 // initHostSensorMetrics registers the observable gauges. Called from initMetrics.

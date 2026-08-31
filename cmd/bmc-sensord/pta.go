@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/optee"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/optee"
 )
 
 // UUIDString identifies the pTA (optee-os files/plat-rpi5/pta_bmc_sensor.h).

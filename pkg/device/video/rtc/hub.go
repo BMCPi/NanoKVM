@@ -39,8 +39,8 @@ import (
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/device/video"
 	"github.com/pi-bmc/nanokvm-app/pkg/logger"
-	"github.com/pi-bmc/nanokvm-app/pkg/video"
 )
 
 // ErrClosed reports use of a Hub that has been shut down.

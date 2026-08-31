@@ -3,7 +3,7 @@ package rtc
 import (
 	"github.com/pion/webrtc/v4"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/video"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/video"
 )
 
 // MessageType tags a signaling message.

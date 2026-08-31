@@ -8,7 +8,7 @@ package components
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-import "github.com/pi-bmc/nanokvm-app/pkg/hid"
+import "github.com/pi-bmc/nanokvm-app/pkg/device/hid"
 
 // HIDInput carries the browser half of the USB HID console: the keycode table,
 // the input WebSocket, and the capture handlers that turn key and pointer events

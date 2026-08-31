@@ -13,7 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/serial"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/serial"
 )
 
 const (

@@ -9,7 +9,7 @@ import (
 
 	"github.com/pion/webrtc/v4"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/video"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/video"
 )
 
 // maxPendingCandidates bounds the ICE candidates buffered before the browser's

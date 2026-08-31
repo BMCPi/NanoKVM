@@ -26,7 +26,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/optee"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/optee"
 )
 
 func main() {

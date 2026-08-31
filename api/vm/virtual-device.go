@@ -5,8 +5,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/device/usbgadget"
 	"github.com/pi-bmc/nanokvm-app/pkg/proto"
-	"github.com/pi-bmc/nanokvm-app/pkg/usbgadget"
 )
 
 // GetVirtualDevice reports which optional USB gadget functions are currently

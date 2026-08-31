@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
-	"github.com/pi-bmc/nanokvm-app/pkg/power"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/power"
 )
 
 // The System must point back at its Manager: crawlers resolve the managing

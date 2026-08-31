@@ -17,8 +17,8 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/video"
-	"github.com/pi-bmc/nanokvm-app/pkg/video/v4l2"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/video"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/video/v4l2"
 )
 
 // The subdev format ioctl, probe-local: production code never touches

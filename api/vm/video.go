@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/video/rtc"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/video/rtc"
 )
 
 // maxSignalMessage bounds one inbound signaling message. An SDP offer with a

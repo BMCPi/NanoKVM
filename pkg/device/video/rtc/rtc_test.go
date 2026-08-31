@@ -8,7 +8,7 @@ import (
 
 	"github.com/pion/webrtc/v4"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/video"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/video"
 )
 
 // fakeCapturer is a video.Capturer whose frames the test writes by hand. It

@@ -10,7 +10,7 @@ package fragments
 import (
 	"testing"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/bmcsensor"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/bmcsensor"
 	"github.com/pi-bmc/nanokvm-app/pkg/sysinfo"
 )
 

@@ -13,7 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/bmcsensor"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/bmcsensor"
 )
 
 // writeEEPROM lays a record down at its real offset inside a file the size of

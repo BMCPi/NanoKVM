@@ -9,7 +9,7 @@ import (
 	"github.com/bougou/go-ipmi/pkg/types"
 
 	"github.com/pi-bmc/nanokvm-app/api/redfish"
-	"github.com/pi-bmc/nanokvm-app/pkg/power"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/power"
 )
 
 // chassisHAL adapts the GPIO power controller and the Redfish boot-override

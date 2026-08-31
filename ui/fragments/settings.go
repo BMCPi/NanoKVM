@@ -20,14 +20,14 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/autoupdate"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/serial"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/usbgadget"
 	"github.com/pi-bmc/nanokvm-app/pkg/discovery"
 	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 	"github.com/pi-bmc/nanokvm-app/pkg/network"
-	"github.com/pi-bmc/nanokvm-app/pkg/serial"
 	sshsvc "github.com/pi-bmc/nanokvm-app/pkg/ssh"
 	"github.com/pi-bmc/nanokvm-app/pkg/sysinfo"
 	"github.com/pi-bmc/nanokvm-app/pkg/timesync"
-	"github.com/pi-bmc/nanokvm-app/pkg/usbgadget"
 	"github.com/pi-bmc/nanokvm-app/ui/components"
 )
 

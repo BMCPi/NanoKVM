@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
-	"github.com/pi-bmc/nanokvm-app/pkg/serial"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/serial"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stmcginnis/gofish/schemas"

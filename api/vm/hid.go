@@ -15,7 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
-	"github.com/pi-bmc/nanokvm-app/pkg/hid"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/hid"
 	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 )
 
