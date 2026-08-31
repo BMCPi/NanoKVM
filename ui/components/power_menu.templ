@@ -122,21 +122,28 @@ templ PowerMenu() {
 // read "Power Off" — and a self-contradicting power indicator is worse than a
 // marginally larger fragment.
 templ PowerPill(on, known bool) {
-	@icon.CirclePower(icon.Props{Class: "size-4 shrink-0 " + powerTone(on, known)})
+	@icon.Circle(icon.Props{Class: "size-2 shrink-0 " + powerTone(on, known)})
 	<span id="power-text" class="hidden sm:inline">{ powerLabel(on, known) }</span>
 }
 
-// powerTone is the indicator's colour for each state. Unknown is deliberately
-// muted rather than red: before the stream delivers, the host's state is not
-// known to be off, and showing it as off invites power-cycling a running host.
+// powerTone is the indicator's colour for each state.
+//
+// fill AND stroke, not text: the icon is a lucide outline glyph whose svg
+// carries fill="none" stroke="currentColor" as presentation attributes.
+// Those lose to CSS, so the utilities override both — filling the circle so
+// it reads as the solid status dot it replaced rather than a ring.
+//
+// Unknown is deliberately muted rather than red: before the stream delivers,
+// the host's state is not known to be off, and showing it as off invites
+// power-cycling a running host.
 func powerTone(on, known bool) string {
 	switch {
 	case !known:
-		return "text-muted-foreground"
+		return "fill-muted-foreground stroke-muted-foreground"
 	case on:
-		return "text-green-500"
+		return "fill-green-500 stroke-green-500"
 	default:
-		return "text-destructive"
+		return "fill-destructive stroke-destructive"
 	}
 }
 

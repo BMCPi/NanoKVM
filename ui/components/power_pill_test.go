@@ -40,21 +40,21 @@ func TestPowerPillPairsToneWithLabel(t *testing.T) {
 	}{
 		{
 			name: "powered on", on: true, known: true,
-			wantLabel: "Power On", wantTone: "text-green-500",
-			rejectTone: "text-destructive",
+			wantLabel: "Power On", wantTone: "fill-green-500 stroke-green-500",
+			rejectTone: "fill-destructive",
 		},
 		{
 			name: "powered off", on: false, known: true,
-			wantLabel: "Power Off", wantTone: "text-destructive",
-			rejectTone: "text-green-500",
+			wantLabel: "Power Off", wantTone: "fill-destructive stroke-destructive",
+			rejectTone: "fill-green-500",
 		},
 		{
 			// Before the stream delivers, the state is genuinely unknown —
 			// it must not read as "off", which would have an operator
 			// power-cycling a running host.
 			name: "state not yet known", on: false, known: false,
-			wantLabel: "Checking", wantTone: "text-muted-foreground",
-			rejectTone: "text-destructive",
+			wantLabel: "Checking", wantTone: "fill-muted-foreground stroke-muted-foreground",
+			rejectTone: "fill-destructive",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -97,7 +97,7 @@ func TestPowerPillIsASingleFragment(t *testing.T) {
 			"the wrapper in PowerMenu, or the connection is torn down on every " +
 			"state change")
 	}
-	if strings.Contains(html, "text-green-500") && !strings.Contains(html, "Power On") {
+	if strings.Contains(html, "fill-green-500") && !strings.Contains(html, "Power On") {
 		t.Error("tone rendered without its label")
 	}
 }

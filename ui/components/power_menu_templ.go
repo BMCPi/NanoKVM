@@ -269,7 +269,7 @@ func PowerPill(on, known bool) templ.Component {
 			templ_7745c5c3_Var9 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = icon.CirclePower(icon.Props{Class: "size-4 shrink-0 " + powerTone(on, known)}).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = icon.Circle(icon.Props{Class: "size-2 shrink-0 " + powerTone(on, known)}).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -294,17 +294,24 @@ func PowerPill(on, known bool) templ.Component {
 	})
 }
 
-// powerTone is the indicator's colour for each state. Unknown is deliberately
-// muted rather than red: before the stream delivers, the host's state is not
-// known to be off, and showing it as off invites power-cycling a running host.
+// powerTone is the indicator's colour for each state.
+//
+// fill AND stroke, not text: the icon is a lucide outline glyph whose svg
+// carries fill="none" stroke="currentColor" as presentation attributes.
+// Those lose to CSS, so the utilities override both — filling the circle so
+// it reads as the solid status dot it replaced rather than a ring.
+//
+// Unknown is deliberately muted rather than red: before the stream delivers,
+// the host's state is not known to be off, and showing it as off invites
+// power-cycling a running host.
 func powerTone(on, known bool) string {
 	switch {
 	case !known:
-		return "text-muted-foreground"
+		return "fill-muted-foreground stroke-muted-foreground"
 	case on:
-		return "text-green-500"
+		return "fill-green-500 stroke-green-500"
 	default:
-		return "text-destructive"
+		return "fill-destructive stroke-destructive"
 	}
 }
 
@@ -546,7 +553,7 @@ func PowerToggleBtn(on bool) templ.Component {
 			var templ_7745c5c3_Var17 string
 			templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(powerToggleLabel(on))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 250, Col: 54}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 257, Col: 54}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 			if templ_7745c5c3_Err != nil {
@@ -638,7 +645,7 @@ func powerActionBtn(action, label, class string, extra templ.Attributes) templ.C
 			var templ_7745c5c3_Var20 string
 			templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 284, Col: 15}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 291, Col: 15}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 			if templ_7745c5c3_Err != nil {
@@ -835,7 +842,7 @@ func PowerBootOverride(m OverviewBootOverride) templ.Component {
 						var templ_7745c5c3_Var30 string
 						templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(m.ModeLabel())
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 331, Col: 21}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 338, Col: 21}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 						if templ_7745c5c3_Err != nil {
