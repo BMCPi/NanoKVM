@@ -90,36 +90,21 @@ var (
 	current *Responder
 )
 
-// pkgState is pkg/discovery's process-lifetime holder for the "discovery"
-// component logger. It exists because Start returns (nil, nil) with no
-// Responder at all when both mDNS and SSDP are disabled — so a later
-// Restart() (a settings write re-enabling discovery) would otherwise have
-// nowhere to draw the logger from. Set once, by the first Start() call —
-// which cmd/server/main.go always makes during initialize() — and never
-// reassigned. Mirrors pkg/serial's broker singleton.
-type pkgState struct {
-	log *slog.Logger
-}
-
-var (
-	stateOnce sync.Once
-	state     *pkgState
-)
-
-// ensureLog seeds the singleton on first call and returns its logger; later
-// calls, including pkgLog's nil, just return what stuck.
-func ensureLog(log *slog.Logger) *slog.Logger {
-	stateOnce.Do(func() {
-		state = &pkgState{log: logger.Or(log)}
-	})
-	return state.log
-}
+// pkgLogHolder is pkg/discovery's holder for the "discovery" component
+// logger. It exists because Start returns (nil, nil) with no Responder at
+// all when both mDNS and SSDP are disabled — so a later Restart() (a
+// settings write re-enabling discovery) would otherwise have nowhere to draw
+// the logger from. Start always Sets it, so its real, component-tagged
+// logger wins no matter what already Get'ed the holder first — see
+// logger.Holder's doc comment for why a sync.Once-guarded var would get this
+// wrong.
+var pkgLogHolder logger.Holder
 
 // pkgLog returns the package's component logger, defaulting to the process
 // logger if Start has not run yet (a discovery_test.go unit test exercising
 // a Responder built directly).
 func pkgLog() *slog.Logger {
-	return ensureLog(nil)
+	return pkgLogHolder.Get()
 }
 
 // Start builds and starts the responders from config, stores the result as
@@ -134,7 +119,8 @@ func pkgLog() *slog.Logger {
 // An initial bind failure on either responder is not fatal — the watcher
 // retries (the target interface may not be up yet).
 func Start(log *slog.Logger) (*Responder, error) {
-	log = ensureLog(log)
+	log = logger.Or(log)
+	pkgLogHolder.Set(log)
 
 	cfg := config.GetInstance()
 	disc := cfg.Discovery

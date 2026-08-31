@@ -74,38 +74,21 @@ var (
 	current *Server
 )
 
-// pkgState is pkg/ssh's process-lifetime holder for the "ssh" component
-// logger, needed by keys.go's helpers (WriteAuthorizedKeys, ReadAuthorizedKeys,
-// authorizedKeys): they are reached directly by HTTP handlers and by their own
-// unit tests, neither of which has a Server to draw a logger from, and they
-// must keep working whether or not the listener itself is currently running.
-// Set once, by the first Start() call — which cmd/server/main.go always makes
-// during initialize(), even when SSH ends up disabled, well before the HTTP
-// server that reaches those helpers begins serving — and never reassigned
-// after that. Mirrors pkg/serial's broker singleton.
-type pkgState struct {
-	log *slog.Logger
-}
-
-var (
-	stateOnce sync.Once
-	state     *pkgState
-)
-
-// ensureLog seeds the singleton on first call and returns its logger; later
-// calls, including pkgLog's nil, just return what stuck.
-func ensureLog(log *slog.Logger) *slog.Logger {
-	stateOnce.Do(func() {
-		state = &pkgState{log: logger.Or(log)}
-	})
-	return state.log
-}
+// pkgLogHolder is pkg/ssh's holder for the "ssh" component logger, needed by
+// keys.go's helpers (WriteAuthorizedKeys, ReadAuthorizedKeys, authorizedKeys):
+// they are reached directly by HTTP handlers and by their own unit tests,
+// neither of which has a Server to draw a logger from, and they must keep
+// working whether or not the listener itself is currently running. Start
+// always Sets it, so its real, component-tagged logger wins no matter what
+// already Get'ed the holder first — see logger.Holder's doc comment for why
+// a sync.Once-guarded var would get this wrong.
+var pkgLogHolder logger.Holder
 
 // pkgLog returns the package's component logger, defaulting to the process
 // logger if Start has not run yet (a keys.go unit test exercising the
 // authorized-keys store in isolation).
 func pkgLog() *slog.Logger {
-	return ensureLog(nil)
+	return pkgLogHolder.Get()
 }
 
 // Start launches the SSH server unless it is disabled in the config or already
@@ -114,7 +97,8 @@ func Start(log *slog.Logger) error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	log = ensureLog(log)
+	log = logger.Or(log)
+	pkgLogHolder.Set(log)
 
 	if current != nil {
 		return nil
