@@ -127,7 +127,7 @@ func download(ctx context.Context, log *slog.Logger, url string, target string) 
 		}
 
 		log.DebugContext(ctx, "update will be saved", slog.String("path", target))
-		err = utils.Download(req, target)
+		err = utils.Download(req, target, log)
 		if err != nil {
 			log.ErrorContext(ctx, "downloading latest application failed, try again", slog.Any("err", err))
 			continue

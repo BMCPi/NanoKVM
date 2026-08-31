@@ -156,7 +156,7 @@ func initialize(ctx context.Context) {
 
 	// Apply a soft heap limit so the GC pushes back before the process exhausts
 	// memory on this constrained device (no-op if GOMEMLIMIT is set in the env).
-	utils.InitGoMemLimit()
+	utils.InitGoMemLimit(rootLog)
 
 	// Initialize OpenTelemetry + Prometheus (no-op when disabled in config).
 	if err := telemetry.Init(ctx, rootLog.With("component", "telemetry")); err != nil {
@@ -582,7 +582,7 @@ func ensureServerCert(conf *config.Config) bool {
 
 	slog.Info("https configured but no certificate present; generating a self-signed pair",
 		slog.String("path", crt))
-	if err := utils.GenerateCert(); err != nil {
+	if err := utils.GenerateCert(rootLog); err != nil {
 		slog.Error("could not generate a server certificate; falling back to http", slog.Any("err", err))
 		return false
 	}

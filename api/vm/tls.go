@@ -23,7 +23,7 @@ func (h *handlers) SetTLS(c *gin.Context) {
 	}
 
 	if req.Enabled {
-		err = EnableTLS()
+		err = EnableTLS(h.log)
 	} else {
 		err = DisableTLS()
 	}
@@ -44,8 +44,8 @@ func (h *handlers) SetTLS(c *gin.Context) {
 // EnableTLS generates a self-signed certificate and switches the persisted
 // proto to https. Exported so the UI's settings fragment applies TLS through
 // the same path as the JSON API rather than duplicating the config writes.
-func EnableTLS() error {
-	if err := utils.GenerateCert(); err != nil {
+func EnableTLS(log *slog.Logger) error {
+	if err := utils.GenerateCert(log); err != nil {
 		return err
 	}
 

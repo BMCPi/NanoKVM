@@ -625,7 +625,7 @@ func (h *handlers) postTLS(c *gin.Context) {
 
 	var err error
 	if enable {
-		err = apivm.EnableTLS()
+		err = apivm.EnableTLS(h.log)
 	} else {
 		err = apivm.DisableTLS()
 	}

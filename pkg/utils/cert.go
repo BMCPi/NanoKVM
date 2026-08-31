@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-func GenerateCert() error {
+func GenerateCert(log *slog.Logger) error {
 	var (
 		host     = "localhost"
 		validFor = time.Hour * 24 * 365 * 10
@@ -27,11 +27,11 @@ func GenerateCert() error {
 	// hostname verification for anyone on the network, which forces every
 	// tool — browsers, gofish, inventory scanners — into an
 	// insecure-skip-verify mode, and some refuse to proceed at all.
-	dnsNames, ipAddress := certSubjectNames(host)
+	dnsNames, ipAddress := certSubjectNames(host, log)
 
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		slog.Error("failed to generate RSA private key", slog.Any("err", err))
+		log.Error("failed to generate RSA private key", slog.Any("err", err))
 		return err
 	}
 	publicKey := &privateKey.PublicKey
@@ -39,7 +39,7 @@ func GenerateCert() error {
 	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
 	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
 	if err != nil {
-		slog.Error("failed to generate serial number", slog.Any("err", err))
+		log.Error("failed to generate serial number", slog.Any("err", err))
 		return err
 	}
 
@@ -60,47 +60,47 @@ func GenerateCert() error {
 
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, publicKey, privateKey)
 	if err != nil {
-		slog.Error("failed to create certificate", slog.Any("err", err))
+		log.Error("failed to create certificate", slog.Any("err", err))
 		return err
 	}
 
 	// generate certificate
 	certOut, err := os.Create(certFile)
 	if err != nil {
-		slog.Error("failed to create certificate file", slog.String("path", certFile), slog.Any("err", err))
+		log.Error("failed to create certificate file", slog.String("path", certFile), slog.Any("err", err))
 		return err
 	}
 
 	if err := pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}); err != nil {
-		slog.Error("failed to encode certificate file", slog.String("path", certFile), slog.Any("err", err))
+		log.Error("failed to encode certificate file", slog.String("path", certFile), slog.Any("err", err))
 		return err
 	}
 
 	_ = certOut.Sync()
 	_ = certOut.Close()
-	slog.Debug("certificate file generated", slog.String("path", certFile))
+	log.Debug("certificate file generated", slog.String("path", certFile))
 
 	// generate private key
 	keyOut, err := os.OpenFile(keyFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) // 权限 0600
 	if err != nil {
-		slog.Error("failed to create key file", slog.String("path", keyFile), slog.Any("err", err))
+		log.Error("failed to create key file", slog.String("path", keyFile), slog.Any("err", err))
 		return err
 	}
 
 	privateBytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
 	if err != nil {
-		slog.Error("failed to marshal private key", slog.Any("err", err))
+		log.Error("failed to marshal private key", slog.Any("err", err))
 		return err
 	}
 
 	if err := pem.Encode(keyOut, &pem.Block{Type: "PRIVATE KEY", Bytes: privateBytes}); err != nil {
-		slog.Error("failed to encode key file", slog.String("path", keyFile), slog.Any("err", err))
+		log.Error("failed to encode key file", slog.String("path", keyFile), slog.Any("err", err))
 		return err
 	}
 
 	_ = keyOut.Sync()
 	_ = keyOut.Close()
-	slog.Debug("key file generated", slog.String("path", keyFile))
+	log.Debug("key file generated", slog.String("path", keyFile))
 
 	return nil
 }
@@ -114,7 +114,7 @@ func GenerateCert() error {
 // regenerated — the alternative, a cert valid for every possible address,
 // does not exist. Link-local addresses are included deliberately: the
 // RHI link to the managed host lives there.
-func certSubjectNames(host string) ([]string, []net.IP) {
+func certSubjectNames(host string, log *slog.Logger) ([]string, []net.IP) {
 	dnsNames := []string{host}
 	ips := []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}
 
@@ -126,7 +126,7 @@ func certSubjectNames(host string) ([]string, []net.IP) {
 
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
-		slog.Warn("cert: cannot enumerate interface addresses", slog.Any("err", err))
+		log.Warn("cert: cannot enumerate interface addresses", slog.Any("err", err))
 		return dnsNames, ips
 	}
 	for _, addr := range addrs {

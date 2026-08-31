@@ -9,16 +9,16 @@ import (
 	"path/filepath"
 )
 
-func Download(req *http.Request, target string) error {
-	slog.Debug("downloading file", slog.String("url", req.URL.String()), slog.String("target", target))
+func Download(req *http.Request, target string, log *slog.Logger) error {
+	log.Debug("downloading file", slog.String("url", req.URL.String()), slog.String("target", target))
 	err := os.MkdirAll(filepath.Dir(target), 0o755)
 	if err != nil {
-		slog.Error("create dir", slog.String("dir", filepath.Dir(target)), slog.Any("err", err))
+		log.Error("create dir", slog.String("dir", filepath.Dir(target)), slog.Any("err", err))
 		return err
 	}
 	out, err := os.OpenFile(target, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o755)
 	if err != nil {
-		slog.Error("cannot create file", slog.String("path", target), slog.Any("err", err))
+		log.Error("cannot create file", slog.String("path", target), slog.Any("err", err))
 		return err
 	}
 	defer func() {
@@ -36,7 +36,7 @@ func Download(req *http.Request, target string) error {
 	//nolint:gosec // G704: URL is the caller's by contract; the sole caller uses GitHub release metadata
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
-		slog.Error("request error", slog.Any("err", err))
+		log.Error("request error", slog.Any("err", err))
 		return err
 	}
 	defer func() {
@@ -44,19 +44,19 @@ func Download(req *http.Request, target string) error {
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		slog.Error("request failed", slog.Int("statusCode", resp.StatusCode))
+		log.Error("request failed", slog.Int("statusCode", resp.StatusCode))
 		return errors.New("update website is inaccessible right now")
 	}
 
 	contentType := resp.Header.Get("Content-Type")
 	if contentType != "application/octet-stream" && contentType != "application/zip" && contentType != "application/gzip" {
-		slog.Debug("unexpected content-type, it should be either octet-stream or (g)zip", slog.String("contentType", contentType))
+		log.Debug("unexpected content-type, it should be either octet-stream or (g)zip", slog.String("contentType", contentType))
 		return errors.New("unsupported content type")
 	}
 
 	_, err = io.Copy(out, resp.Body)
 	if err != nil {
-		slog.Error("download file", slog.String("target", target), slog.Any("err", err))
+		log.Error("download file", slog.String("target", target), slog.Any("err", err))
 		return err
 	}
 

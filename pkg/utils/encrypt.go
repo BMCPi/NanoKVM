@@ -31,10 +31,10 @@ func Decrypt(ciphertext string) (string, error) {
 	return decrypt, nil
 }
 
-func DecodeDecrypt(data string) (string, error) {
+func DecodeDecrypt(data string, log *slog.Logger) (string, error) {
 	ciphertext, err := url.QueryUnescape(data)
 	if err != nil {
-		slog.Error("decode ciphertext failed", slog.Any("err", err))
+		log.Error("decode ciphertext failed", slog.Any("err", err))
 		return "", err
 	}
 
