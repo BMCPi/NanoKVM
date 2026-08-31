@@ -33,6 +33,11 @@ func powerFragmentRoutes(g *gin.RouterGroup, d *deps.Deps) {
 	// card, the Redfish API and other sessions. Registered before the
 	// wildcard, and on GET where the action route (POST) cannot shadow it.
 	p.GET("/boot-override", getPowerBootOverride(d))
+	// The SSE fragment stream lives in fragments_power_events.go: it answers
+	// a different shape of request (long-lived, text/event-stream) from the
+	// rest of this file's short htmx POSTs, but it is registered alongside
+	// them because it is part of the same navbar power surface.
+	p.GET("/events", getPowerEvents(d))
 	p.POST("/:action", postPowerAction(d))
 }
 
