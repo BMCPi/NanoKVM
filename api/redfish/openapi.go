@@ -47,7 +47,7 @@ func (s *Service) GetOpenAPIYAML(c *gin.Context) {
 func (s *Service) GetOpenAPIJSON(c *gin.Context) {
 	jsonOnce.Do(func() {
 		var doc map[string]any
-		if err := yaml.Unmarshal([]byte(redfish.OpenAPIYAML()), &doc); err != nil {
+		if err := yaml.Unmarshal(redfish.OpenAPIYAML(), &doc); err != nil {
 			errCached = err
 			return
 		}

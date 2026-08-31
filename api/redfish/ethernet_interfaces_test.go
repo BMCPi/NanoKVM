@@ -23,10 +23,11 @@ func postNIC(t *testing.T, r *gin.Engine, body string) {
 	}
 }
 
-// getNIC fetches one member from the LAN and decodes it.
-func getNIC(t *testing.T, r *gin.Engine, id string) (map[string]any, int) {
+// getNIC fetches the eth0 member from the LAN and decodes it — every caller
+// in this file exercises the single onboard NIC the test fixtures set up.
+func getNIC(t *testing.T, r *gin.Engine) (map[string]any, int) {
 	t.Helper()
-	w := do(r, http.MethodGet, "/redfish/v1/Systems/1/EthernetInterfaces/"+id,
+	w := do(r, http.MethodGet, "/redfish/v1/Systems/1/EthernetInterfaces/eth0",
 		lanIP, "", nil)
 	m := map[string]any{}
 	if w.Code == http.StatusOK {
@@ -44,20 +45,21 @@ func TestEthernetInterfaceOverlayStatic(t *testing.T) {
 	r := hostRouter()
 	postNIC(t, r, testNICBody)
 	setHostBiosAttributes(map[string]any{
-		attrEthIp4Mode:       "Static",
-		attrEthIp4Address:    "192.168.7.10",
-		attrEthIp4SubnetMask: "255.255.255.0",
-		attrEthIp4Gateway:    "192.168.7.1",
-		attrEthIp4Dns1:       "192.168.7.53",
-		attrEthIp4Dns2:       "",
+		attrEthIP4Mode:       "Static",
+		attrEthIP4Address:    "192.168.7.10",
+		attrEthIP4SubnetMask: "255.255.255.0",
+		attrEthIP4Gateway:    "192.168.7.1",
+		attrEthIP4Dns1:       "192.168.7.53",
+		attrEthIP4Dns2:       "",
 	})
 
-	m, code := getNIC(t, r, "eth0")
+	m, code := getNIC(t, r)
 	if code != http.StatusOK {
 		t.Fatalf("GET = %d", code)
 	}
 	dhcp, ok := m["DHCPv4"].(map[string]any)
-	if !ok || dhcp["DHCPEnabled"] != false {
+	enabled, isBool := dhcp["DHCPEnabled"].(bool)
+	if !ok || !isBool || enabled {
 		t.Errorf("DHCPv4 = %v; want DHCPEnabled=false", m["DHCPv4"])
 	}
 	statics, ok := m["IPv4StaticAddresses"].([]any)
@@ -84,13 +86,14 @@ func TestEthernetInterfaceOverlayDhcpKeepsStatics(t *testing.T) {
 	r := hostRouter()
 	postNIC(t, r, testNICBody)
 	setHostBiosAttributes(map[string]any{
-		attrEthIp4Mode:    "Dhcp",
-		attrEthIp4Address: "192.168.7.10",
+		attrEthIP4Mode:    "Dhcp",
+		attrEthIP4Address: "192.168.7.10",
 	})
 
-	m, _ := getNIC(t, r, "eth0")
+	m, _ := getNIC(t, r)
 	dhcp, ok := m["DHCPv4"].(map[string]any)
-	if !ok || dhcp["DHCPEnabled"] != true {
+	enabled, isBool := dhcp["DHCPEnabled"].(bool)
+	if !ok || !isBool || !enabled {
 		t.Errorf("DHCPv4 = %v; want DHCPEnabled=true", m["DHCPv4"])
 	}
 	// Configured static address stays visible while DHCP is enabled.
@@ -104,11 +107,11 @@ func TestEthernetInterfaceOverlayUnmanaged(t *testing.T) {
 	r := hostRouter()
 	postNIC(t, r, testNICBody)
 	setHostBiosAttributes(map[string]any{
-		attrEthIp4Mode:    "Unmanaged",
-		attrEthIp4Address: "192.168.7.10",
+		attrEthIP4Mode:    "Unmanaged",
+		attrEthIP4Address: "192.168.7.10",
 	})
 
-	m, _ := getNIC(t, r, "eth0")
+	m, _ := getNIC(t, r)
 	for _, k := range []string{"DHCPv4", "IPv4StaticAddresses", "StaticNameServers"} {
 		if _, ok := m[k]; ok {
 			t.Errorf("%s rendered for an Unmanaged NIC", k)
@@ -121,9 +124,9 @@ func TestEthernetInterfaceOverlaySkippedWhenAmbiguous(t *testing.T) {
 	r := hostRouter()
 	postNIC(t, r, testNICBody)
 	postNIC(t, r, `{"Id": "eth1", "MACAddress": "2c:cf:67:00:00:02"}`)
-	setHostBiosAttributes(map[string]any{attrEthIp4Mode: "Dhcp"})
+	setHostBiosAttributes(map[string]any{attrEthIP4Mode: "Dhcp"})
 
-	m, _ := getNIC(t, r, "eth0")
+	m, _ := getNIC(t, r)
 	if _, ok := m["DHCPv4"]; ok {
 		t.Error("overlay applied with two members; the managed NIC is ambiguous")
 	}
@@ -156,12 +159,12 @@ func TestPatchEthernetInterfaceStagesPending(t *testing.T) {
 	pending := hostBiosPending()
 	want := map[string]any{
 		"FanMode":            "FixedSpeed",
-		attrEthIp4Mode:       "Static",
-		attrEthIp4Address:    "10.4.0.20",
-		attrEthIp4SubnetMask: "255.255.0.0",
-		attrEthIp4Gateway:    "10.4.0.1",
-		attrEthIp4Dns1:       "10.4.0.53",
-		attrEthIp4Dns2:       "10.4.0.54",
+		attrEthIP4Mode:       "Static",
+		attrEthIP4Address:    "10.4.0.20",
+		attrEthIP4SubnetMask: "255.255.0.0",
+		attrEthIP4Gateway:    "10.4.0.1",
+		attrEthIP4Dns1:       "10.4.0.53",
+		attrEthIP4Dns2:       "10.4.0.54",
 	}
 	for k, v := range want {
 		if pending[k] != v {
@@ -181,10 +184,10 @@ func TestPatchEthernetInterfaceDhcp(t *testing.T) {
 		t.Fatalf("PATCH = %d, body %s", w.Code, w.Body.String())
 	}
 	pending := hostBiosPending()
-	if pending[attrEthIp4Mode] != "Dhcp" {
-		t.Errorf("EthIp4Mode = %v; want Dhcp", pending[attrEthIp4Mode])
+	if pending[attrEthIP4Mode] != "Dhcp" {
+		t.Errorf("EthIp4Mode = %v; want Dhcp", pending[attrEthIP4Mode])
 	}
-	if _, ok := pending[attrEthIp4Address]; ok {
+	if _, ok := pending[attrEthIP4Address]; ok {
 		t.Error("address staged by a DHCP-only PATCH")
 	}
 }
@@ -200,10 +203,10 @@ func TestPatchEthernetInterfaceStaticImpliesMode(t *testing.T) {
 		t.Fatalf("PATCH = %d, body %s", w.Code, w.Body.String())
 	}
 	pending := hostBiosPending()
-	if pending[attrEthIp4Mode] != "Static" {
-		t.Errorf("EthIp4Mode = %v; a static address should imply Static", pending[attrEthIp4Mode])
+	if pending[attrEthIP4Mode] != "Static" {
+		t.Errorf("EthIp4Mode = %v; a static address should imply Static", pending[attrEthIP4Mode])
 	}
-	if _, ok := pending[attrEthIp4Gateway]; ok {
+	if _, ok := pending[attrEthIP4Gateway]; ok {
 		t.Error("gateway staged though the entry omitted it")
 	}
 }
@@ -220,14 +223,14 @@ func TestPatchEthernetInterfaceClears(t *testing.T) {
 	}
 	pending := hostBiosPending()
 	for _, k := range []string{
-		attrEthIp4Address, attrEthIp4SubnetMask, attrEthIp4Gateway,
-		attrEthIp4Dns1, attrEthIp4Dns2,
+		attrEthIP4Address, attrEthIP4SubnetMask, attrEthIP4Gateway,
+		attrEthIP4Dns1, attrEthIP4Dns2,
 	} {
 		if v, ok := pending[k]; !ok || v != "" {
 			t.Errorf("pending[%s] = %v; want \"\"", k, v)
 		}
 	}
-	if _, ok := pending[attrEthIp4Mode]; ok {
+	if _, ok := pending[attrEthIP4Mode]; ok {
 		t.Error("clearing statics must not stage a mode change")
 	}
 }
@@ -314,7 +317,7 @@ func TestPostEthernetInterfaceRefreshesLiveAttributes(t *testing.T) {
 		"IPv4StaticAddresses": [{"Address": "10.4.0.20", "SubnetMask": "255.255.0.0"}]
 	}`)
 	attrs := hostBiosAttributes()
-	if attrs[attrEthIp4Mode] != "Static" || attrs[attrEthIp4Address] != "10.4.0.20" {
+	if attrs[attrEthIP4Mode] != "Static" || attrs[attrEthIP4Address] != "10.4.0.20" {
 		t.Errorf("live attrs = %v; want Static/10.4.0.20 merged in", attrs)
 	}
 	if attrs["FanMode"] != "Automatic" {

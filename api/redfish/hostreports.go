@@ -265,7 +265,7 @@ func hostView(v any) map[string]any {
 // everything else the host sent is passed through untouched.
 func renderHostMember(stored map[string]any, path, id, odataType, ctxFragment, name string) map[string]any {
 	m := copyAnyMap(stored)
-	m["@odata.id"] = path
+	m[odataIDKey] = path
 	m["Id"] = id
 	if _, ok := m[odataTypeKey]; !ok {
 		m[odataTypeKey] = odataType
@@ -573,7 +573,7 @@ func (s *Service) PatchHostDrive(c *gin.Context) {
 // --- SecureBoot --------------------------------------------------------------
 
 func secureBootResource() map[string]any {
-	m := renderHostMember(hostSecureBoot(), secureBootPath, "SecureBoot",
+	m := renderHostMember(hostSecureBoot(), secureBootPath, schemaNameSecureBoot,
 		odataTypeSecureBoot, "SecureBoot.SecureBoot", "UEFI Secure Boot")
 	return m
 }

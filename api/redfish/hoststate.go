@@ -97,8 +97,14 @@ type hostState struct {
 	Thermal map[string]any `json:"thermal,omitempty"`
 }
 
+// redfishDisabled is the DMTF "Disabled" enum member shared by
+// BootSourceOverrideEnabled (HostBootOverride.Enabled) and SecureBoot's
+// SecureBootCurrentBoot — both host-facing raw strings here rather than
+// typed gofish enums.
+const redfishDisabled = "Disabled"
+
 var host = &hostState{
-	Boot:           HostBootOverride{Target: "None", Enabled: "Disabled"},
+	Boot:           HostBootOverride{Target: "None", Enabled: redfishDisabled},
 	BootOptions:    map[string]map[string]any{},
 	Memory:         map[string]map[string]any{},
 	Processors:     map[string]map[string]any{},
@@ -109,7 +115,7 @@ var host = &hostState{
 	BiosPending:    map[string]any{},
 	SecureBoot: map[string]any{
 		"SecureBootEnable":             false,
-		"SecureBootCurrentBoot":        "Disabled",
+		"SecureBootCurrentBoot":        redfishDisabled,
 		"SecureBootMode":               "SetupMode",
 		"@Redfish.WriteableProperties": []string{"SecureBootEnable"},
 	},

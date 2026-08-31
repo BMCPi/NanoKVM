@@ -85,10 +85,10 @@ func (s *Service) GetFirmwareInventoryCollection(c *gin.Context) {
 // window into what the host is actually running.
 func (s *Service) GetFirmwareInventoryMember(c *gin.Context) {
 	id := c.Param("id")
-	path := firmwareInventoryPath + "/" + id
+	resPath := firmwareInventoryPath + "/" + id
 
 	if stored, ok := hostCollectionGet(firmwareOf, id); ok {
-		writeHostResource(c, renderHostMember(stored, path, id,
+		writeHostResource(c, renderHostMember(stored, resPath, id,
 			"#SoftwareInventory.v1_2_3.SoftwareInventory",
 			"SoftwareInventory.SoftwareInventory", id))
 		return
@@ -106,7 +106,7 @@ func (s *Service) GetFirmwareInventoryMember(c *gin.Context) {
 	c.JSON(http.StatusOK, SoftwareInventory{
 		Resource: Resource{
 			ODataType:    "#SoftwareInventory.v1_8_0.SoftwareInventory",
-			ODataID:      path,
+			ODataID:      resPath,
 			ODataContext: odataContext("SoftwareInventory.SoftwareInventory"),
 			ID:           id,
 			Name:         "BIOS",
@@ -130,9 +130,9 @@ func (s *Service) PatchFirmwareInventoryMember(c *gin.Context) {
 		return
 	}
 	id := c.Param("id")
-	path := firmwareInventoryPath + "/" + id
+	resPath := firmwareInventoryPath + "/" + id
 	if current, ok := hostCollectionGet(firmwareOf, id); ok {
-		if !hostCheckIfMatch(c, renderHostMember(current, path, id,
+		if !hostCheckIfMatch(c, renderHostMember(current, resPath, id,
 			"#SoftwareInventory.v1_2_3.SoftwareInventory",
 			"SoftwareInventory.SoftwareInventory", id)) {
 			return
@@ -150,7 +150,7 @@ func (s *Service) PatchFirmwareInventoryMember(c *gin.Context) {
 		hostCollectionPut(firmwareOf, id, body)
 		merged = body
 	}
-	writeHostResource(c, renderHostMember(merged, path, id,
+	writeHostResource(c, renderHostMember(merged, resPath, id,
 		"#SoftwareInventory.v1_2_3.SoftwareInventory",
 		"SoftwareInventory.SoftwareInventory", id))
 }

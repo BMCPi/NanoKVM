@@ -25,7 +25,7 @@ import (
 // the order they are emitted. Each becomes a Reference to the DMTF-hosted
 // definition plus an Include of the namespace.
 var metadataSchemas = []string{
-	"ServiceRoot",
+	schemaNameServiceRoot,
 	"ComputerSystemCollection",
 	"ComputerSystem",
 	"ChassisCollection",
@@ -51,8 +51,8 @@ var metadataSchemas = []string{
 	"Processor",
 	"BootOptionCollection",
 	"BootOption",
-	"Bios",
-	"SecureBoot",
+	schemaNameBios,
+	schemaNameSecureBoot,
 	"SessionCollection",
 	"Session",
 	"SessionService",
@@ -61,7 +61,7 @@ var metadataSchemas = []string{
 	"SoftwareInventory",
 	"MessageRegistryFileCollection",
 	"MessageRegistryFile",
-	"AttributeRegistry",
+	schemaNameAttributeRegistry,
 }
 
 // GetMetadata serves the CSDL service document.

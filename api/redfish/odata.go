@@ -164,6 +164,11 @@ const (
 // their struct tag; the free-form Oem maps have to spell it out.
 const odataTypeKey = "@odata.type"
 
+// odataIDKey is the @odata.id property name — odataTypeKey's counterpart for
+// the free-form maps that also have to spell out their own navigation link.
+// Typed resources get it from the Resource struct's json tag instead.
+const odataIDKey = "@odata.id"
+
 // odataContext builds an @odata.context value for the given schema fragment.
 //
 // Named odataContext rather than context so it does not shadow the standard

@@ -57,3 +57,15 @@ const (
 	// feature driver's version.
 	odataTypeSensor = "#Sensor.v1_2_0.Sensor"
 )
+
+// Schema names, the unversioned counterpart to the odataTypeXxx constants
+// above. Used wherever the bare DMTF term appears rather than the full
+// "#Type.vX_Y_Z.Type" form: a resource's own Id (this BMC names each
+// singleton resource after its schema), the $metadata schema list
+// (metadata.go), and the registry-name vocabulary in bios.go.
+const (
+	schemaNameServiceRoot       = "ServiceRoot"
+	schemaNameBios              = "Bios"
+	schemaNameSecureBoot        = "SecureBoot"
+	schemaNameAttributeRegistry = "AttributeRegistry"
+)

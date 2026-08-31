@@ -35,7 +35,7 @@ func writeEEPROM(t *testing.T, seq uint32, tempMilliC int32, status uint32) {
 	rec[24] = 2
 	rec[25] = 4
 	rec[26] = 49
-	rec[27] = byte(bmcsensor.FanValidFlag)
+	rec[27] = bmcsensor.FanValidFlag
 	crcOff := bmcsensor.RecordSize - 4
 	binary.LittleEndian.PutUint32(rec[crcOff:bmcsensor.RecordSize], crc32.ChecksumIEEE(rec[:crcOff]))
 
@@ -114,7 +114,9 @@ func TestSensorReportsTheEEPROMReading(t *testing.T) {
 	}
 	oem, _ := body["Oem"].(map[string]any)
 	nano, _ := oem["NanoKVM"].(map[string]any)
-	if nano["Sequence"] != float64(7) || nano["Stale"] != false || nano["TemperatureValid"] != true {
+	stale, staleIsBool := nano["Stale"].(bool)
+	tempValid, tempValidIsBool := nano["TemperatureValid"].(bool)
+	if nano["Sequence"] != float64(7) || !staleIsBool || stale || !tempValidIsBool || !tempValid {
 		t.Errorf("Oem.NanoKVM = %v", nano)
 	}
 }
@@ -145,7 +147,8 @@ func TestSensorWithholdsAStaleReading(t *testing.T) {
 	}
 	oem, _ := body["Oem"].(map[string]any)
 	nano, _ := oem["NanoKVM"].(map[string]any)
-	if nano["Stale"] != true {
+	stale, staleIsBool := nano["Stale"].(bool)
+	if !staleIsBool || !stale {
 		t.Errorf("Oem should say the sample is stale: %v", nano)
 	}
 }

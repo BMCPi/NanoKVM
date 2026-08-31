@@ -122,8 +122,11 @@ func TestGofishSessionGetAndDelete(t *testing.T) {
 		t.Fatalf("GetSession: %v", err)
 	}
 
-	if _, err := client.Get(sess.ID); err != nil {
+	resp, err := client.Get(sess.ID)
+	if err != nil {
 		t.Errorf("GET %s: %v", sess.ID, err)
+	} else {
+		resp.Body.Close()
 	}
 	if err := client.GetService().DeleteSession(sess.ID); err != nil {
 		t.Errorf("DELETE %s: %v", sess.ID, err)

@@ -57,7 +57,7 @@ func biosResource() Bios {
 			ODataType:    odataTypeBios,
 			ODataID:      biosPath,
 			ODataContext: odataContext("Bios.Bios"),
-			ID:           "Bios",
+			ID:           schemaNameBios,
 			Name:         "BIOS Configuration",
 			Description:  "Firmware attributes as last reported by the managed host",
 		},
@@ -255,7 +255,7 @@ const biosRegistryName = "BiosAttributeRegistry"
 // registry under: the advertised default (with or without a version suffix)
 // and the pre-pivot "AttributeRegistry" spelling.
 func biosRegistryNameOK(name string) bool {
-	return name == "AttributeRegistry" || strings.HasPrefix(name, biosRegistryName)
+	return name == schemaNameAttributeRegistry || strings.HasPrefix(name, biosRegistryName)
 }
 
 // registryResource renders the stored registry at the URI it was asked for —
@@ -334,10 +334,10 @@ func (s *Service) PutBiosAttributeRegistry(c *gin.Context) {
 func (s *Service) GetRegistries(c *gin.Context) {
 	writeHostResource(c, map[string]any{
 		"@odata.type":         "#MessageRegistryFileCollection.MessageRegistryFileCollection",
-		"@odata.id":           registriesPath,
+		odataIDKey:            registriesPath,
 		"Name":                "Registry File Collection",
 		"Members@odata.count": 1,
-		"Members":             []map[string]any{{"@odata.id": registryFilePath}},
+		"Members":             []map[string]any{{odataIDKey: registryFilePath}},
 	})
 }
 
@@ -351,7 +351,7 @@ func (s *Service) GetRegistryFile(c *gin.Context) {
 	}
 	writeHostResource(c, map[string]any{
 		"@odata.type": "#MessageRegistryFile.v1_1_0.MessageRegistryFile",
-		"@odata.id":   registryFilePath,
+		odataIDKey:    registryFilePath,
 		"Id":          biosRegistryName,
 		"Name":        "BIOS Attribute Registry",
 		"Registry":    biosRegistryName,

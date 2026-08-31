@@ -74,7 +74,7 @@ func TestOpenAPI_DocumentsCanonicalServiceRoot(t *testing.T) {
 	var doc struct {
 		Paths map[string]any `yaml:"paths"`
 	}
-	if err := yaml.Unmarshal([]byte(redfish.OpenAPIYAML()), &doc); err != nil {
+	if err := yaml.Unmarshal(redfish.OpenAPIYAML(), &doc); err != nil {
 		t.Fatalf("openapi.yaml: %v", err)
 	}
 

@@ -149,12 +149,20 @@ func (s *Service) PatchEthernetInterface(c *gin.Context) {
 // --- EthIp4* Bios attribute bridge -------------------------------------------
 
 const (
-	attrEthIp4Mode       = "EthIp4Mode"
-	attrEthIp4Address    = "EthIp4Address"
-	attrEthIp4SubnetMask = "EthIp4SubnetMask"
-	attrEthIp4Gateway    = "EthIp4Gateway"
-	attrEthIp4Dns1       = "EthIp4Dns1"
-	attrEthIp4Dns2       = "EthIp4Dns2"
+	attrEthIP4Mode       = "EthIp4Mode"
+	attrEthIP4Address    = "EthIp4Address"
+	attrEthIP4SubnetMask = "EthIp4SubnetMask"
+	attrEthIP4Gateway    = "EthIp4Gateway"
+	attrEthIP4Dns1       = "EthIp4Dns1"
+	attrEthIP4Dns2       = "EthIp4Dns2"
+)
+
+// EthIp4Mode values, per the host's EthConfigDxe vocabulary (see the file
+// comment above) — not a DMTF enum, so they live here rather than in
+// schemas.
+const (
+	ethIP4ModeDHCP   = "Dhcp"
+	ethIP4ModeStatic = "Static"
 )
 
 // ethManagedNICID returns the member the host's EthConfigDxe manages. The
@@ -179,10 +187,10 @@ func ethManagedNICID() (string, bool) {
 // and it stays configured while DHCP is enabled.
 func ethOverlayBiosConfig(member map[string]any) {
 	attrs := hostBiosAttributes()
-	switch attrs[attrEthIp4Mode] {
-	case "Dhcp":
+	switch attrs[attrEthIP4Mode] {
+	case ethIP4ModeDHCP:
 		member["DHCPv4"] = map[string]any{"DHCPEnabled": true}
-	case "Static":
+	case ethIP4ModeStatic:
 		member["DHCPv4"] = map[string]any{"DHCPEnabled": false}
 	default:
 		return
@@ -190,9 +198,9 @@ func ethOverlayBiosConfig(member map[string]any) {
 
 	static := map[string]any{}
 	for prop, attr := range map[string]string{
-		"Address":    attrEthIp4Address,
-		"SubnetMask": attrEthIp4SubnetMask,
-		"Gateway":    attrEthIp4Gateway,
+		"Address":    attrEthIP4Address,
+		"SubnetMask": attrEthIP4SubnetMask,
+		"Gateway":    attrEthIP4Gateway,
 	} {
 		if v, _ := attrs[attr].(string); v != "" {
 			static[prop] = v
@@ -203,7 +211,7 @@ func ethOverlayBiosConfig(member map[string]any) {
 	}
 
 	dns := []any{}
-	for _, attr := range []string{attrEthIp4Dns1, attrEthIp4Dns2} {
+	for _, attr := range []string{attrEthIP4Dns1, attrEthIP4Dns2} {
 		if v, _ := attrs[attr].(string); v != "" {
 			dns = append(dns, v)
 		}
@@ -232,9 +240,9 @@ func ethBiosAttrsFromBody(body map[string]any) (map[string]any, error) {
 				return nil, fmt.Errorf("DHCPv4.DHCPEnabled must be a boolean")
 			}
 			if b {
-				attrs[attrEthIp4Mode] = "Dhcp"
+				attrs[attrEthIP4Mode] = ethIP4ModeDHCP
 			} else {
-				attrs[attrEthIp4Mode] = "Static"
+				attrs[attrEthIP4Mode] = ethIP4ModeStatic
 			}
 		}
 	}
@@ -265,14 +273,14 @@ func ethBiosAttrsFromBody(body map[string]any) (map[string]any, error) {
 			return nil, fmt.Errorf("only one IPv4 static address is supported")
 		case entries == 0 && len(list) == 0:
 			// An empty array clears the static address.
-			attrs[attrEthIp4Address] = ""
-			attrs[attrEthIp4SubnetMask] = ""
-			attrs[attrEthIp4Gateway] = ""
+			attrs[attrEthIP4Address] = ""
+			attrs[attrEthIP4SubnetMask] = ""
+			attrs[attrEthIP4Gateway] = ""
 		case entries == 1:
 			for prop, attr := range map[string]string{
-				"Address":    attrEthIp4Address,
-				"SubnetMask": attrEthIp4SubnetMask,
-				"Gateway":    attrEthIp4Gateway,
+				"Address":    attrEthIP4Address,
+				"SubnetMask": attrEthIP4SubnetMask,
+				"Gateway":    attrEthIP4Gateway,
 			} {
 				v, present := entry[prop]
 				if !present {
@@ -286,8 +294,8 @@ func ethBiosAttrsFromBody(body map[string]any) (map[string]any, error) {
 			}
 			// A static address without an explicit DHCPv4 object implies
 			// static mode; an explicit DHCPEnabled wins either way.
-			if _, ok := attrs[attrEthIp4Mode]; !ok {
-				attrs[attrEthIp4Mode] = "Static"
+			if _, ok := attrs[attrEthIP4Mode]; !ok {
+				attrs[attrEthIP4Mode] = ethIP4ModeStatic
 			}
 		}
 	}
@@ -308,8 +316,8 @@ func ethBiosAttrsFromBody(body map[string]any) (map[string]any, error) {
 			}
 			dns[i] = s
 		}
-		attrs[attrEthIp4Dns1] = dns[0]
-		attrs[attrEthIp4Dns2] = dns[1]
+		attrs[attrEthIP4Dns1] = dns[0]
+		attrs[attrEthIP4Dns2] = dns[1]
 	}
 
 	return attrs, nil

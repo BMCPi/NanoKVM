@@ -13,7 +13,7 @@ func (s *Service) GetServiceRoot(c *gin.Context) {
 			ODataType:    odataTypeServiceRoot,
 			ODataID:      ServiceRootPath,
 			ODataContext: odataContext("ServiceRoot.ServiceRoot"),
-			ID:           "ServiceRoot",
+			ID:           schemaNameServiceRoot,
 			Name:         "NanoKVM BMC",
 		},
 		RedfishVersion: redfishProtocolVersion,
