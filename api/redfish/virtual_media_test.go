@@ -13,6 +13,7 @@ package redfish
 
 import (
 	"bytes"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -54,11 +55,11 @@ func virtualMediaRouter(t *testing.T) (*gin.Engine, string) {
 	cfg := &config.Config{}
 	cfg.Firmware.MediaDir = mediaDir
 
-	fw := firmware.NewController(cfg)
+	fw := firmware.NewController(cfg, slog.New(slog.DiscardHandler))
 	fw.SetVMGadgetForTest(&fakeVMGadget{})
 
 	svc := NewService(&deps.Deps{
-		Power:    power.NewController(config.Hardware{}, config.Power{}),
+		Power:    power.NewController(config.Hardware{}, config.Power{}, slog.New(slog.DiscardHandler)),
 		Firmware: fw,
 	})
 	r := gin.New()

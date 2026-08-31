@@ -94,7 +94,7 @@ func (c *Controller) StageCapsuleFromURL(ctx context.Context, rawURL, name strin
 	}()
 
 	c.log.InfoContext(ctx, "firmware: downloading capsule", slog.String("name", fileName), slog.String("url", rawURL))
-	if err := downloadTo(ctx, c.log, rawURL, tmp, maxCapsuleFetchBytes); err != nil {
+	if err := c.downloadTo(ctx, rawURL, tmp, maxCapsuleFetchBytes); err != nil {
 		return err
 	}
 	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
@@ -126,7 +126,7 @@ func (c *Controller) stagingDir() (string, error) {
 // downloadTo copies the body at rawURL into w, refusing anything larger than
 // maxBytes. utils.FetchURL owns the scheme check, the transport timeouts and
 // the cap; everything here is a straight stream to disk.
-func downloadTo(ctx context.Context, log *slog.Logger, rawURL string, w io.Writer, maxBytes int64) error {
+func (c *Controller) downloadTo(ctx context.Context, rawURL string, w io.Writer, maxBytes int64) error {
 	remote, err := utils.FetchURL(ctx, rawURL, maxBytes)
 	if err != nil {
 		return err
@@ -137,6 +137,6 @@ func downloadTo(ctx context.Context, log *slog.Logger, rawURL string, w io.Write
 	if err != nil {
 		return fmt.Errorf("download: %w", err)
 	}
-	log.InfoContext(ctx, "firmware: downloaded", slog.Int64("bytes", written))
+	c.log.InfoContext(ctx, "firmware: downloaded", slog.Int64("bytes", written))
 	return nil
 }

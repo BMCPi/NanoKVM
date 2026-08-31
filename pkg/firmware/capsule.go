@@ -220,7 +220,7 @@ func (c *Controller) createVolumeLocked() error {
 	if err := os.Rename(tmp, c.capsulePath); err != nil {
 		return fmt.Errorf("install capsule volume: %w", err)
 	}
-	syncVolume(c.log, c.capsulePath)
+	c.syncVolume(c.capsulePath)
 	c.log.Info("firmware: capsule volume ready", slog.String("path", c.capsulePath), slog.String("dir", capsuleDir))
 	return nil
 }
@@ -461,7 +461,7 @@ func (c *Controller) withVolume(write bool, fn func(filesystem.FileSystem) error
 			c.log.Warn("firmware: close capsule volume failed", slog.Any("err", err))
 		}
 		if write {
-			syncVolume(c.log, c.capsulePath)
+			c.syncVolume(c.capsulePath)
 		}
 	}()
 
@@ -649,14 +649,14 @@ func isFATNotFound(err error) bool {
 // between staging a capsule and the host's reboot cannot lose it. Only this
 // one file is synced — f_mass_storage reads the same inode through the same
 // page cache, so nothing global is needed for the host to see fresh bytes.
-func syncVolume(log *slog.Logger, volumePath string) {
+func (c *Controller) syncVolume(volumePath string) {
 	f, err := os.Open(volumePath)
 	if err != nil {
-		log.Warn("firmware: open capsule volume to sync failed", slog.Any("err", err))
+		c.log.Warn("firmware: open capsule volume to sync failed", slog.Any("err", err))
 		return
 	}
 	defer f.Close()
 	if err := f.Sync(); err != nil {
-		log.Warn("firmware: sync capsule volume failed", slog.Any("err", err))
+		c.log.Warn("firmware: sync capsule volume failed", slog.Any("err", err))
 	}
 }

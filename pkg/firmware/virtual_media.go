@@ -442,7 +442,7 @@ func (c *Controller) SaveMediaISO(name string, r io.Reader) (string, int64, erro
 		return "", 0, err
 	}
 
-	if err := buildHybridImage(c.log, isoPath, imgPath); err != nil {
+	if err := c.buildHybridImage(isoPath, imgPath); err != nil {
 		_ = os.Remove(imgPath)
 		return "", 0, fmt.Errorf("convert iso to hybrid img: %w", err)
 	}
@@ -465,7 +465,7 @@ func (c *Controller) SaveMediaISO(name string, r io.Reader) (string, int64, erro
 // at LBA 0. The image size and overlay region are derived from the ISO
 // itself by hybridParamsFromISO. This is the pure-Go equivalent of the
 // three-step `dd` recipe documented above.
-func buildHybridImage(log *slog.Logger, isoPath, imgPath string) error {
+func (c *Controller) buildHybridImage(isoPath, imgPath string) error {
 	iso, err := os.Open(isoPath)
 	if err != nil {
 		return err
@@ -476,7 +476,7 @@ func buildHybridImage(log *slog.Logger, isoPath, imgPath string) error {
 	if err != nil {
 		return fmt.Errorf("derive hybrid params: %w", err)
 	}
-	log.Info("firmware: hybrid params",
+	c.log.Info("firmware: hybrid params",
 		slog.String("iso", filepath.Base(isoPath)),
 		slog.Int64("imageSize", params.ImageSize), slog.Int64("sectorSize", params.SectorSize),
 		slog.Int64("skip", params.OverlaySkipSects), slog.Int64("count", params.OverlayCountSect),
@@ -513,10 +513,10 @@ func buildHybridImage(log *slog.Logger, isoPath, imgPath string) error {
 			return fmt.Errorf("write overlay: %w", err)
 		}
 		if n < overlayLen {
-			log.Warn("firmware: hybrid overlay short read", slog.Int64("written", n), slog.Int64("expected", overlayLen))
+			c.log.Warn("firmware: hybrid overlay short read", slog.Int64("written", n), slog.Int64("expected", overlayLen))
 		}
 	} else {
-		log.Warn("firmware: no overlay partition found; image may not boot as block device", slog.String("iso", filepath.Base(isoPath)))
+		c.log.Warn("firmware: no overlay partition found; image may not boot as block device", slog.String("iso", filepath.Base(isoPath)))
 	}
 
 	return out.Sync()

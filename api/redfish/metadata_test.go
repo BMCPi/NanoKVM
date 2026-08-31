@@ -1,6 +1,7 @@
 package redfish
 
 import (
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,8 +20,8 @@ import (
 func TestMetadataDocumentResolves(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := NewService(&deps.Deps{
-		Power:    power.NewController(config.Hardware{}, config.Power{}),
-		Firmware: firmware.NewController(&config.Config{}),
+		Power:    power.NewController(config.Hardware{}, config.Power{}, slog.New(slog.DiscardHandler)),
+		Firmware: firmware.NewController(&config.Config{}, slog.New(slog.DiscardHandler)),
 	})
 	r := gin.New()
 	r.GET(metadataPath, svc.GetMetadata)

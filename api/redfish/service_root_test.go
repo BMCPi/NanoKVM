@@ -1,6 +1,7 @@
 package redfish
 
 import (
+	"log/slog"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -17,8 +18,8 @@ func TestServiceRootAndManagerShareUUID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{}
 	svc := NewService(&deps.Deps{
-		Power:    power.NewController(config.Hardware{}, config.Power{}),
-		Firmware: firmware.NewController(cfg),
+		Power:    power.NewController(config.Hardware{}, config.Power{}, slog.New(slog.DiscardHandler)),
+		Firmware: firmware.NewController(cfg, slog.New(slog.DiscardHandler)),
 	})
 	r := gin.New()
 	r.GET(ServiceRootPath, svc.GetServiceRoot)

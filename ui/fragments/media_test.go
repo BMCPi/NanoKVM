@@ -19,6 +19,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -43,7 +44,7 @@ func mediaRouter(t *testing.T) (*gin.Engine, string) {
 	mediaDir := t.TempDir()
 	cfg := &config.Config{}
 	cfg.Firmware.MediaDir = mediaDir
-	d := &deps.Deps{Config: cfg, Firmware: firmware.NewController(cfg)}
+	d := &deps.Deps{Config: cfg, Firmware: firmware.NewController(cfg, slog.New(slog.DiscardHandler))}
 
 	r := gin.New()
 	r.Use(deps.Middleware(d))
@@ -73,7 +74,7 @@ func mediaRouterWithGadget(t *testing.T) (*gin.Engine, string) {
 	mediaDir := t.TempDir()
 	cfg := &config.Config{}
 	cfg.Firmware.MediaDir = mediaDir
-	ctrl := firmware.NewController(cfg)
+	ctrl := firmware.NewController(cfg, slog.New(slog.DiscardHandler))
 	ctrl.SetVMGadgetForTest(&fakeVMGadget{})
 	d := &deps.Deps{Config: cfg, Firmware: ctrl}
 

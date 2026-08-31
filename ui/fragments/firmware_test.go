@@ -16,6 +16,7 @@ package fragments
 import (
 	"bytes"
 	"fmt"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -44,7 +45,7 @@ func firmwareRouter(t *testing.T) (*gin.Engine, *firmware.Controller) {
 	cfg := &config.Config{}
 	cfg.Firmware.CapsulePath = filepath.Join(t.TempDir(), "capsules.img")
 	cfg.Firmware.CapsuleSizeMB = 256
-	ctrl := firmware.NewController(cfg)
+	ctrl := firmware.NewController(cfg, slog.New(slog.DiscardHandler))
 	d := &deps.Deps{Config: cfg, Firmware: ctrl}
 
 	r := gin.New()

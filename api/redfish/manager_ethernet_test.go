@@ -7,6 +7,7 @@ package redfish
 // the BMC's MAC. Every assertion here protects one link in that chain.
 
 import (
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -26,8 +27,8 @@ func managerNICRouter(t *testing.T) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{}
 	svc := NewService(&deps.Deps{
-		Power:    power.NewController(config.Hardware{}, config.Power{}),
-		Firmware: firmware.NewController(cfg),
+		Power:    power.NewController(config.Hardware{}, config.Power{}, slog.New(slog.DiscardHandler)),
+		Firmware: firmware.NewController(cfg, slog.New(slog.DiscardHandler)),
 	})
 	r := gin.New()
 	r.GET(managerEthernetInterfacesPath, svc.GetManagerEthernetInterfaceCollection)

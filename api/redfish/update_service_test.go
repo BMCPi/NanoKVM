@@ -9,6 +9,7 @@ package redfish
 import (
 	"bytes"
 	"encoding/json"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -33,10 +34,10 @@ func updateServiceRouter(t *testing.T) (*gin.Engine, *firmware.Controller) {
 	cfg := &config.Config{}
 	cfg.Firmware.CapsulePath = filepath.Join(t.TempDir(), "capsules.img")
 	cfg.Firmware.CapsuleSizeMB = 48
-	fw := firmware.NewController(cfg)
+	fw := firmware.NewController(cfg, slog.New(slog.DiscardHandler))
 
 	svc := NewService(&deps.Deps{
-		Power:    power.NewController(config.Hardware{}, config.Power{}),
+		Power:    power.NewController(config.Hardware{}, config.Power{}, slog.New(slog.DiscardHandler)),
 		Firmware: fw,
 	})
 	r := gin.New()

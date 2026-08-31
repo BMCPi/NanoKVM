@@ -1,6 +1,8 @@
 package redfish
 
 import (
+	"log/slog"
+
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
@@ -13,7 +15,7 @@ import (
 // rather than needing a mock for every test.
 func testDeps() *deps.Deps {
 	return &deps.Deps{
-		Power:    power.NewController(config.Hardware{}, config.Power{}),
-		Firmware: firmware.NewController(&config.Config{}),
+		Power:    power.NewController(config.Hardware{}, config.Power{}, slog.New(slog.DiscardHandler)),
+		Firmware: firmware.NewController(&config.Config{}, slog.New(slog.DiscardHandler)),
 	}
 }

@@ -3,6 +3,7 @@ package vm
 import (
 	"bufio"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -63,7 +64,7 @@ func TestStreamGpioPushesEdges(t *testing.T) {
 	cfg := config.GetInstance()
 	cfg.Power.LegacyMode = false
 	cfg.Hardware.GPIOPowerLED = config.GPIOPin{Chip: sim.ChipName(), Line: ledOffset}
-	ctrl := power.NewController(cfg.Hardware, cfg.Power)
+	ctrl := power.NewController(cfg.Hardware, cfg.Power, slog.New(slog.DiscardHandler))
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -116,7 +117,7 @@ func TestStreamGpioUnreadableStateIsNotOK(t *testing.T) {
 	cfg := config.GetInstance()
 	cfg.Power.LegacyMode = false
 	cfg.Hardware.GPIOPowerLED = config.GPIOPin{}
-	ctrl := power.NewController(cfg.Hardware, cfg.Power)
+	ctrl := power.NewController(cfg.Hardware, cfg.Power, slog.New(slog.DiscardHandler))
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

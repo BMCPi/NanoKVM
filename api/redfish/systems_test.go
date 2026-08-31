@@ -2,6 +2,7 @@ package redfish
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
@@ -11,7 +12,7 @@ import (
 // The System must point back at its Manager: crawlers resolve the managing
 // BMC through Links.ManagedBy rather than assuming Managers/1.
 func TestSystemLinksManagedBy(t *testing.T) {
-	sys := buildSystemResource(context.Background(), power.NewController(config.Hardware{}, config.Power{}))
+	sys := buildSystemResource(context.Background(), power.NewController(config.Hardware{}, config.Power{}, slog.New(slog.DiscardHandler)))
 	if sys.Links == nil || len(sys.Links.ManagedBy) == 0 {
 		t.Fatalf("ComputerSystem has no Links.ManagedBy")
 	}
