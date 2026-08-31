@@ -2,6 +2,7 @@ package usbgadget
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -60,6 +61,16 @@ func (g *Gadget) build() error {
 	}
 	if g.cfg.Ethernet != EthernetOff {
 		if err := g.ensureEthernetFunc(g.cfg.Ethernet); err != nil {
+			// Report the failure, but never leave the gadget unbound because of
+			// it: reconcileLinks is the only caller of ensureBindState, so an
+			// early return here means an unbound gadget stays unbound until the
+			// next reboot — no keyboard, no mass storage. Assert the bind state
+			// directly rather than reconciling: the desired function set still
+			// names the function we just failed to configure, so a full relink
+			// would unbind a working gadget to link a dangling symlink.
+			if bindErr := g.ensureBindState(); bindErr != nil {
+				return errors.Join(err, bindErr)
+			}
 			return err
 		}
 	}
@@ -153,7 +164,7 @@ func (g *Gadget) ensureEthernetFunc(mode string) error {
 	} {
 		path := filepath.Join(dir, attr)
 		if cur, err := g.fs.ReadFile(path); err == nil &&
-			strings.EqualFold(strings.TrimSpace(string(cur)), want) {
+			strings.EqualFold(trimAttr(string(cur)), want) {
 			continue
 		}
 		if err := g.fs.WriteFile(path, []byte(want), 0o644); err != nil {

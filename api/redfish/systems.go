@@ -51,12 +51,14 @@ func (h *handlers) ResetSystem(c *gin.Context) {
 	ctx, cancel := h.d.ActionContext(power.ActionTimeout)
 	defer cancel()
 
-	switch req.ResetType {
-	case schemas.OnResetType:
+	switch resetOpFor(req.ResetType) {
+	case resetOpOn:
 		err = ctrl.PowerOn(ctx)
-	case schemas.ForceOffResetType, schemas.GracefulShutdownResetType:
+	case resetOpGracefulOff:
 		err = ctrl.PowerOff(ctx)
-	case schemas.ForceRestartResetType, schemas.PowerCycleResetType:
+	case resetOpForceOff:
+		err = ctrl.ForceOff(ctx)
+	case resetOpCycle:
 		err = ctrl.Reset(ctx)
 	default:
 		// Unreachable while these cases cover supportedResetTypes. Catches

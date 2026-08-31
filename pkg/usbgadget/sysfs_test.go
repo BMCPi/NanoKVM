@@ -96,3 +96,26 @@ func TestSysfsReadDirSorted(t *testing.T) {
 		}
 	}
 }
+
+// configfs returns some attributes NUL-terminated: the gadget driver formats
+// MAC addresses with %pM into a fixed buffer, so ncm.usb0/host_addr reads back
+// as "da:c0:ff:ee:10:02\x00\n" (hexdump-verified on hardware). strings.TrimSpace
+// does not strip NUL, so a naive comparison decides the value differs and
+// rewrites it — which configfs rejects with EBUSY while the gadget is bound.
+//
+// The attribute here is read-only, standing in for that EBUSY: if the guard
+// misfires and attempts the write, the write fails and the error surfaces.
+func TestSysfsWriteAttrIfDifferentIgnoresTrailingNUL(t *testing.T) {
+	root := t.TempDir()
+	s := newSysfs(root)
+	attr := filepath.Join(root, "host_addr")
+
+	const mac = "da:c0:ff:ee:10:02"
+	if err := os.WriteFile(attr, []byte(mac+"\x00\n"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.writeAttrIfDifferent(attr, mac); err != nil {
+		t.Fatalf("writeAttrIfDifferent rewrote an already-matching NUL-terminated attribute: %v", err)
+	}
+}

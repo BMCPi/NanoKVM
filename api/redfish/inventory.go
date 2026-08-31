@@ -39,6 +39,37 @@ var supportedResetTypes = []schemas.ResetType{
 	schemas.PowerCycleResetType,
 }
 
+// resetOp is the power.Controller operation a ResetType dispatches to. It
+// exists so the mapping is a pure function the tests can exercise: h.d.Power is
+// a concrete *power.Controller that needs real GPIO, so dispatch is otherwise
+// unreachable from a test — which is how ForceOff came to be wired to the
+// graceful short press without anything noticing.
+type resetOp int
+
+const (
+	resetOpUnsupported resetOp = iota
+	resetOpOn
+	resetOpGracefulOff
+	resetOpForceOff
+	resetOpCycle
+)
+
+// resetOpFor maps a Redfish ResetType to the operation that services it.
+func resetOpFor(t schemas.ResetType) resetOp {
+	switch t {
+	case schemas.OnResetType:
+		return resetOpOn
+	case schemas.GracefulShutdownResetType:
+		return resetOpGracefulOff
+	case schemas.ForceOffResetType:
+		return resetOpForceOff
+	case schemas.ForceRestartResetType, schemas.PowerCycleResetType:
+		return resetOpCycle
+	default:
+		return resetOpUnsupported
+	}
+}
+
 // bootSourceSupported reports whether target is one we accept.
 func bootSourceSupported(target schemas.BootSource) bool {
 	return slices.Contains(supportedBootSources, target)

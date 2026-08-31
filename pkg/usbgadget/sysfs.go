@@ -166,13 +166,25 @@ func (s *sysfs) writeAttr(path, value string) error {
 	return s.WriteFile(path, []byte(value), 0o644)
 }
 
+// attrCutset is everything a configfs attribute may carry around its value.
+// The NUL is the load-bearing member: the gadget driver formats MAC addresses
+// with %pM into a fixed-size buffer, so ncm.usb0/host_addr reads back as
+// "da:c0:ff:ee:10:02\x00\n". strings.TrimSpace stops at the NUL (it is not
+// whitespace), so a value trimmed with it alone never compares equal to the one
+// we would write — and the resulting rewrite is exactly what EBUSYs on a bound
+// gadget.
+const attrCutset = " \t\r\n\x00"
+
+// trimAttr normalises a configfs attribute value for comparison.
+func trimAttr(s string) string { return strings.Trim(s, attrCutset) }
+
 // writeAttrIfDifferent writes value only when the file's current (trimmed)
 // contents differ. This avoids EBUSY when re-asserting unchanged descriptor
 // fields on an already-bound gadget — the common server-restart case where the
 // gadget already exists and must not be disturbed.
 func (s *sysfs) writeAttrIfDifferent(path, value string) error {
 	cur, err := s.ReadFile(path)
-	if err == nil && strings.TrimSpace(string(cur)) == strings.TrimSpace(value) {
+	if err == nil && trimAttr(string(cur)) == trimAttr(value) {
 		return nil
 	}
 	return s.writeAttr(path, value)
