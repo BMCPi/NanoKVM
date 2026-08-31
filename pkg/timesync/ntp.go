@@ -1,6 +1,7 @@
 package timesync
 
 import (
+	"context"
 	"log/slog"
 	"math/rand/v2"
 	"slices"
@@ -29,8 +30,9 @@ var fallbackNTPHostnames = []string{
 }
 
 // queryNTP races the servers in chunks of queryParallel and returns the first
-// valid answer, already adjusted for the measured clock offset.
-func queryNTP(servers []string) (time.Time, bool) {
+// valid answer, already adjusted for the measured clock offset. Abandons the
+// remaining chunks as soon as ctx is cancelled.
+func queryNTP(ctx context.Context, servers []string) (time.Time, bool) {
 	if len(servers) == 0 {
 		return time.Time{}, false
 	}
@@ -39,15 +41,24 @@ func queryNTP(servers []string) (time.Time, bool) {
 	rand.Shuffle(len(servers), func(i, j int) { servers[i], servers[j] = servers[j], servers[i] })
 
 	for chunk := range slices.Chunk(servers, queryParallel) {
-		if t, ok := queryNTPChunk(chunk); ok {
+		if ctx.Err() != nil {
+			return time.Time{}, false
+		}
+		if t, ok := queryNTPChunk(ctx, chunk); ok {
 			return t, true
 		}
 	}
 	return time.Time{}, false
 }
 
-func queryNTPChunk(servers []string) (time.Time, bool) {
-	// Buffered so stragglers can finish and exit after we return.
+// queryNTPChunk races one chunk and collects results with drain-or-abandon
+// semantics: it waits for either a valid answer or ctx to be cancelled,
+// whichever comes first, rather than blocking on every straggler. The
+// beevik/ntp client itself has no ctx-aware query -- QueryOptions.Timeout is
+// the only per-attempt bound it offers -- so an abandoned goroutine can still
+// run to that timeout; results is buffered to len(servers) so its send never
+// blocks regardless of how early the collector below gives up.
+func queryNTPChunk(ctx context.Context, servers []string) (time.Time, bool) {
 	results := make(chan *time.Duration, len(servers))
 
 	for _, server := range servers {
@@ -73,10 +84,16 @@ func queryNTPChunk(servers []string) (time.Time, bool) {
 	}
 
 	for range servers {
-		if offset := <-results; offset != nil {
-			// Applying the offset to the current clock (rather than using the
-			// server timestamp) also accounts for time spent waiting here.
-			return time.Now().Add(*offset), true
+		select {
+		case offset := <-results:
+			if offset != nil {
+				// Applying the offset to the current clock (rather than using
+				// the server timestamp) also accounts for time spent waiting
+				// here.
+				return time.Now().Add(*offset), true
+			}
+		case <-ctx.Done():
+			return time.Time{}, false
 		}
 	}
 	return time.Time{}, false

@@ -26,7 +26,7 @@ func (s *Service) ChangePassword(username, plainPassword string) error {
 		return err
 	}
 
-	if err := s.changeRootPassword(plainPassword); err != nil {
+	if err := s.changeRootPassword(s.rootCtx, plainPassword); err != nil {
 		_ = s.DelAccount()
 		return err
 	}
@@ -65,8 +65,8 @@ func (s *Service) IsPasswordUpdated() (bool, error) {
 	return errors.Is(err, bcrypt.ErrMismatchedHashAndPassword), nil
 }
 
-func (s *Service) changeRootPassword(password string) error {
-	err := passwd(password)
+func (s *Service) changeRootPassword(ctx context.Context, password string) error {
+	err := passwd(ctx, password)
 	if err != nil {
 		s.log.Error("failed to change root password", slog.Any("err", err))
 		return err
@@ -76,12 +76,16 @@ func (s *Service) changeRootPassword(password string) error {
 	return nil
 }
 
-func passwd(password string) error {
-	// context.Background(): nothing above this call carries a context today
-	// (ChangePassword is exported without one), and passwd must not be
-	// cancelled halfway through rewriting /etc/shadow, so the conversion to
-	// CommandContext is mechanical and leaves the lifetime unchanged.
-	cmd := exec.CommandContext(context.Background(), "passwd", "root")
+func passwd(ctx context.Context, password string) error {
+	// Bounded well past what a healthy `passwd` takes, but bounded
+	// nonetheless: rewriting /etc/shadow mustn't be interrupted casually, so
+	// this is a generous timeout rather than the request's own (often much
+	// shorter) deadline -- ctx here is the Service's root ctx, not a caller's
+	// request context, precisely so a client disconnecting mid-request can't
+	// cut this off halfway through.
+	execCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(execCtx, "passwd", "root")
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

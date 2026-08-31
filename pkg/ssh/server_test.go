@@ -2,6 +2,7 @@ package ssh
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/pem"
@@ -44,7 +45,7 @@ func startTestServer(t *testing.T, passwordAuth bool) string {
 	})
 
 	Stop() // ensure a clean slate if a previous test left one running
-	if err := Start(slog.New(slog.DiscardHandler), auth.NewService(slog.New(slog.DiscardHandler))); err != nil {
+	if err := Start(slog.New(slog.DiscardHandler), auth.NewService(context.Background(), slog.New(slog.DiscardHandler))); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	if !IsRunning() {

@@ -18,7 +18,10 @@ const (
 	cleanupInterval         = 6 * time.Hour
 )
 
-// startCleanupRoutine starts a background routine to clean up memory
+// startCleanupRoutine starts a background routine to clean up memory. Exits
+// when s.rootCtx is cancelled, instead of running for the rest of the
+// process's life -- see cleanupDone's doc comment for how a test observes
+// that.
 func (s *Service) startCleanupRoutine() {
 	conf := config.GetInstance()
 	if conf.Security.LoginLockoutDuration <= 0 {
@@ -26,20 +29,27 @@ func (s *Service) startCleanupRoutine() {
 	}
 
 	go func() {
+		defer close(s.cleanupDone)
 		ticker := time.NewTicker(cleanupInterval)
-		for range ticker.C {
-			s.loginMu.Lock()
-			now := time.Now()
-			for ip, attempt := range s.loginAttempts {
-				// Cleanup rules: if it has been locked and the lockout time has passed,
-				// or (although not locked) it has been 30 minutes since the last failure,
-				// remove this record
-				if (!attempt.lockoutEnd.IsZero() && now.After(attempt.lockoutEnd)) ||
-					(attempt.lockoutEnd.IsZero() && now.Sub(attempt.lastFailed) > 30*time.Minute) {
-					delete(s.loginAttempts, ip)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-s.rootCtx.Done():
+				return
+			case <-ticker.C:
+				s.loginMu.Lock()
+				now := time.Now()
+				for ip, attempt := range s.loginAttempts {
+					// Cleanup rules: if it has been locked and the lockout time has passed,
+					// or (although not locked) it has been 30 minutes since the last failure,
+					// remove this record
+					if (!attempt.lockoutEnd.IsZero() && now.After(attempt.lockoutEnd)) ||
+						(attempt.lockoutEnd.IsZero() && now.Sub(attempt.lastFailed) > 30*time.Minute) {
+						delete(s.loginAttempts, ip)
+					}
 				}
+				s.loginMu.Unlock()
 			}
-			s.loginMu.Unlock()
 		}
 	}()
 }

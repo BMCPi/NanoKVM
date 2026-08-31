@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"testing"
@@ -97,7 +98,7 @@ func TestComparePlainAccountFastPath(t *testing.T) {
 	if _, err := os.Stat(accountFile); err == nil {
 		t.Skipf("%s exists; skipping default-account fast-path test", accountFile)
 	}
-	s := NewService(slog.New(slog.DiscardHandler))
+	s := NewService(context.Background(), slog.New(slog.DiscardHandler))
 
 	// First (uncached) check runs bcrypt and, on success, populates the cache.
 	if !s.ComparePlainAccount("admin", "admin") {

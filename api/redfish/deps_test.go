@@ -1,6 +1,7 @@
 package redfish
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/auth"
@@ -18,7 +19,7 @@ func testDeps() *deps.Deps {
 	return &deps.Deps{
 		Power:    power.NewController(config.Hardware{}, config.Power{}, slog.New(slog.DiscardHandler)),
 		Firmware: firmware.NewController(&config.Config{}, slog.New(slog.DiscardHandler)),
-		Auth:     auth.NewService(slog.New(slog.DiscardHandler)),
+		Auth:     auth.NewService(context.Background(), slog.New(slog.DiscardHandler)),
 	}
 }
 

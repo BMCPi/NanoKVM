@@ -64,6 +64,11 @@ type Responder struct {
 	names         []string // currently advertised mDNS names (e.g. "nanokvm.local")
 	lastSig       string   // hostname + interface addresses at the last (re)start
 
+	// ctx is the process-lifetime context Start was given, passed to both
+	// responders' Start so their propagation actually reaches something --
+	// see startMDNSLocked/startSSDPLocked.
+	ctx context.Context
+
 	// stopped fences startLocked once Stop has run. Without it, a watcher
 	// tick can read mu, release it, and race a concurrent Restart(): Stop()
 	// closes stopCh and nils/tears down both responders, then the tick's
@@ -107,6 +112,11 @@ func pkgLog() *slog.Logger {
 	return pkgLogHolder.Get()
 }
 
+// procCtx is the ctx most recently given to Start, guarded by mu (the same
+// lock that guards current) so Restart can reuse it instead of falling back
+// to context.Background() -- mirrors pkgLogHolder's reasoning for the logger.
+var procCtx context.Context
+
 // Start builds and starts the responders from config, stores the result as
 // the process singleton, and launches the restart watcher. It returns
 // (nil, nil) when both mDNS and SSDP are disabled — a legitimate deployment
@@ -118,9 +128,16 @@ func pkgLog() *slog.Logger {
 //
 // An initial bind failure on either responder is not fatal — the watcher
 // retries (the target interface may not be up yet).
-func Start(log *slog.Logger) (*Responder, error) {
+func Start(ctx context.Context, log *slog.Logger) (*Responder, error) {
 	log = logger.Or(log)
 	pkgLogHolder.Set(log)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	mu.Lock()
+	procCtx = ctx
+	mu.Unlock()
 
 	cfg := config.GetInstance()
 	disc := cfg.Discovery
@@ -139,6 +156,7 @@ func Start(log *slog.Logger) (*Responder, error) {
 		ifaceName:     disc.MDNS.Interface,
 		ssdpIfaceName: disc.SSDP.Interface,
 		hostname:      disc.MDNS.Hostname,
+		ctx:           ctx,
 		stopCh:        make(chan struct{}),
 		log:           log,
 	}
@@ -284,7 +302,7 @@ func (r *Responder) startMDNSLocked(cfg *config.Config, host string) error {
 		UUID:           identity.BMCUUID(),
 	})
 	mr := mdns.New(host, r.ifaceName, svcs)
-	if err := mr.Start(context.Background()); err != nil {
+	if err := mr.Start(r.ctx); err != nil {
 		return fmt.Errorf("mdns: %w", err)
 	}
 	r.mdnsR = mr
@@ -318,7 +336,7 @@ func (r *Responder) startSSDPLocked(cfg *config.Config) error {
 		Minor:    minor,
 		MaxAge:   cfg.Discovery.SSDP.MaxAge,
 	})
-	if err := sr.Start(context.Background()); err != nil {
+	if err := sr.Start(r.ctx); err != nil {
 		return fmt.Errorf("ssdp: %w", err)
 	}
 	r.ssdpR = sr
@@ -556,20 +574,24 @@ func localNames(hostname string) []string {
 // responders' watcher goroutine would keep running and keep answering on
 // their multicast groups with the old name/services.
 //
-// Reuses the package's stored logger rather than falling back to a bare
-// default — it stuck the first time Start ran, whether or not discovery was
-// enabled then.
+// Reuses the package's stored logger and process ctx rather than falling
+// back to bare defaults — both stuck the first time Start ran, whether or not
+// discovery was enabled then.
 func Restart() {
 	log := pkgLog()
 
 	mu.Lock()
 	prev := current
 	current = nil
+	ctx := procCtx
 	mu.Unlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	prev.Stop() // nil-safe
 
-	if _, err := Start(log); err != nil {
+	if _, err := Start(ctx, log); err != nil {
 		log.Warn("discovery: restart failed", slog.Any("err", err))
 	}
 }

@@ -98,6 +98,17 @@ type Broker struct {
 	active bool
 	stopCh chan struct{}
 
+	// shutdownCh unblocks reopen's paced retry loop so Close (and therefore
+	// StopCapture, which calls it via Disconnect's remaining<=0 path) can
+	// interrupt it immediately instead of leaving it to run
+	// captureRetryInterval to completion. startLocked creates a fresh one on
+	// every activation, since a broker is reused across a Restart (Close then
+	// a later Connect/startLocked) and must be interruptible again each time;
+	// unlike stopCh it is never touched by stopLocked -- reopen calls
+	// stopLocked on the dead port at the very top of its own retry loop, and
+	// that must not trip the very signal it is about to select on.
+	shutdownCh chan struct{}
+
 	// sessionCount is an atomic counter for fast len checks and unique ID generation.
 	sessionCount atomic.Int32
 
@@ -180,6 +191,15 @@ func (b *Broker) Connect(id string, output io.Writer) (*Session, error) {
 	// reorder the seam.
 	go sess.pump()
 
+	// context.Background() is deliberate here and at the three other
+	// telemetry.* calls below (Disconnect, Write, readLoop), not an omission.
+	// These record broker-lifetime counters, not anything scoped to a single
+	// caller's request: a session opened by one WebSocket connection is later
+	// closed by an unrelated Disconnect call (or never, if the process exits
+	// first), and Write/readLoop run on goroutines with no request context of
+	// their own to begin with. Binding any of them to a caller's context
+	// would make the record vanish exactly when that caller went away, while
+	// the broker -- and the traffic it was still moving -- kept running.
 	telemetry.SerialSessionOpened(context.Background())
 	b.log.Info("serial: session connected", slog.String("session", id), slog.Int("total", int(b.sessionCount.Load())))
 	return sess, nil
@@ -244,6 +264,7 @@ func (b *Broker) SessionCount() int {
 // Close forcibly shuts down the broker, disconnecting all sessions.
 func (b *Broker) Close() {
 	b.mu.Lock()
+	b.closeShutdownLocked()
 	var stopped []*Session
 	b.sessions.Range(func(key, val any) bool {
 		if sess, ok := val.(*Session); ok {
@@ -316,11 +337,28 @@ func (b *Broker) startLocked() error {
 	b.stdin = port
 	b.active = true
 	b.stopCh = make(chan struct{})
+	b.shutdownCh = make(chan struct{})
 
 	go b.readLoop()
 
 	b.log.Info("serial: opened port (native)", slog.String("device", device), slog.Int("baud", cfg.Serial.BaudRate))
 	return nil
+}
+
+// closeShutdownLocked closes shutdownCh if it exists and is not already
+// closed. Caller must hold b.mu. A no-op nil check covers Close on a broker
+// that was never activated (startLocked never ran); the closed-check covers a
+// second Close call on an already-closed broker -- both existing,
+// intentional idempotency cases this must not break.
+func (b *Broker) closeShutdownLocked() {
+	if b.shutdownCh == nil {
+		return
+	}
+	select {
+	case <-b.shutdownCh:
+	default:
+		close(b.shutdownCh)
+	}
 }
 
 // stopLocked closes the serial port.
@@ -384,15 +422,24 @@ func (b *Broker) readLoop() {
 
 // reopen tears down a port whose read loop died and reopens it while any
 // consumer remains registered (with the always-on capture session that is the
-// norm). Paced retries cover a device that needs a moment to come back.
+// norm). Paced retries cover a device that needs a moment to come back --
+// interruptibly, via shutdownCh, so Close/StopCapture can cut this short
+// instead of it running captureRetryInterval to completion after everybody
+// has already left.
 func (b *Broker) reopen() {
 	b.mu.Lock()
 	b.stopLocked()
+	shutdown := b.shutdownCh
 	b.mu.Unlock()
 
 	for {
 		if b.SessionCount() == 0 {
 			return // last consumer left; nothing to reopen for
+		}
+		select {
+		case <-shutdown:
+			return // broker closed while this retry loop was running
+		default:
 		}
 		b.mu.Lock()
 		if b.active {
@@ -405,7 +452,11 @@ func (b *Broker) reopen() {
 			b.log.Info("serial: reopened after read error")
 			return
 		}
-		time.Sleep(captureRetryInterval)
+		select {
+		case <-shutdown:
+			return
+		case <-time.After(captureRetryInterval):
+		}
 	}
 }
 

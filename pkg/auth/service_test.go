@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"log/slog"
 	"testing"
 
@@ -18,8 +19,8 @@ func TestServicesIsolateBruteForceState(t *testing.T) {
 	conf.Security.LoginMaxFailures = 5
 	t.Cleanup(func() { conf.Security = saved })
 
-	a := NewService(slog.New(slog.DiscardHandler))
-	b := NewService(slog.New(slog.DiscardHandler))
+	a := NewService(context.Background(), slog.New(slog.DiscardHandler))
+	b := NewService(context.Background(), slog.New(slog.DiscardHandler))
 
 	for range 10 {
 		a.RecordLoginFailure("10.0.0.1")

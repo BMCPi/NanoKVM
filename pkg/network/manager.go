@@ -15,6 +15,7 @@
 package network
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net"
@@ -97,6 +98,17 @@ type Manager struct {
 	// on every RHI (re)configure so it survives netdev re-creation. Guarded by
 	// mu.
 	rhiDHCP *rhiDHCPServer
+
+	// ctx is cancelled by stop(), independent of and in addition to closing
+	// done: done is a plain shutdown signal several supervisors already
+	// select on, while ctx exists so blocking calls with no channel-based
+	// escape of their own -- ensureNFTGuard's exec.CommandContext, a
+	// dhcpRunner's DHCP exchanges -- can be bounded by and cancelled with the
+	// manager's lifecycle instead of context.Background(). Set once at
+	// construction (startLocked) and never reassigned, so reading it needs no
+	// lock, like cfg and log below.
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	log *slog.Logger
 }
@@ -183,9 +195,12 @@ func startLocked(log *slog.Logger) {
 		return
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
 	m := &Manager{
 		cfg:           cfg,
 		log:           log,
+		ctx:           ctx,
+		cancel:        cancel,
 		done:          make(chan struct{}),
 		eth0Ready:     make(chan struct{}),
 		rhiReady:      make(chan struct{}),
@@ -221,6 +236,14 @@ func (m *Manager) stop() {
 		m.done = nil
 	}
 	m.mu.Unlock()
+	// Unblocks anything using ctx instead of done -- notably a hung nft call
+	// in ensureNFTGuard -- so a goroutine parked in it can still observe done
+	// (or simply return) and let wg.Wait() below complete. Guarded like done
+	// above: a Manager built directly by a test literal (bypassing
+	// startLocked) has no cancel to call.
+	if m.cancel != nil {
+		m.cancel()
+	}
 	m.wg.Wait()
 
 	m.mu.Lock()
@@ -255,6 +278,15 @@ func (m *Manager) awaitEth0(done <-chan struct{}) {
 			slog.String("iface", m.cfg.Eth0.Name), slog.Duration("waited", rhiEth0Wait),
 			slog.String("rhi", m.cfg.RHI.Interface))
 	}
+}
+
+// ctxOrBackground defaults to context.Background() for a Manager built
+// directly by a test literal (bypassing startLocked, which always sets ctx).
+func (m *Manager) ctxOrBackground() context.Context {
+	if m.ctx != nil {
+		return m.ctx
+	}
+	return context.Background()
 }
 
 func (m *Manager) signalEth0Ready() { m.eth0Once.Do(func() { close(m.eth0Ready) }) }
@@ -354,6 +386,7 @@ func (m *Manager) superviseEth0(done <-chan struct{}) {
 			// shutdown.
 			(&dhcpRunner{
 				iface:     ic.Name,
+				ctx:       m.ctx,
 				done:      done,
 				kick:      m.dhcpKick,
 				reacquire: m.dhcpReacquire,

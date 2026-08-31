@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // applyRHIIsolation pins the Redfish-Host-Interface isolation knobs for the
@@ -61,6 +62,11 @@ func (m *Manager) applyRHIIsolation(iface string) {
 	m.ensureNFTGuard(iface)
 }
 
+// nftGuardTimeout bounds ensureNFTGuard's exec: it runs on the wg-tracked RHI
+// (re)configure path, so a hung `nft` must not be able to block Manager.stop()
+// forever.
+const nftGuardTimeout = 10 * time.Second
+
 // ensureNFTGuard installs an nftables table dropping the RHI link from the
 // forward path in both directions. Declaring the table first makes the delete
 // safe on first run, so re-running replaces rather than duplicates the rules.
@@ -80,7 +86,12 @@ table inet nanokvm_usb0 {
 	}
 }
 `, iface, iface)
-	cmd := exec.CommandContext(context.Background(), nft, "-f", "-")
+	// Rooted in the manager's own lifecycle (not context.Background()) so
+	// Manager.stop() can interrupt a hung nft via m.cancel(), on top of the
+	// timeout bounding an nft that is merely slow rather than wedged.
+	ctx, cancel := context.WithTimeout(m.ctxOrBackground(), nftGuardTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, nft, "-f", "-")
 	cmd.Stdin = strings.NewReader(script)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		m.log.Warn("network: nft guard failed", slog.Any("err", err), slog.String("output", strings.TrimSpace(string(out))))

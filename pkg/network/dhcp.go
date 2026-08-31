@@ -70,7 +70,12 @@ const (
 // reacquisition when re-applying fails.
 type dhcpRunner struct {
 	iface string
-	done  <-chan struct{}
+	// ctx roots every DHCP exchange (see exchangeContext); it is the
+	// manager's own ctx, cancelled by Manager.stop(), so a transaction is
+	// aborted the moment the manager shuts down instead of running to its
+	// own timeout.
+	ctx  context.Context
+	done <-chan struct{}
 	// kick asks the runner to verify the lease is still programmed on the link.
 	kick <-chan struct{}
 	// reacquire asks the runner to discard the lease and start a fresh
@@ -304,6 +309,17 @@ func leaseTimes(lease *nclient4.Lease) (t1, t2, expiry time.Time) {
 	return base.Add(d1), base.Add(d2), base.Add(life)
 }
 
+// ctxOrBackground defaults to context.Background() for a runner built
+// without one (a test constructing a bare dhcpRunner literal); every
+// production construction (see superviseEth0) sets ctx to the owning
+// manager's.
+func (d *dhcpRunner) ctxOrBackground() context.Context {
+	if d.ctx != nil {
+		return d.ctx
+	}
+	return context.Background()
+}
+
 func (d *dhcpRunner) signalAttempt() {
 	if d.onAttempt != nil {
 		d.onAttempt() // sync.Once on the manager side; safe to call repeatedly
@@ -328,19 +344,13 @@ func leaseApplied(iface string, lease *nclient4.Lease) bool {
 }
 
 // exchangeContext bounds a DHCP transaction and cancels it early when the
-// manager shuts down, so Stop/Restart never block behind an in-flight exchange.
-func exchangeContext(done <-chan struct{}, timeout time.Duration) (context.Context, context.CancelFunc) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	if done != nil {
-		go func() {
-			select {
-			case <-done:
-				cancel()
-			case <-ctx.Done():
-			}
-		}()
-	}
-	return ctx, cancel
+// manager shuts down, so Stop/Restart never block behind an in-flight
+// exchange. Rooting directly at the runner's own ctx (the manager's, wired
+// through at construction) is what makes the early cancellation immediate
+// without a bridge goroutine forwarding a done-channel close into a
+// context.Background()-rooted one.
+func exchangeContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(parent, timeout)
 }
 
 // obtain gets a lease from scratch. Given an address remembered from a previous
@@ -460,7 +470,7 @@ func (d *dhcpRunner) exchange(timeout time.Duration) (context.Context, *nclient4
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("dhcp client: %w", err)
 	}
-	ctx, cancel := exchangeContext(d.done, timeout)
+	ctx, cancel := exchangeContext(d.ctxOrBackground(), timeout)
 	return ctx, c, cancel, nil
 }
 

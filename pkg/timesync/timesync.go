@@ -15,6 +15,7 @@
 package timesync
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -50,7 +51,15 @@ type Service struct {
 	lastSync time.Time
 	source   string
 
-	done     chan struct{}
+	// ctx is derived (via WithCancel) from the ctx Start was given, so it is
+	// cancelled both by the process shutting down and by stop() -- see
+	// loop() and sync(), which thread it into every query so a cancellation
+	// aborts an in-flight sync rather than letting it run to completion (up
+	// to ~15-20s) and step the clock after a Restart's replacement Service
+	// has already synced.
+	ctx      context.Context
+	cancel   context.CancelFunc
+	loopDone chan struct{} // closed when loop() returns; stop() joins on it
 	stopOnce sync.Once
 
 	log *slog.Logger
@@ -59,6 +68,11 @@ type Service struct {
 var (
 	activeMu sync.Mutex
 	active   *Service
+	// procCtx is the ctx most recently given to Start, kept so Restart can
+	// reuse it -- mirrors pkgLogHolder's reasoning for the logger, but a ctx
+	// has no zero-value-safe default the way logger.Or gives one, so it is
+	// guarded by activeMu instead of a separate holder type.
+	procCtx context.Context
 )
 
 // pkgLogHolder is pkg/timesync's holder for the "timesync" component logger,
@@ -78,9 +92,17 @@ func pkgLog() *slog.Logger {
 // Start launches the sync loop when timesync is enabled in config. Safe to
 // call before the network is up — the loop retries with backoff until a
 // source is reachable.
-func Start(log *slog.Logger) {
+//
+// ctx is normally the process-lifetime context: the Service derives its own
+// ctx from it, so process shutdown alone cancels an in-flight sync even
+// without an explicit Stop.
+func Start(ctx context.Context, log *slog.Logger) {
 	log = logger.Or(log)
 	pkgLogHolder.Set(log)
+
+	activeMu.Lock()
+	procCtx = ctx
+	activeMu.Unlock()
 
 	cfg := config.GetInstance().TimeSync
 	if !cfg.Enabled {
@@ -88,11 +110,14 @@ func Start(log *slog.Logger) {
 		return
 	}
 
+	sctx, cancel := context.WithCancel(ctx)
 	s := &Service{
 		servers:  cfg.Servers,
 		interval: time.Duration(cfg.IntervalMinutes) * time.Minute,
 		rtc:      openRTC(),
-		done:     make(chan struct{}),
+		ctx:      sctx,
+		cancel:   cancel,
+		loopDone: make(chan struct{}),
 		log:      log,
 	}
 	s.seedFromRTC()
@@ -106,7 +131,8 @@ func Start(log *slog.Logger) {
 	go s.loop()
 }
 
-// Stop terminates the sync loop. Idempotent.
+// Stop terminates the sync loop and joins it, so a sync already in progress
+// cannot touch the clock after Stop returns. Idempotent.
 func Stop() {
 	activeMu.Lock()
 	s := active
@@ -117,15 +143,26 @@ func Stop() {
 	}
 }
 
-// Restart re-reads config and rebuilds the sync loop, reusing the logger
-// Start was given rather than falling back to a bare default. Stop before
-// Start because Start returns early when the subsystem is disabled — without
-// the Stop, turning timesync off would leave the previous loop running and
-// still touching the clock.
+// Restart re-reads config and rebuilds the sync loop, reusing both the
+// logger and the process ctx Start was given rather than falling back to a
+// bare default. Stop before Start because Start returns early when the
+// subsystem is disabled — without the Stop, turning timesync off would leave
+// the previous loop running and still touching the clock; Stop also joins the
+// old loop, so its retired Service cannot still be mid-sync when the new one
+// starts (which is what let a stale sync silently step the clock after the
+// new Service had already synced).
 func Restart() {
 	log := pkgLog()
+
+	activeMu.Lock()
+	ctx := procCtx
+	activeMu.Unlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	Stop()
-	Start(log)
+	Start(ctx, log)
 }
 
 // Status reports the last successful sync, its source, and whether the clock
@@ -142,9 +179,15 @@ func Status() (lastSync time.Time, source string, synced bool) {
 	return s.lastSync, s.source, !s.lastSync.IsZero()
 }
 
+// stop cancels the Service's ctx and waits for loop() to return before
+// closing the RTC, so Stop/Restart JOIN the loop instead of merely signalling
+// it -- a bare signal let the previous implementation return while the old
+// loop's sync() (up to ~15-20s worst case) was still in flight, free to call
+// setSystemTime after a just-started replacement Service had already synced.
 func (s *Service) stop() {
 	s.stopOnce.Do(func() {
-		close(s.done)
+		s.cancel()
+		<-s.loopDone
 		if s.rtc != nil {
 			s.rtc.close()
 		}
@@ -175,18 +218,25 @@ func (s *Service) seedFromRTC() {
 }
 
 func (s *Service) loop() {
+	defer close(s.loopDone)
+
 	backoff := retryFloor
 	timer := time.NewTimer(0) // main gates startup on network.WaitReady; try immediately
 	defer timer.Stop()
 
 	for {
 		select {
-		case <-s.done:
+		case <-s.ctx.Done():
 			return
 		case <-timer.C:
 		}
 
-		if err := s.sync(); err != nil {
+		if err := s.sync(s.ctx); err != nil {
+			if s.ctx.Err() != nil {
+				// Shutting down: sync() returned because it was cancelled,
+				// not because every source failed. Nothing to retry.
+				return
+			}
 			s.log.Warn("timesync: sync failed", slog.Any("err", err), slog.Duration("retryIn", backoff))
 			timer.Reset(backoff)
 			backoff = min(backoff*2, retryCap)
@@ -198,20 +248,25 @@ func (s *Service) loop() {
 }
 
 // sync tries each time source in order and applies the first answer to the
-// system clock and the RTC.
-func (s *Service) sync() error {
+// system clock and the RTC. ctx bounds every query (see http.go/ntp.go) and
+// is checked between sources too, so a cancellation abandons the attempt
+// promptly instead of working through the whole source list first.
+func (s *Service) sync(ctx context.Context) error {
 	sources := []struct {
 		name  string
 		query func() (time.Time, bool)
 	}{
-		{"config", func() (time.Time, bool) { return queryNTP(s.servers) }},
-		{"dhcp", func() (time.Time, bool) { return queryNTP(network.DHCPNTPServers()) }},
-		{"fallback-ip", func() (time.Time, bool) { return queryNTP(fallbackNTPIPs) }},
-		{"fallback-dns", func() (time.Time, bool) { return queryNTP(fallbackNTPHostnames) }},
-		{"http", func() (time.Time, bool) { return queryHTTP(fallbackHTTPURLs) }},
+		{"config", func() (time.Time, bool) { return queryNTP(ctx, s.servers) }},
+		{"dhcp", func() (time.Time, bool) { return queryNTP(ctx, network.DHCPNTPServers()) }},
+		{"fallback-ip", func() (time.Time, bool) { return queryNTP(ctx, fallbackNTPIPs) }},
+		{"fallback-dns", func() (time.Time, bool) { return queryNTP(ctx, fallbackNTPHostnames) }},
+		{"http", func() (time.Time, bool) { return queryHTTP(ctx, fallbackHTTPURLs) }},
 	}
 
 	for _, src := range sources {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		now, ok := src.query()
 		if !ok {
 			continue

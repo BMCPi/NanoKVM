@@ -188,7 +188,7 @@ func initialize(ctx context.Context) {
 	// Untagged: auth is a library, not a component (see deps.Deps.Auth and
 	// pkg/auth's package doc). Every caller applies its own component tag to
 	// the logger it already holds before reaching auth's methods.
-	authSvc = auth.NewService(rootLog)
+	authSvc = auth.NewService(ctx, rootLog)
 	videoHub = newVideoHub(cfg)
 
 	// Restore the persisted host state (staged boot override, host-reported
@@ -251,7 +251,7 @@ func initialize(ctx context.Context) {
 
 	// Start the clock synchronizer (SNTP + HTTP fallback, RTC mirror).
 	// Replaces busybox ntpd; retries with backoff until the network is up.
-	timesync.Start(rootLog.With("component", "timesync"))
+	timesync.Start(ctx, rootLog.With("component", "timesync"))
 
 	// Start the discovery responders (mDNS hostname/service records, SSDP).
 	// Replaces avahi-daemon; the watcher brings them up once eth0 has an
@@ -259,7 +259,7 @@ func initialize(ctx context.Context) {
 	// can swap in a different instance as the package singleton later, so
 	// shutdown goes through discovery.Stop() (which always targets whatever
 	// is current) rather than a pointer that could go stale.
-	if _, err := discovery.Start(rootLog.With("component", "discovery")); err != nil {
+	if _, err := discovery.Start(ctx, rootLog.With("component", "discovery")); err != nil {
 		slog.ErrorContext(ctx, "discovery start failed", slog.Any("err", err))
 	}
 }

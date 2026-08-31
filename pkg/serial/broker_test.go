@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	goserial "go.bug.st/serial"
+
+	"github.com/pi-bmc/nanokvm-app/pkg/config"
 )
 
 func TestGetBrokerNonNil(t *testing.T) {
@@ -149,6 +152,7 @@ func activateBroker(b *Broker, stdin *fakePTY) {
 	b.stdin = stdin
 	b.active = true
 	b.stopCh = make(chan struct{})
+	b.shutdownCh = make(chan struct{})
 	b.mu.Unlock()
 }
 
@@ -423,6 +427,52 @@ func TestSessionFields(t *testing.T) {
 	}
 	if s.output == nil {
 		t.Fatal("Session.output is nil")
+	}
+}
+
+// TestBrokerReopenStopsOnClose is the regression test for I3: reopen's paced
+// retry loop used to be a bare time.Sleep with no stop channel, so Close (and
+// StopCapture, which reaches it via Disconnect's last-session path) could not
+// interrupt a retry in progress -- reopen would keep trying startLocked()
+// after Close() had already torn the broker down and returned.
+func TestBrokerReopenStopsOnClose(t *testing.T) {
+	cfg := config.GetInstance()
+	origDevice := cfg.Serial.Device
+	// A path guaranteed not to exist, so every startLocked attempt inside
+	// reopen fails fast and deterministically, regardless of what serial
+	// hardware (if any) the test machine has.
+	cfg.Serial.Device = filepath.Join(t.TempDir(), "no-such-serial-device")
+	t.Cleanup(func() { cfg.Serial.Device = origDevice })
+
+	b := newTestBroker()
+	// Stands in for the shutdownCh a real startLocked would have set on the
+	// incarnation that just died with a read error -- reopen reads exactly
+	// this field right after tearing that incarnation down.
+	b.shutdownCh = make(chan struct{})
+	b.sessionCount.Store(1) // a consumer remains registered, so reopen keeps retrying
+
+	reopenReturned := make(chan struct{})
+	go func() {
+		b.reopen()
+		close(reopenReturned)
+	}()
+
+	// Give the first (failing) startLocked attempt time to run and reopen
+	// time to reach its paced retry wait -- the wait this fix makes
+	// interruptible.
+	time.Sleep(50 * time.Millisecond)
+	select {
+	case <-reopenReturned:
+		t.Fatal("reopen() returned before Close(); test did not exercise the retry wait")
+	default:
+	}
+
+	b.Close()
+
+	select {
+	case <-reopenReturned:
+	case <-time.After(time.Second):
+		t.Fatal("reopen() did not stop after Close(); the paced retry wait blocked it")
 	}
 }
 

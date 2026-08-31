@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"context"
 	"log/slog"
 	"reflect"
 	"testing"
@@ -66,7 +67,7 @@ func TestStartIsANoopWhenBothProtocolsDisabled(t *testing.T) {
 	cfg.Discovery = config.Discovery{}
 	cfg.Redfish = config.Redfish{Enabled: true}
 
-	r, err := Start(slog.New(slog.DiscardHandler))
+	r, err := Start(context.Background(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("Start() error = %v, want nil", err)
 	}
