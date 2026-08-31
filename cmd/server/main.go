@@ -63,21 +63,32 @@ var (
 	videoHub *rtc.Hub
 
 	// instanceLock holds the abstract unix socket that marks this process as
-	// THE server instance; the kernel releases it on any exit path.
-	instanceLock net.Listener
+	// THE server instance; the kernel releases it on any exit path. It is
+	// written here and never read again — the assignment itself is the
+	// effect: it keeps the listener reachable (and therefore open) for the
+	// process lifetime. If it were a local instead, it would be eligible for
+	// GC/close as soon as lockInstance returns, silently dropping the lock.
+	instanceLock net.Listener //nolint:unused // holds the socket open for the process lifetime; never read by design
 )
 
 // lockInstance refuses to start when another server is already running. The
 // listeners, the USB gadget and the capsule volume all assume sole
 // ownership, so a second copy — typically started by hand on the console
-// while the supervised one is still creating its capsule volume — must not run.
-func lockInstance() {
-	l, err := net.Listen("unix", "@nanokvm-server.instance")
+// while the supervised one is still creating its capsule volume — must not
+// run. Returns an error instead of calling log.Fatalf itself so the fatal
+// decision stays in main(), where deep-exit requires it.
+func lockInstance() error {
+	// ListenConfig.Listen (rather than the package-level net.Listen) only to
+	// satisfy noctx; the context governs the listen syscall itself and has no
+	// bearing on the returned listener's lifetime, which is exactly what we
+	// need here — the listener must outlive this function and this context.
+	l, err := new(net.ListenConfig).Listen(context.Background(), "unix", "@nanokvm-server.instance")
 	if err != nil {
-		log.Fatalf("another NanoKVM-Server is already running (instance lock: %v) — "+
+		return fmt.Errorf("another NanoKVM-Server is already running (instance lock: %w) — "+
 			"busybox init supervises it; use `killall NanoKVM-Server` to restart it", err)
 	}
 	instanceLock = l
+	return nil
 }
 
 // networkReadyTimeout caps how long startup waits for the first interface
@@ -87,7 +98,9 @@ func lockInstance() {
 const networkReadyTimeout = 60 * time.Second
 
 func main() {
-	lockInstance()
+	if err := lockInstance(); err != nil {
+		log.Fatal(err)
+	}
 
 	// realMain keeps deferred cleanup running on every exit path; os.Exit here
 	// is the only one, after all defers have unwound.
@@ -255,7 +268,7 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 	// host-interface check parses the TCP source itself and never depended
 	// on this, but every ClientIP() consumer gets the honest address now.
 	if err := r.SetTrustedProxies(nil); err != nil {
-		log.Fatalf("configure trusted proxies: %v", err)
+		return fmt.Errorf("configure trusted proxies: %w", err)
 	}
 	// Make *gin.Context a real context.Context: Done/Deadline/Err/Value fall
 	// back to the request context, so handlers pass `c` directly into
@@ -318,7 +331,20 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 	useTLS := conf.Proto == "https" && ensureServerCert(conf)
 
 	if useTLS {
-		httpsSrv := &http.Server{Addr: httpsAddr, Handler: r, BaseContext: baseCtx}
+		httpsSrv := &http.Server{
+			Addr: httpsAddr, Handler: r, BaseContext: baseCtx,
+			// Bounds only the time to read the request line + headers, so an
+			// idle half-open connection cannot pin a goroutine (Slowloris).
+			// This is the web UI's server, including WebSocket upgrades
+			// (serial console) and WebRTC signalling: those connections
+			// complete their header phase like any other request and are
+			// then long-lived on the handler side, which this does not
+			// touch — deliberately no ReadTimeout/WriteTimeout/IdleTimeout
+			// here, as any of those would cut an established stream. 30s
+			// matches the existing precedent in
+			// pkg/middleware/loopback_http.go.
+			ReadHeaderTimeout: 30 * time.Second,
+		}
 		servers = append(servers, httpsSrv)
 		go func() {
 			if err := httpsSrv.ListenAndServeTLS(conf.Cert.Crt, conf.Cert.Key); !errors.Is(err, http.ErrServerClosed) {
@@ -340,7 +366,13 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 			}
 		}()
 	} else {
-		httpSrv := &http.Server{Addr: httpAddr, Handler: r, BaseContext: baseCtx}
+		httpSrv := &http.Server{
+			Addr: httpAddr, Handler: r, BaseContext: baseCtx,
+			// See the httpsSrv comment above: bounds header reading only,
+			// not the lifetime of an upgraded WebSocket/WebRTC-signalling
+			// connection served on this same listener when TLS is off.
+			ReadHeaderTimeout: 30 * time.Second,
+		}
 		servers = append(servers, httpSrv)
 		go func() {
 			if err := httpSrv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {

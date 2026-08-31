@@ -68,7 +68,7 @@ const bulkPad = (^uint(0) >> 32) & 1 * 4 // 4 on 64-bit, 0 on 32-bit
 
 func main() {
 	if len(os.Args) < 2 {
-		log.Fatalf("usage: %s <payload.bin>", os.Args[0])
+		log.Fatalf("usage: %s <payload.bin>", os.Args[0]) //nolint:gosec // G706: os.Args[0] is this process's own argv[0] on the operator's own terminal, not remote/multi-tenant log input — there is nothing to inject into
 	}
 	payloadPath := os.Args[1]
 
@@ -91,7 +91,7 @@ func main() {
 	defer unix.Close(fd)
 
 	if err := claimInterface(fd, defaultInterface); err != nil {
-		log.Fatalf("Failed to claim interface %d: %v", defaultInterface, err)
+		log.Fatalf("Failed to claim interface %d: %v", defaultInterface, err) //nolint:gocritic // exitAfterDefer: log.Fatalf's os.Exit skips the deferred unix.Close(fd), but the kernel closes every fd on process exit regardless — the defer buys nothing that exiting doesn't already do
 	}
 	defer func() {
 		if err := releaseInterface(fd, defaultInterface); err != nil {
@@ -108,7 +108,7 @@ func main() {
 	log.Printf("Received ASIC ID handshake (%d bytes): %x", n, asicID[:n])
 
 	// Step B: load the payload.
-	payloadData, err := os.ReadFile(payloadPath)
+	payloadData, err := os.ReadFile(payloadPath) //nolint:gosec // G703: payloadPath is os.Args[1], the operator's own command-line argument on their own workstation — reading whatever file they name is the tool's entire purpose, not a privilege-boundary crossing
 	if err != nil {
 		log.Fatalf("Failed to read payload file: %v", err)
 	}
@@ -126,12 +126,12 @@ func main() {
 // the raw payload bytes on the bulk OUT endpoint.
 func pushPayload(fd int, data []byte) error {
 	header := make([]byte, 4)
-	binary.LittleEndian.PutUint32(header, uint32(len(data)))
+	binary.LittleEndian.PutUint32(header, uint32(len(data))) //nolint:gosec // G115: data is a boot payload (U-Boot image) supplied by the operator on their own workstation; it is nowhere near the 4GiB uint32 range in practice, and the wire header is a hard 4-byte field this tool must fill regardless
 
 	if _, err := bulkTransfer(fd, epOutAddr, header, 5000); err != nil {
 		return fmt.Errorf("send size header: %w", err)
 	}
-	log.Printf("Sent payload size header: %d bytes", len(data))
+	log.Printf("Sent payload size header: %d bytes", len(data)) //nolint:gosec // G706: len(data) is a byte count formatted with %d, not attacker text, and the destination is the operator's own terminal — there is no injectable content here
 
 	written, err := bulkTransfer(fd, epOutAddr, data, 30000)
 	if err != nil {
@@ -210,7 +210,7 @@ func bulkTransfer(fd int, ep uint8, buf []byte, timeoutMs uint32) (int, error) {
 	}
 	t := usbdevfsBulkTransfer{
 		Endpoint: uint32(ep),
-		Length:   uint32(len(buf)),
+		Length:   uint32(len(buf)), //nolint:gosec // G115: buf is at most the payload size read from a local file (see pushPayload); the usbdevfs_bulktransfer.len field this feeds is a uint32 on the wire, so the conversion is required, not incidental
 		Timeout:  timeoutMs,
 		Data:     uintptr(unsafe.Pointer(&buf[0])),
 	}
