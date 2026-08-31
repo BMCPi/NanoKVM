@@ -1,6 +1,7 @@
 package network
 
 import (
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -10,6 +11,13 @@ import (
 	"github.com/insomniacslk/dhcp/dhcpv4"
 	"github.com/insomniacslk/dhcp/dhcpv4/nclient4"
 )
+
+// discardRunner builds a dhcpRunner for the given interface with a
+// discard-handler logger, for tests that exercise a method requiring one but
+// do not care about its output.
+func discardRunner(iface string) *dhcpRunner {
+	return &dhcpRunner{iface: iface, log: slog.New(slog.DiscardHandler)}
+}
 
 // leaseWith builds a lease created at a fixed instant, optionally carrying
 // explicit T1/T2 options, so the derived instants are exactly predictable.
@@ -96,11 +104,13 @@ func TestRememberedAddrRoundTrip(t *testing.T) {
 	dhcpLeaseDir = dir
 	defer func() { dhcpLeaseDir = old }()
 
+	d := discardRunner("eth0")
+
 	if got := loadRememberedAddr("eth0"); got != nil {
 		t.Errorf("loadRememberedAddr with no file = %v, want nil", got)
 	}
 
-	rememberAddr("eth0", net.IPv4(10, 0, 92, 76))
+	d.rememberAddr(net.IPv4(10, 0, 92, 76))
 	got := loadRememberedAddr("eth0")
 	if got == nil || !got.Equal(net.IPv4(10, 0, 92, 76)) {
 		t.Fatalf("loadRememberedAddr = %v, want 10.0.92.76", got)
@@ -108,7 +118,7 @@ func TestRememberedAddrRoundTrip(t *testing.T) {
 
 	// An unspecified address is not worth remembering, and must not clobber a
 	// good one already on disk.
-	rememberAddr("eth0", net.IPv4zero)
+	d.rememberAddr(net.IPv4zero)
 	if got := loadRememberedAddr("eth0"); got == nil || !got.Equal(net.IPv4(10, 0, 92, 76)) {
 		t.Errorf("after remembering 0.0.0.0, got %v, want the previous 10.0.92.76", got)
 	}
@@ -128,20 +138,22 @@ func TestForgetRememberedAddr(t *testing.T) {
 	dhcpLeaseDir = dir
 	defer func() { dhcpLeaseDir = old }()
 
-	rememberAddr("eth0", net.IPv4(10, 42, 0, 204))
+	d := discardRunner("eth0")
+
+	d.rememberAddr(net.IPv4(10, 42, 0, 204))
 	if loadRememberedAddr("eth0") == nil {
 		t.Fatal("setup: address was not remembered")
 	}
 
 	// An address no server will confirm has to be dropped, or it costs an
 	// INIT-REBOOT attempt on every start for the life of the file.
-	forgetRememberedAddr("eth0")
+	d.forgetRememberedAddr()
 	if got := loadRememberedAddr("eth0"); got != nil {
 		t.Errorf("after forget, loadRememberedAddr = %v, want nil", got)
 	}
 
 	// Forgetting what is already gone is not an error.
-	forgetRememberedAddr("eth0")
+	d.forgetRememberedAddr()
 }
 
 func TestLeaseAddrsFull(t *testing.T) {
@@ -194,7 +206,8 @@ func TestLeaseAddrsNoAddress(t *testing.T) {
 }
 
 func TestParseDNS(t *testing.T) {
-	got := parseDNS([]string{"8.8.8.8", "not-an-ip", "1.1.1.1", ""})
+	m := &Manager{log: slog.New(slog.DiscardHandler)}
+	got := m.parseDNS([]string{"8.8.8.8", "not-an-ip", "1.1.1.1", ""})
 	if len(got) != 2 {
 		t.Fatalf("parseDNS returned %d servers, want 2 (invalids dropped): %v", len(got), got)
 	}

@@ -1,6 +1,7 @@
 package network
 
 import (
+	"log/slog"
 	"net"
 	"testing"
 
@@ -13,6 +14,7 @@ func testRHIServer() *rhiDHCPServer {
 		serverIP: net.IPv4(169, 254, 10, 1),
 		leaseIP:  net.IPv4(169, 254, 10, 2),
 		mask:     net.CIDRMask(16, 32),
+		log:      slog.New(slog.DiscardHandler),
 	}
 }
 

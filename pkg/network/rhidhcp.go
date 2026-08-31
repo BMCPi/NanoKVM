@@ -26,11 +26,12 @@ type rhiDHCPServer struct {
 	leaseIP  net.IP // host side, e.g. 169.254.10.2
 	mask     net.IPMask
 	srv      *server4.Server
+	log      *slog.Logger
 }
 
 // startRHIDHCP binds :67 on the given interface and serves in a goroutine.
-func startRHIDHCP(iface string, serverIP, leaseIP net.IP, mask net.IPMask) (*rhiDHCPServer, error) {
-	s := &rhiDHCPServer{iface: iface, serverIP: serverIP, leaseIP: leaseIP, mask: mask}
+func startRHIDHCP(iface string, serverIP, leaseIP net.IP, mask net.IPMask, log *slog.Logger) (*rhiDHCPServer, error) {
+	s := &rhiDHCPServer{iface: iface, serverIP: serverIP, leaseIP: leaseIP, mask: mask, log: log}
 	srv, err := server4.NewServer(iface, &net.UDPAddr{Port: 67}, s.handle)
 	if err != nil {
 		return nil, err
@@ -40,10 +41,10 @@ func startRHIDHCP(iface string, serverIP, leaseIP net.IP, mask net.IPMask) (*rhi
 		// Serve returns on Close or on a socket error (e.g. the netdev was
 		// torn down); the next RHI (re)configure starts a fresh server.
 		if err := srv.Serve(); err != nil {
-			slog.Debug("network: RHI dhcp server exited", slog.String("iface", iface), slog.Any("err", err))
+			s.log.Debug("network: RHI dhcp server exited", slog.String("iface", iface), slog.Any("err", err))
 		}
 	}()
-	slog.Info("network: RHI dhcp server started", slog.String("iface", iface), slog.Any("lease", leaseIP))
+	s.log.Info("network: RHI dhcp server started", slog.String("iface", iface), slog.Any("lease", leaseIP))
 	return s, nil
 }
 
@@ -57,7 +58,7 @@ func (s *rhiDHCPServer) handle(conn net.PacketConn, peer net.Addr, req *dhcpv4.D
 		return
 	}
 	if _, err := conn.WriteTo(resp.ToBytes(), peer); err != nil {
-		slog.Debug("network: RHI dhcp reply failed", slog.Any("err", err))
+		s.log.Debug("network: RHI dhcp reply failed", slog.Any("err", err))
 	}
 }
 
@@ -98,7 +99,7 @@ func (s *rhiDHCPServer) reply(req *dhcpv4.DHCPv4) *dhcpv4.DHCPv4 {
 	}
 	resp, err := dhcpv4.NewReplyFromRequest(req, mods...)
 	if err != nil {
-		slog.Debug("network: RHI dhcp reply build failed", slog.Any("err", err))
+		s.log.Debug("network: RHI dhcp reply build failed", slog.Any("err", err))
 		return nil
 	}
 	return resp

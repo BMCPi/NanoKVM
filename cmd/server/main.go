@@ -205,7 +205,7 @@ func initialize(ctx context.Context) {
 	// runs in goroutines and run() waits on it (bounded) before opening the
 	// HTTP listeners. Replaces the S30eth udhcpc script and the build's
 	// ifupdown usb0 stanza.
-	network.Start()
+	network.Start(rootLog.With("component", "network"))
 
 	// Create the FMP capsule volume if it does not exist yet and present it on
 	// the gadget's lun.0, so the host can pick up staged capsules at its next

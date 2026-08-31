@@ -1,6 +1,7 @@
 package network
 
 import (
+	"log/slog"
 	"testing"
 	"time"
 
@@ -9,6 +10,10 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 )
+
+// discardLog is a component logger that discards everything, for tests that
+// build a Manager directly and exercise a method that may log.
+func discardLog() *slog.Logger { return slog.New(slog.DiscardHandler) }
 
 func TestHasCarrier(t *testing.T) {
 	for _, tc := range []struct {
@@ -49,7 +54,7 @@ func TestDHCPMode(t *testing.T) {
 }
 
 func newCarrierTestManager(mode string) *Manager {
-	m := &Manager{dhcpReacquire: make(chan struct{}, 1)}
+	m := &Manager{dhcpReacquire: make(chan struct{}, 1), log: discardLog()}
 	m.cfg.Eth0 = config.InterfaceConfig{Name: "eth0", Mode: mode}
 	return m
 }
@@ -101,7 +106,7 @@ func TestNoteEth0CarrierStaticModeDoesNotSignal(t *testing.T) {
 }
 
 func TestAwaitEth0ReturnsWhenEth0Attempted(t *testing.T) {
-	m := &Manager{eth0Ready: make(chan struct{})}
+	m := &Manager{eth0Ready: make(chan struct{}), log: discardLog()}
 	m.cfg.Eth0 = config.InterfaceConfig{Name: "eth0", Mode: "dhcp"}
 	m.cfg.RHI = config.RHIConfig{Interface: "usb0"}
 
@@ -126,7 +131,7 @@ func TestAwaitEth0GivesUpAtTheCap(t *testing.T) {
 	rhiEth0Wait = 40 * time.Millisecond
 	defer func() { rhiEth0Wait = old }()
 
-	m := &Manager{eth0Ready: make(chan struct{})} // never closed
+	m := &Manager{eth0Ready: make(chan struct{}), log: discardLog()} // never closed
 	m.cfg.Eth0 = config.InterfaceConfig{Name: "eth0", Mode: "dhcp"}
 	m.cfg.RHI = config.RHIConfig{Interface: "usb0"}
 
@@ -144,7 +149,7 @@ func TestAwaitEth0ReturnsOnShutdown(t *testing.T) {
 	rhiEth0Wait = time.Hour // would hang if shutdown were not honoured
 	defer func() { rhiEth0Wait = old }()
 
-	m := &Manager{eth0Ready: make(chan struct{})}
+	m := &Manager{eth0Ready: make(chan struct{}), log: discardLog()}
 	m.cfg.Eth0 = config.InterfaceConfig{Name: "eth0"}
 	done := make(chan struct{})
 	close(done)
@@ -165,7 +170,7 @@ func TestAwaitEth0NoOpWhenEth0Unconfigured(t *testing.T) {
 
 	// With no uplink configured there is nothing to defer to, so the RHI must
 	// not pay the wait at all.
-	m := &Manager{eth0Ready: make(chan struct{})}
+	m := &Manager{eth0Ready: make(chan struct{}), log: discardLog()}
 	finished := make(chan struct{})
 	go func() { m.awaitEth0(make(chan struct{})); close(finished) }()
 	select {

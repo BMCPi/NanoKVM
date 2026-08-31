@@ -24,12 +24,12 @@ import (
 // There is no procps/sysctl init on this image, so the knobs are written
 // straight into /proc — idempotent, re-applied on every RHI (re)configure,
 // which is also exactly the right moment: the netdev exists and is up.
-func applyRHIIsolation(iface string) {
+func (m *Manager) applyRHIIsolation(iface string) {
 	set := func(path, val string) {
 		// Mode is ignored for existing /proc entries; a missing entry (e.g.
 		// ipv6 disabled) is fine.
 		if err := os.WriteFile(path, []byte(val), 0o600); err != nil && !os.IsNotExist(err) {
-			slog.Debug("network: sysctl write failed", slog.String("path", path), slog.Any("err", err))
+			m.log.Debug("network: sysctl write failed", slog.String("path", path), slog.Any("err", err))
 		}
 	}
 
@@ -58,14 +58,14 @@ func applyRHIIsolation(iface string) {
 	set("/proc/sys/net/ipv4/conf/all/arp_ignore", "1")
 	set("/proc/sys/net/ipv4/conf/all/arp_announce", "2")
 
-	ensureNFTGuard(iface)
+	m.ensureNFTGuard(iface)
 }
 
 // ensureNFTGuard installs an nftables table dropping the RHI link from the
 // forward path in both directions. Declaring the table first makes the delete
 // safe on first run, so re-running replaces rather than duplicates the rules.
 // Degrades gracefully when the nft binary is absent.
-func ensureNFTGuard(iface string) {
+func (m *Manager) ensureNFTGuard(iface string) {
 	nft, err := exec.LookPath("nft")
 	if err != nil {
 		return
@@ -83,6 +83,6 @@ table inet nanokvm_usb0 {
 	cmd := exec.CommandContext(context.Background(), nft, "-f", "-")
 	cmd.Stdin = strings.NewReader(script)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		slog.Warn("network: nft guard failed", slog.Any("err", err), slog.String("output", strings.TrimSpace(string(out))))
+		m.log.Warn("network: nft guard failed", slog.Any("err", err), slog.String("output", strings.TrimSpace(string(out))))
 	}
 }

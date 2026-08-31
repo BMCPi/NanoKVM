@@ -134,7 +134,11 @@ func setMAC(link netlink.Link, mac string) error {
 // any other global IPv4 address left over from a previous lease/config. IPv4
 // link-local (169.254/16) addresses are preserved so the RHI's own address on a
 // shared link is never torn down. Mirrors JetKVM's single-global-address model.
-func replaceAddr(link netlink.Link, want *netlink.Addr) error {
+//
+// Takes log explicitly rather than as a method: it is called from both the
+// Manager (static config) and the dhcpRunner (a bound lease), which have no
+// struct in common.
+func replaceAddr(link netlink.Link, want *netlink.Addr, log *slog.Logger) error {
 	existing, _ := netlink.AddrList(link, netlink.FAMILY_V4)
 	if err := netlink.AddrReplace(link, want); err != nil {
 		return fmt.Errorf("addr replace %s on %s: %w", want, link.Attrs().Name, err)
@@ -145,7 +149,7 @@ func replaceAddr(link netlink.Link, want *netlink.Addr) error {
 			continue
 		}
 		if err := netlink.AddrDel(link, &a); err != nil {
-			slog.Warn("network: remove stale addr failed", slog.Any("addr", a.IPNet), slog.String("iface", link.Attrs().Name), slog.Any("err", err))
+			log.Warn("network: remove stale addr failed", slog.Any("addr", a.IPNet), slog.String("iface", link.Attrs().Name), slog.Any("err", err))
 		}
 	}
 	return nil
@@ -166,8 +170,10 @@ func replaceDefaultRoute(link netlink.Link, gw net.IP) error {
 }
 
 // writeResolvConf overwrites /etc/resolv.conf with the given nameservers,
-// matching what the old S30eth script wrote on a static/DHCP lease.
-func writeResolvConf(servers []net.IP) {
+// matching what the old S30eth script wrote on a static/DHCP lease. Takes log
+// explicitly for the same reason replaceAddr does: both the Manager and the
+// dhcpRunner call it.
+func writeResolvConf(servers []net.IP, log *slog.Logger) {
 	if len(servers) == 0 {
 		return
 	}
@@ -177,6 +183,6 @@ func writeResolvConf(servers []net.IP) {
 		fmt.Fprintf(&b, "nameserver %s\n", ip.String())
 	}
 	if err := os.WriteFile("/etc/resolv.conf", []byte(b.String()), 0o644); err != nil { //nolint:gosec // G306: system resolver config -- every process doing name resolution (busybox wget/ping, the Go runtime's own resolver) reads this well-known path, so it must stay world-readable
-		slog.Warn("network: write /etc/resolv.conf failed", slog.Any("err", err))
+		log.Warn("network: write /etc/resolv.conf failed", slog.Any("err", err))
 	}
 }
