@@ -234,7 +234,7 @@ func initialize(ctx context.Context) {
 	// Create the FMP capsule volume if it does not exist yet and present it on
 	// the gadget's lun.0, so the host can pick up staged capsules at its next
 	// boot.
-	if err := fwCtrl.Init(); err != nil {
+	if err := fwCtrl.Init(ctx); err != nil {
 		slog.ErrorContext(ctx, "firmware controller init failed", slog.Any("err", err))
 	}
 
@@ -380,11 +380,15 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 			// (serial console) and WebRTC signalling: those connections
 			// complete their header phase like any other request and are
 			// then long-lived on the handler side, which this does not
-			// touch — deliberately no ReadTimeout/WriteTimeout/IdleTimeout
-			// here, as any of those would cut an established stream. 30s
-			// matches the existing precedent in
-			// pkg/middleware/loopback_http.go.
+			// touch — deliberately no ReadTimeout/WriteTimeout here, as
+			// either would cut an established stream. 30s matches the
+			// existing precedent in pkg/middleware/loopback_http.go.
 			ReadHeaderTimeout: 30 * time.Second,
+			// IdleTimeout bounds a keep-alive connection sitting between
+			// requests. It was previously unset, and with no ReadTimeout
+			// either (its own fallback) that left idle keep-alives with no
+			// timeout at all -- only the header-read phase was bounded.
+			IdleTimeout: 120 * time.Second,
 		}
 		servers = append(servers, httpsSrv)
 		go func() {
@@ -413,6 +417,8 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 			// not the lifetime of an upgraded WebSocket/WebRTC-signalling
 			// connection served on this same listener when TLS is off.
 			ReadHeaderTimeout: 30 * time.Second,
+			// IdleTimeout: see the httpsSrv comment above -- same gap, same fix.
+			IdleTimeout: 120 * time.Second,
 		}
 		servers = append(servers, httpSrv)
 		go func() {
@@ -504,14 +510,18 @@ func iceServers(cfg *config.Config) []webrtc.ICEServer {
 // The bound is the point. Cleanup runs in series, video first, and closing the
 // video hub joins the capture supervisor -- which may be part-way through
 // bringing a pipeline up, inside an ioctl on a driver that has stopped
-// answering. There is no way to interrupt that from here, so an unbounded
-// dispose means the process simply never exits.
+// answering. There is no way to interrupt that from here.
 //
-// Which is worse than it sounds, because the subsystems that would have been
-// stopped *after* video never are. The observed shape of this was an app that
-// logged "draining requests", kept accepting SSH connections, and ignored
-// every SIGTERM after -- so `killall NanoKVM-Server` looked like it did
-// nothing and the supervisor never got the chance to restart it.
+// disposeAll wraps each subsystem's Stop in its own stopBounded call rather
+// than relying solely on the outer bound below: a wedged video Close (or any
+// other subsystem) used to be able to exhaust the whole budget by itself,
+// silently skipping every subsystem queued up after it. The observed shape of
+// that bug was an app that logged "draining requests", kept accepting SSH
+// connections, and ignored every SIGTERM after -- so `killall NanoKVM-Server`
+// looked like it did nothing and the supervisor never got the chance to
+// restart it. The runBounded call here remains as a final backstop for the
+// pathological case where several subsystems are wedged at once and their
+// individual bounds sum past disposeTimeout.
 //
 // Exiting with a subsystem un-stopped is fine here in a way it would not be in
 // a general-purpose program: this process is supervised and about to be
@@ -544,21 +554,70 @@ func runBounded(timeout time.Duration, fn func()) bool {
 	}
 }
 
+// disposeStopTimeout bounds each individual subsystem Stop call in disposeAll,
+// in place of the single disposeTimeout budget the whole function used to
+// share. That shared budget meant the first slow Stop starved every
+// subsystem still waiting behind it -- since Stop calls run in series, a
+// single wedged one could exhaust disposeTimeout before the rest even
+// started. Giving each its own bound trades a smaller worst-case-per-subsystem
+// guarantee for a much better one overall: every subsystem gets its own
+// attempt regardless of how its predecessor behaved. The outer
+// runBounded(disposeTimeout, disposeAll) call in dispose remains as a final
+// backstop for the pathological case where several subsystems are wedged at
+// once.
+const disposeStopTimeout = 2 * time.Second
+
+// stopBounded runs one subsystem's Stop in a goroutine and gives up waiting
+// after disposeStopTimeout, logging a warning that names the subsystem rather
+// than letting it block whatever disposeAll would otherwise run next. Like
+// runBounded, fn is abandoned rather than cancelled on expiry -- Stop takes no
+// ctx to cancel with -- so this is only sound because disposeAll is itself
+// called from a process that is about to exit either way.
+func stopBounded(name string, fn func()) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		fn()
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(disposeStopTimeout):
+		slog.Warn("shutdown: subsystem stop timed out, continuing",
+			slog.String("subsystem", name), slog.Duration("timeout", disposeStopTimeout))
+	}
+}
+
 func disposeAll() {
 	if videoHub != nil {
-		if err := videoHub.Close(); err != nil {
-			slog.Error("video: hub close failed", slog.Any("err", err))
-		}
+		stopBounded("video", func() {
+			if err := videoHub.Close(); err != nil {
+				slog.Error("video: hub close failed", slog.Any("err", err))
+			}
+		})
 	}
-	autoupdate.Stop()
-	serial.StopCapture()
-	sshd.Stop()
-	timesync.Stop()
-	network.Stop()
-	discovery.Stop()
+	stopBounded("autoupdate", autoupdate.Stop)
+	stopBounded("serial capture", serial.StopCapture)
+	// Closes the broker singleton itself, not just the always-on capture
+	// session StopCapture disconnects above: Close is what actually shuts the
+	// port and releases its sessions map, and was never called at shutdown
+	// before this. Safe to call even though StopCapture already drove the
+	// session count to zero -- see Broker.Close's doc comment on idempotency.
+	stopBounded("serial broker", serial.GetBroker().Close)
+	stopBounded("ssh", sshd.Stop)
+	stopBounded("timesync", timesync.Stop)
+	stopBounded("network", network.Stop)
+	stopBounded("discovery", discovery.Stop)
 	if ipmiServer != nil {
-		ipmiServer.Stop()
+		stopBounded("ipmi", ipmiServer.Stop)
 	}
+	// Power is closed late, after every other subsystem that might still be
+	// mid-sequence on it (IPMI's chassis control, a Redfish power action) has
+	// already stopped: releasing the power-LED GPIO line out from under a
+	// still-running sequence would be worse than leaving it held for a
+	// process that is about to exit anyway.
+	stopBounded("power", powerCtrl.Close)
+
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	telemetry.Shutdown(shutdownCtx)

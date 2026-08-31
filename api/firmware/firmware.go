@@ -331,7 +331,7 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 // re-presented automatically around every capsule write.
 func registerGadget(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 	fw.POST("/present", func(c *gin.Context) {
-		if err := ctrl.Present(); err != nil {
+		if err := ctrl.Present(c.Request.Context()); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 			return
 		}

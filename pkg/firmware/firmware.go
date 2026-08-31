@@ -27,6 +27,7 @@ package firmware
 // (api/redfish), which the host's firmware reads and applies itself.
 
 import (
+	"context"
 	"log/slog"
 	"sync"
 
@@ -85,7 +86,7 @@ func NewController(cfg *config.Config, log *slog.Logger) *Controller {
 // two FATs and a root directory, not the whole file), so unlike the retired
 // boot-image seed this does not need to run in the background. Call once at
 // server startup, after usbgadget.Get().Init has built the gadget.
-func (c *Controller) Init() error {
+func (c *Controller) Init(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -95,7 +96,7 @@ func (c *Controller) Init() error {
 	if err := c.ensureVolumeLocked(); err != nil {
 		return err
 	}
-	if err := c.presentVolume(); err != nil {
+	if err := c.presentVolume(ctx); err != nil {
 		c.log.Warn("firmware: USB gadget present failed (may not be available in this environment)", slog.Any("err", err))
 	}
 	return nil

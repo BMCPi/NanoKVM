@@ -349,6 +349,29 @@ func (c *Controller) Reset(ctx context.Context) (retErr error) {
 	return c.legacyBootSequence()
 }
 
+// Close releases the power-LED GPIO line if ensureLEDWatcher ever requested
+// it. Idempotent and safe to call even when the line was never requested
+// (legacy mode, or button mode that never had State/Watch called). The
+// output lines in c.lines are deliberately NOT released here — see the
+// Controller doc comment: closing one of those would drop the level it is
+// driving, which is wrong at shutdown for the same reason it would be wrong
+// mid-process. The kernel reclaims them, and the LED line, when this process
+// exits regardless; Close exists so a caller that outlives one Controller
+// (tests, a future re-exec) is not the only thing standing between the LED
+// line and its release.
+func (c *Controller) Close() {
+	c.ledMu.Lock()
+	defer c.ledMu.Unlock()
+
+	if c.ledLine == nil {
+		return
+	}
+	if err := c.ledLine.Close(); err != nil {
+		c.log.Warn("power: release power-LED line failed", slog.Any("err", err))
+	}
+	c.ledLine = nil
+}
+
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 // forceOffAndWait holds the power button down long enough to cut the host, then

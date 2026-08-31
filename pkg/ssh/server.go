@@ -199,6 +199,11 @@ func newServer(conf config.SSH, log *slog.Logger, svc *auth.Service) (*Server, e
 	s.cfg.AddHostKey(signer)
 
 	addr := fmt.Sprintf(":%d", conf.Port)
+	// ListenConfig.Listen (rather than the package-level net.Listen) only to
+	// satisfy noctx; the context governs the listen syscall itself and has no
+	// bearing on the returned listener's lifetime, which is exactly what we
+	// need here — the listener must outlive this function and live for as
+	// long as the SSH server itself (see Stop, which closes s.ln directly).
 	var lc net.ListenConfig
 	ln, err := lc.Listen(context.Background(), "tcp", addr)
 	if err != nil {

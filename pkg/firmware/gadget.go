@@ -22,11 +22,14 @@ import (
 // \EFI\UpdateCapsule\ once it has applied it. The BMC only ever touches the
 // volume while it is unpresented (see withVolume), so the two never write
 // through the same bytes at once.
-func (c *Controller) presentVolume() error {
+//
+// ctx is threaded only as far as usbgadget.PresentDisk's own EBUSY retry loop
+// — see its doc comment.
+func (c *Controller) presentVolume(ctx context.Context) error {
 	if c.presented {
 		return nil
 	}
-	if err := usbgadget.Get().PresentDisk(c.capsulePath); err != nil {
+	if err := usbgadget.Get().PresentDisk(ctx, c.capsulePath); err != nil {
 		return err
 	}
 	c.presented = true
@@ -59,10 +62,10 @@ func (c *Controller) unpresentVolume() error {
 }
 
 // Present presents the capsule volume via USB gadget (public, acquires lock).
-func (c *Controller) Present() error {
+func (c *Controller) Present(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.presentVolume()
+	return c.presentVolume(ctx)
 }
 
 // Unpresent removes the capsule volume from the USB gadget (public, acquires

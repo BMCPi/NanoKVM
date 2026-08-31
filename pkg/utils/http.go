@@ -34,7 +34,11 @@ func Download(req *http.Request, target string, log *slog.Logger) error {
 	// operator-supplied value reaches it, so there is nothing here for an
 	// allowlist to filter that the caller has not already fixed.
 	//nolint:gosec // G704: URL is the caller's by contract; the sole caller uses GitHub release metadata
-	resp, err := (&http.Client{}).Do(req)
+	// fetchClient (fetch.go) is shared rather than a fresh zero-value client:
+	// the latter has no timeouts and builds a new Transport (and connection
+	// pool) on every call, which on a BMC means one unreachable release host
+	// can pin this goroutine indefinitely.
+	resp, err := fetchClient.Do(req)
 	if err != nil {
 		log.Error("request error", slog.Any("err", err))
 		return err

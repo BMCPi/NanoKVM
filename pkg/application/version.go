@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"runtime"
@@ -17,6 +18,24 @@ import (
 // latestCacheTTL controls how long a successful GitHub release lookup is
 // reused before re-querying the API.
 const latestCacheTTL = 1 * time.Hour
+
+// releaseClient bounds connection setup and the wait for response headers for
+// the GitHub release lookup -- http.DefaultClient has no timeouts at all,
+// which would let an unreachable api.github.com pin the calling goroutine
+// indefinitely. Same shape as pkg/utils/fetch.go's fetchClient and
+// pkg/timesync/http.go's queryClient.
+var releaseClient = &http.Client{
+	Transport: &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   15 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout:   15 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
+		IdleConnTimeout:       90 * time.Second,
+		ExpectContinueTimeout: 5 * time.Second,
+	},
+}
 
 var (
 	latestCacheMu     sync.Mutex
@@ -96,7 +115,7 @@ func fetchLatest(ctx context.Context, log *slog.Logger) (*Latest, error) {
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := releaseClient.Do(req)
 	if err != nil {
 		log.DebugContext(ctx, "failed to request latest release", slog.Any("err", err))
 		return nil, err

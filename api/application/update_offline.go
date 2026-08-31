@@ -39,7 +39,7 @@ func (h *handlers) OfflineUpdate(c *gin.Context) {
 	}
 
 	h.log.DebugContext(c.Request.Context(), "offline update application success")
-	respondAndRestart(c, &rsp, h.log)
+	respondAndRestart(h.d.Ctx, c, &rsp, h.log)
 }
 
 // processUpload reads the multipart stream and stages the "file" field

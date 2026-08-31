@@ -166,10 +166,17 @@ func (h *handlers) postOverviewAppUpdate(c *gin.Context) {
 	c.Status(http.StatusOK)
 
 	// DELIBERATELY DETACHED: the restart must outlive this request; the
-	// response has to flush before the service goes down.
+	// response has to flush before the service goes down. The delay watches
+	// h.d.Ctx instead of a bare Sleep: at shutdown there is no point
+	// restarting a service the process is already tearing down.
 	log := h.log
+	shutdownCtx := h.d.Ctx
 	go func() {
-		time.Sleep(1 * time.Second)
+		select {
+		case <-time.After(1 * time.Second):
+		case <-shutdownCtx.Done():
+			return
+		}
 		application.RestartService(log)
 	}()
 }

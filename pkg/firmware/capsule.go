@@ -16,6 +16,7 @@ package firmware
 // would report applied capsules as still pending.
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -441,7 +442,12 @@ func (c *Controller) withVolume(write bool, fn func(filesystem.FileSystem) error
 				return fmt.Errorf("unpresent gadget: %w", err)
 			}
 			defer func() {
-				if err := c.presentVolume(); err != nil {
+				// context.Background is deliberate: withVolume has no
+				// request-scoped ctx of its own (see its many callers, none
+				// of which carry one either), and the only thing ctx would
+				// bound here is PresentDisk's EBUSY retry loop, whose full
+				// span is well under a second regardless.
+				if err := c.presentVolume(context.Background()); err != nil {
 					c.log.Warn("firmware: re-present after write failed", slog.Any("err", err))
 				}
 			}()

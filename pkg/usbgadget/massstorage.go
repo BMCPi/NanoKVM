@@ -1,6 +1,7 @@
 package usbgadget
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"log/slog"
@@ -105,7 +106,12 @@ func (g *Gadget) ensureLUN1Locked() error {
 // removable disk, never a CD-ROM. The byte sequencing here —
 // clear-then-retry-on-EBUSY and "rebind only when unbound" — is load-bearing
 // and carried over from the retired boot-image transport that used to own it.
-func (g *Gadget) PresentDisk(path string) error {
+//
+// ctx bounds only the EBUSY retry loop below (paced by ctx rather than a bare
+// Sleep, so a cancelled ctx — shutdown, a caller giving up — can cut a stuck
+// retry short); the rest of the call has nothing left to wait on once that
+// loop exits.
+func (g *Gadget) PresentDisk(ctx context.Context, path string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
@@ -123,7 +129,11 @@ func (g *Gadget) PresentDisk(path string) error {
 			break
 		}
 		lastErr = err
-		time.Sleep(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("write lun.0 file: %w", ctx.Err())
+		case <-time.After(100 * time.Millisecond):
+		}
 	}
 	if lastErr != nil {
 		return fmt.Errorf("write lun.0 file: %w", lastErr)

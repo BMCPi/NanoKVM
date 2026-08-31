@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"time"
@@ -47,13 +48,20 @@ func (h *handlers) Update(c *gin.Context) {
 	}
 
 	h.log.DebugContext(c.Request.Context(), "update application success")
-	respondAndRestart(c, &rsp, h.log)
+	respondAndRestart(h.d.Ctx, c, &rsp, h.log)
 }
 
 // respondAndRestart acknowledges a successful update, then restarts the
-// service after a short delay so the response flushes first.
-func respondAndRestart(c *gin.Context, rsp *proto.Response, log *slog.Logger) {
+// service after a short delay so the response flushes first. doneCtx (the
+// caller's h.d.Ctx) is watched instead of a bare Sleep: at shutdown there is
+// no point restarting a service the process is already tearing down, and a
+// bare Sleep would hold this goroutine past that point for no benefit.
+func respondAndRestart(doneCtx context.Context, c *gin.Context, rsp *proto.Response, log *slog.Logger) {
 	rsp.OkRsp(c)
-	time.Sleep(1 * time.Second)
+	select {
+	case <-time.After(1 * time.Second):
+	case <-doneCtx.Done():
+		return
+	}
 	application.RestartService(log)
 }
