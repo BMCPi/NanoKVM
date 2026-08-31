@@ -37,7 +37,7 @@ builds:
       - riscv64
 
 upx:
-  - enabled: false
+  - enabled: true
     compress: best
     lzma: true
 
