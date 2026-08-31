@@ -45,13 +45,13 @@ func (f *fakePower) record(what string) {
 	}
 }
 
-func (f *fakePower) State(ctx context.Context) (bool, error) {
+func (f *fakePower) State(_ context.Context) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.on, nil
 }
 
-func (f *fakePower) PowerOn(ctx context.Context) error {
+func (f *fakePower) PowerOn(_ context.Context) error {
 	f.mu.Lock()
 	f.on = true
 	f.mu.Unlock()
@@ -59,7 +59,7 @@ func (f *fakePower) PowerOn(ctx context.Context) error {
 	return nil
 }
 
-func (f *fakePower) PowerOff(ctx context.Context) error {
+func (f *fakePower) PowerOff(_ context.Context) error {
 	f.mu.Lock()
 	f.on = false
 	f.mu.Unlock()
@@ -67,7 +67,7 @@ func (f *fakePower) PowerOff(ctx context.Context) error {
 	return nil
 }
 
-func (f *fakePower) Reset(ctx context.Context) error {
+func (f *fakePower) Reset(_ context.Context) error {
 	f.record("reset")
 	return nil
 }
@@ -94,14 +94,14 @@ type fakeBroker struct {
 	keystroke bytes.Buffer
 }
 
-func (b *fakeBroker) Connect(id string, output io.Writer) (*serial.Session, error) {
+func (b *fakeBroker) Connect(_ string, output io.Writer) (*serial.Session, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.out = output
 	return nil, nil
 }
 
-func (b *fakeBroker) Disconnect(id string) {
+func (b *fakeBroker) Disconnect(_ string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.out = nil
@@ -148,7 +148,7 @@ func TestEndToEnd(t *testing.T) {
 	defer cancel()
 
 	fp := newFakePower(true)
-	srv, err := start(ctx, deps{
+	srv, err := startServer(ctx, deps{
 		port:     0,
 		username: "admin",
 		password: "admin",

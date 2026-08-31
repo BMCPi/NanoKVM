@@ -48,7 +48,7 @@ func (c *chassisHAL) PowerState(ctx context.Context) (bool, error) {
 	return c.power.State(ctx)
 }
 
-func (c *chassisHAL) SetPower(ctx context.Context, on bool) error {
+func (c *chassisHAL) SetPower(_ context.Context, on bool) error {
 	if on {
 		c.detach("power on", c.power.PowerOn)
 	} else {
@@ -57,12 +57,12 @@ func (c *chassisHAL) SetPower(ctx context.Context, on bool) error {
 	return nil
 }
 
-func (c *chassisHAL) PowerCycle(ctx context.Context) error {
+func (c *chassisHAL) PowerCycle(_ context.Context) error {
 	c.detach("power cycle", c.power.Reset)
 	return nil
 }
 
-func (c *chassisHAL) ColdReset(ctx context.Context) error {
+func (c *chassisHAL) ColdReset(_ context.Context) error {
 	c.detach("hard reset", c.power.Reset)
 	return nil
 }
@@ -71,16 +71,16 @@ func (c *chassisHAL) ColdReset(ctx context.Context) error {
 // previous server answered that action with a graceful power-off (a power
 // button tap the host OS handles). Kept, so `ipmitool power soft` still means
 // what it always did on this BMC.
-func (c *chassisHAL) WarmReset(ctx context.Context) error {
+func (c *chassisHAL) WarmReset(_ context.Context) error {
 	c.detach("soft shutdown", c.power.PowerOff)
 	return nil
 }
 
-func (c *chassisHAL) Identify(ctx context.Context, seconds uint8) error {
+func (c *chassisHAL) Identify(_ context.Context, _ uint8) error {
 	return hal.ErrNotSupported
 }
 
-func (c *chassisHAL) IntrusionState(ctx context.Context) (bool, error) {
+func (c *chassisHAL) IntrusionState(_ context.Context) (bool, error) {
 	return false, hal.ErrNotSupported
 }
 
@@ -127,7 +127,7 @@ func targetToBootDev(target string) (types.BootDeviceSelector, bool) {
 // SetBootFlags stages the override in the BMC's Redfish state — the host's
 // firmware reads and applies it over the host interface — and keeps the full
 // structure so GetBootFlags can echo fields Redfish does not model.
-func (c *chassisHAL) SetBootFlags(ctx context.Context, flags *types.BootOptionParam_BootFlags) error {
+func (c *chassisHAL) SetBootFlags(_ context.Context, flags *types.BootOptionParam_BootFlags) error {
 	stored := *flags
 	c.mu.Lock()
 	c.bootFlags = &stored
@@ -149,7 +149,7 @@ func (c *chassisHAL) SetBootFlags(ctx context.Context, flags *types.BootOptionPa
 // GetBootFlags reads the override back out of the Redfish state, which is
 // authoritative: the host clears it there once consumed, and an operator can
 // change it over Redfish between IPMI calls.
-func (c *chassisHAL) GetBootFlags(ctx context.Context) (*types.BootOptionParam_BootFlags, error) {
+func (c *chassisHAL) GetBootFlags(_ context.Context) (*types.BootOptionParam_BootFlags, error) {
 	flags := types.BootOptionParam_BootFlags{}
 	c.mu.Lock()
 	if c.bootFlags != nil {
@@ -169,7 +169,7 @@ func (c *chassisHAL) GetBootFlags(ctx context.Context) (*types.BootOptionParam_B
 	return &flags, nil
 }
 
-func (c *chassisHAL) SetBootInfoAcknowledge(ctx context.Context, ack *types.BootOptionParam_BootInfoAcknowledge) error {
+func (c *chassisHAL) SetBootInfoAcknowledge(_ context.Context, ack *types.BootOptionParam_BootInfoAcknowledge) error {
 	stored := *ack
 	c.mu.Lock()
 	c.bootAck = &stored
@@ -177,7 +177,7 @@ func (c *chassisHAL) SetBootInfoAcknowledge(ctx context.Context, ack *types.Boot
 	return nil
 }
 
-func (c *chassisHAL) GetBootInfoAcknowledge(ctx context.Context) (*types.BootOptionParam_BootInfoAcknowledge, error) {
+func (c *chassisHAL) GetBootInfoAcknowledge(_ context.Context) (*types.BootOptionParam_BootInfoAcknowledge, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.bootAck == nil {

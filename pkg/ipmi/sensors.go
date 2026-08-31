@@ -23,14 +23,14 @@ type sensorHAL struct {
 	source sensorSource
 }
 
-func (s *sensorHAL) List(ctx context.Context) ([]hal.SensorDescriptor, error) {
+func (s *sensorHAL) List(_ context.Context) ([]hal.SensorDescriptor, error) {
 	return []hal.SensorDescriptor{
 		{ID: sensorNumSoCTemp, Type: uint8(types.SensorTypeTemperature), Name: "SoC Temp"},
 		{ID: sensorNumFanDuty, Type: uint8(types.SensorTypeFan), Name: "Fan Duty"},
 	}, nil
 }
 
-func (s *sensorHAL) ReadRaw(ctx context.Context, sensorID uint8) (uint8, error) {
+func (s *sensorHAL) ReadRaw(_ context.Context, sensorID uint8) (uint8, error) {
 	switch sensorID {
 	case sensorNumSoCTemp, sensorNumFanDuty:
 	default:
@@ -72,7 +72,7 @@ func (s *sensorHAL) ReadRaw(ctx context.Context, sensorID uint8) (uint8, error) 
 func registerSensorHandlers(reg *handlers.Registry, s *sensorHAL) {
 	reg.RegisterFunc(
 		types.Command{ID: 0x2D, NetFn: types.NetFnSensorEventRequest, Name: "Get Sensor Reading"},
-		func(ctx context.Context, hctx *handlers.HandlerContext, req []byte) ([]byte, types.CompletionCode, error) {
+		func(ctx context.Context, _ *handlers.HandlerContext, req []byte) ([]byte, types.CompletionCode, error) {
 			if len(req) < 1 {
 				return nil, types.CodeRequestDataTruncated, nil
 			}

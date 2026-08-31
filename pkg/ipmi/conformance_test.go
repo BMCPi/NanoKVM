@@ -27,7 +27,7 @@ func TestClientConformance(t *testing.T) {
 	defer cancel()
 
 	fp := newFakePower(true)
-	srv, err := start(ctx, deps{
+	srv, err := startServer(ctx, deps{
 		port:     0,
 		username: "admin",
 		password: "admin",

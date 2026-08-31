@@ -78,7 +78,7 @@ type deps struct {
 // arrives as a datagram and the requester does not stay on the line — so it
 // is what carries telemetry and bounds the detached power sequences.
 func Start(ctx context.Context, cfg *config.Config, powerCtrl *power.Controller, fwCtrl *firmware.Controller) (*Server, error) {
-	return start(ctx, deps{
+	return startServer(ctx, deps{
 		port:     cfg.IPMI.Port,
 		username: cfg.IPMI.Username,
 		password: cfg.IPMI.Password,
@@ -89,7 +89,7 @@ func Start(ctx context.Context, cfg *config.Config, powerCtrl *power.Controller,
 	})
 }
 
-func start(ctx context.Context, d deps) (*Server, error) {
+func startServer(ctx context.Context, d deps) (*Server, error) {
 	h := newHAL(ctx, d.power, d.broker, d.sensors)
 
 	// v1.5 stays off: the previous server only ever spoke pre-session v1.5

@@ -43,7 +43,7 @@ type memStore[K uint8 | uint16] struct {
 	blobs map[K][]byte
 }
 
-func (m *memStore[K]) Read(ctx context.Context, id K) ([]byte, error) {
+func (m *memStore[K]) Read(_ context.Context, id K) ([]byte, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	b, ok := m.blobs[id]
@@ -53,14 +53,14 @@ func (m *memStore[K]) Read(ctx context.Context, id K) ([]byte, error) {
 	return slices.Clone(b), nil
 }
 
-func (m *memStore[K]) Write(ctx context.Context, id K, data []byte) error {
+func (m *memStore[K]) Write(_ context.Context, id K, data []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.blobs[id] = slices.Clone(data)
 	return nil
 }
 
-func (m *memStore[K]) Delete(ctx context.Context, id K) error {
+func (m *memStore[K]) Delete(_ context.Context, id K) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.blobs[id]; !ok {
@@ -70,7 +70,7 @@ func (m *memStore[K]) Delete(ctx context.Context, id K) error {
 	return nil
 }
 
-func (m *memStore[K]) ids(ctx context.Context) ([]K, error) {
+func (m *memStore[K]) ids(_ context.Context) ([]K, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := make([]K, 0, len(m.blobs))
@@ -148,7 +148,7 @@ func fullSensorSDR(num uint8, name string, sensorType types.SensorType, entity t
 		ReadingFactors:         types.ReadingFactors{M: 1},
 		SensorMaxReadingRaw:    maxRaw,
 		SensorMinReadingRaw:    0,
-		IDStringTypeLength:     types.TypeLength(0xC0 | len(name)),
+		IDStringTypeLength:     types.TypeLength(0xC0 | len(name)), //nolint:gosec // name is always one of this file's short literals ("SoC Temp", "Fan Duty"), well under the SDR ID-string length field's 6 bits
 		IDStringBytes:          []byte(name),
 	}
 }

@@ -27,7 +27,7 @@ type consoleHAL struct {
 	attached atomic.Bool
 }
 
-func (c *consoleHAL) Open(ctx context.Context) (hal.ConsoleConn, error) {
+func (c *consoleHAL) Open(_ context.Context) (hal.ConsoleConn, error) {
 	// One activation at a time (spec §15.3); the framework closes the conn
 	// on deactivation or session teardown, which re-arms this.
 	if !c.attached.CompareAndSwap(false, true) {
@@ -84,7 +84,7 @@ func (c *consoleConn) ReadAvailable(p []byte) (int, error) {
 	return n, nil
 }
 
-func (c *consoleConn) SendBreak(ctx context.Context) error {
+func (c *consoleConn) SendBreak(_ context.Context) error {
 	return hal.ErrNotSupported
 }
 

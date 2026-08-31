@@ -36,7 +36,7 @@ const (
 func registerOEMHandlers(reg *handlers.Registry, fw firmwareStatus) {
 	reg.RegisterFunc(
 		types.Command{ID: oemCmdGetFirmwareStatus, NetFn: oemNetFn, Name: "OEM Get Firmware Status"},
-		func(ctx context.Context, hctx *handlers.HandlerContext, req []byte) ([]byte, types.CompletionCode, error) {
+		func(_ context.Context, _ *handlers.HandlerContext, _ []byte) ([]byte, types.CompletionCode, error) {
 			st := fw.GetStatus()
 
 			var flags byte
