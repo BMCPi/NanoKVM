@@ -24,15 +24,23 @@ type Config struct {
 	MaxAge   int    // seconds
 }
 
+// generation bundles everything one Start call produces, so a Stop can only
+// ever tear down the generation it snapshotted rather than reaching into
+// whatever r.gen has been replaced with by the time it gets the lock back
+// (see Stop).
+type generation struct {
+	conn     *net.UDPConn
+	cancel   context.CancelFunc
+	stopOnce sync.Once
+}
+
 // Responder answers M-SEARCH requests and announces ssdp:alive / ssdp:byebye
 // on the UPnP multicast group.
 type Responder struct {
 	cfg Config
 
-	mu       sync.Mutex
-	conn     *net.UDPConn
-	cancel   context.CancelFunc
-	stopOnce *sync.Once
+	mu  sync.Mutex
+	gen *generation
 }
 
 // New builds a responder. It does not touch the network until Start.
@@ -57,10 +65,10 @@ func (r *Responder) Start(ctx context.Context) error {
 
 	runCtx, cancel := context.WithCancel(ctx)
 
+	g := &generation{conn: conn, cancel: cancel}
+
 	r.mu.Lock()
-	r.conn = conn
-	r.cancel = cancel
-	r.stopOnce = &sync.Once{}
+	r.gen = g
 	r.mu.Unlock()
 
 	go r.serve(runCtx, conn)
@@ -120,7 +128,13 @@ func (r *Responder) serve(runCtx context.Context, conn *net.UDPConn) {
 // answer. Run per search in its own goroutine — see serve's comment.
 func (r *Responder) reply(runCtx context.Context, conn *net.UDPConn, from *net.UDPAddr, search Search) {
 	if search.MX > 0 {
-		delay := time.Duration(rand.Int63n(int64(search.MX))) * time.Second
+		// Draw uniformly across the whole [0, MX) interval, not across whole
+		// seconds: rand.Int63n(int64(search.MX)) picks one of only MX
+		// integer-second values, so MX=1 (the default for a missing/
+		// unparseable MX header) always drew exactly 0s — no delay at all,
+		// which is the fleet-wide simultaneous-response pile-up the delay
+		// exists to spread out.
+		delay := time.Duration(rand.Int63n(int64(time.Duration(search.MX) * time.Second)))
 		t := time.NewTimer(delay)
 		defer t.Stop()
 		select {
@@ -164,23 +178,30 @@ func (r *Responder) sendNotify(conn *net.UDPConn, alive bool) {
 // Stop sends ssdp:byebye and closes. Safe to call more than once.
 func (r *Responder) Stop() {
 	r.mu.Lock()
-	conn := r.conn
-	cancel := r.cancel
-	once := r.stopOnce
+	g := r.gen
 	r.mu.Unlock()
 
-	if conn == nil {
+	if g == nil {
 		return
 	}
-	once.Do(func() {
+	g.stopOnce.Do(func() {
 		// Byebye must go out before the socket closes, or the goodbye
 		// never leaves — closing first would just drop the write.
-		r.sendNotify(conn, false)
-		cancel()
-		_ = conn.Close()
+		r.sendNotify(g.conn, false)
+		g.cancel()
+		_ = g.conn.Close()
 	})
 
+	// Only clear r.gen if it still names the generation we just tore down.
+	// A concurrent Start can have already installed a newer generation
+	// while this call was blocked on the lock or on stopOnce above (e.g.
+	// Start's own leading Stop() ran first, tore down gen N, and started
+	// gen N+1) — clearing r.gen here would then null out the live gen N+1
+	// with nothing left holding a reference to it, leaking its socket
+	// forever since no future Stop() could ever reach it again.
 	r.mu.Lock()
-	r.conn = nil
+	if r.gen == g {
+		r.gen = nil
+	}
 	r.mu.Unlock()
 }
