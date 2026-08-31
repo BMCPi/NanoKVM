@@ -21,7 +21,7 @@ Go BMC/KVM server for NanoKVM hardware (riscv64 target). Gin HTTP + templ server
 
 ## Device constraints
 
-- On-device `/tmp` is a ~30MB RAM overlay — never route uploads/ISOs through `os.TempDir()`; use `pkg/streamio` streaming helpers (`StreamMultipartFile`, `FetchURL`)
+- On-device `/tmp` is a ~30MB RAM overlay — never route uploads/ISOs through `os.TempDir()`; use `pkg/platform/streamio` streaming helpers (`StreamMultipartFile`, `FetchURL`)
 
 ## Logging
 

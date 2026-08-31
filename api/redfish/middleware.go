@@ -9,7 +9,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/app/auth"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/logger"
-	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/middleware"
 )
 
 // CheckAuth gates Redfish endpoints. It accepts (in order):

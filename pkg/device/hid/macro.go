@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/ctxutil"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/ctxutil"
 )
 
 // Macro execution. A macro is a list of steps; each step asserts a report

@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/streamio"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/streamio"
 )
 
 // latestCacheTTL controls how long a successful GitHub release lookup is

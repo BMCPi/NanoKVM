@@ -24,7 +24,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/streamio"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/streamio"
 )
 
 var acceptAttrRe = regexp.MustCompile(`accept="([^"]*)"`)

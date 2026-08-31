@@ -17,7 +17,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/streamio"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/streamio"
 )
 
 func gzipOf(t *testing.T, payload []byte) []byte {

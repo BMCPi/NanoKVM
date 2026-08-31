@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/telemetry"
 )
 
 func renderPanel(t *testing.T, snap telemetry.Snapshot, trend ...telemetry.Point) string {

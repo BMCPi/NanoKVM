@@ -21,8 +21,8 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/app/application"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/bmcsensor"
-	"github.com/pi-bmc/nanokvm-app/pkg/sysinfo"
-	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/sysinfo"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/telemetry"
 	"github.com/pi-bmc/nanokvm-app/ui/components"
 )
 

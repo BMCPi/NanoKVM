@@ -12,7 +12,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/logger"
-	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/middleware"
 	"github.com/pi-bmc/nanokvm-app/ui/assets"
 	"github.com/pi-bmc/nanokvm-app/ui/components"
 	"github.com/pi-bmc/nanokvm-app/ui/fragments"

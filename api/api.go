@@ -17,7 +17,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/api/vm"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/logger"
-	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/middleware"
 )
 
 // Register mounts every API sub-router on the engine. The authenticated

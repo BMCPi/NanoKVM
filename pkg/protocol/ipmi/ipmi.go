@@ -28,7 +28,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/device/power"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/serial"
 	"github.com/pi-bmc/nanokvm-app/pkg/logger"
-	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/telemetry"
 )
 
 // bmcGUID is the fixed identifier this BMC has always reported through Get

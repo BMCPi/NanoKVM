@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
-	"github.com/pi-bmc/nanokvm-app/pkg/ring"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/ring"
 )
 
 // newTestHistory builds a history ring from readings, oldest first — the

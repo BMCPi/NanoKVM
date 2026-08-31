@@ -18,7 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
-	"github.com/pi-bmc/nanokvm-app/pkg/streamio"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/streamio"
 	"github.com/pi-bmc/nanokvm-app/ui/components"
 )
 

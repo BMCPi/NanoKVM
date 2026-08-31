@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/streamio"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/streamio"
 )
 
 var (

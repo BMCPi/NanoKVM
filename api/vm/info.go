@@ -6,9 +6,9 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/app/application"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/sysinfo"
 	"github.com/pi-bmc/nanokvm-app/pkg/proto"
 	"github.com/pi-bmc/nanokvm-app/pkg/protocol/discovery"
-	"github.com/pi-bmc/nanokvm-app/pkg/sysinfo"
 )
 
 func (h *handlers) GetInfo(c *gin.Context) {

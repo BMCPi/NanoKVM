@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/memlimit"
-	"github.com/pi-bmc/nanokvm-app/pkg/ring"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/memlimit"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/ring"
 )
 
 // resources_test.go pins the arithmetic, because every one of these numbers is

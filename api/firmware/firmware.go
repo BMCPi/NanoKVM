@@ -24,7 +24,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/app/firmware"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/logger"
-	"github.com/pi-bmc/nanokvm-app/pkg/streamio"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/streamio"
 )
 
 // maxCapsuleUploadBytes caps a capsule upload. Capsules are firmware-sized;

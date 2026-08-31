@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/ring"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/ring"
 )
 
 // A short rolling history, so the dashboard can show movement rather than only

@@ -8,7 +8,7 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/app/application"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
-	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/middleware"
 	"github.com/pi-bmc/nanokvm-app/pkg/proto"
 )
 

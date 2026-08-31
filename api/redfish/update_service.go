@@ -25,7 +25,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stmcginnis/gofish/schemas"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/streamio"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/streamio"
 )
 
 // capsuleStageTimeout bounds a BMC-initiated capsule download started by

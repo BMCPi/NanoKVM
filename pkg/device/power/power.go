@@ -52,7 +52,7 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/logger"
-	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/telemetry"
 )
 
 // ActionTimeout is a safe upper bound for any single power action, for callers

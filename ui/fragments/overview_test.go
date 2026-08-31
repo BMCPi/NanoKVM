@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/device/bmcsensor"
-	"github.com/pi-bmc/nanokvm-app/pkg/sysinfo"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/sysinfo"
 )
 
 func TestResourceDetailKeepsBothHalvesInOneUnit(t *testing.T) {

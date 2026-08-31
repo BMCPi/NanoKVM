@@ -33,7 +33,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/memlimit"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/memlimit"
 )
 
 const (

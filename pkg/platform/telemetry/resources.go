@@ -20,7 +20,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/sysinfo"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/sysinfo"
 )
 
 // initResourceMetrics registers the observable gauges. Called from initMetrics.

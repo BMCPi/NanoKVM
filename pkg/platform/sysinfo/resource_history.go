@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/ring"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/ring"
 )
 
 const (

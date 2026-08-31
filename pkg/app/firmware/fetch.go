@@ -25,8 +25,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/streamio"
-	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/streamio"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/telemetry"
 )
 
 // maxCapsuleFetchBytes bounds a capsule download. It matches the caps on the

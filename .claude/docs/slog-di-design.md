@@ -66,8 +66,8 @@ prefixes where one exists:
 | `redfish` | api/redfish |
 | `ui` | ui root + ui/fragments |
 | `power`, `ipmi`, `serial`, `ssh`, `hid`, `usbgadget`, `firmware`, `network`, `discovery`, `telemetry`, `timesync`, `autoupdate`, `video`, `rtc` | the pkg subsystems |
-| `http` | pkg/middleware request logging |
-| `sysinfo` | pkg/sysinfo resource sampling (added post-plan by the overview-graphs feature) |
+| `http` | pkg/platform/middleware request logging |
+| `sysinfo` | pkg/platform/sysinfo resource sampling (added post-plan by the overview-graphs feature) |
 
 A record's component is set exactly once (no nesting of `With("component")`
 down a call chain). Where a subsystem constructs a sub-object with its own
@@ -131,7 +131,7 @@ Functions that log take a `*slog.Logger` parameter (first parameter after
 - `pkg/auth`: becomes a service struct — it already carries state
   (brute-force tracking, account file); the struct absorbs the logger and
   the api/auth + middleware callers hold the service.
-- `pkg/application`, `pkg/proto`, `pkg/sysinfo`, `pkg/middleware`: logger
+- `pkg/application`, `pkg/proto`, `pkg/platform/sysinfo`, `pkg/platform/middleware`: logger
   parameter (middleware constructors return the `gin.HandlerFunc` closing
   over it).
 - A function whose only logging is incidental debug output may instead drop

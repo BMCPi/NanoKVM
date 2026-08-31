@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/streamio"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/streamio"
 )
 
 const (

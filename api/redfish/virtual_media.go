@@ -17,7 +17,7 @@ import (
 	"github.com/stmcginnis/gofish/schemas"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/app/firmware"
-	"github.com/pi-bmc/nanokvm-app/pkg/streamio"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/streamio"
 )
 
 // maxMediaUploadBytes caps a multipart image push. The image is streamed

@@ -11,7 +11,7 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/logger"
-	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/middleware"
 )
 
 // handlers holds what every route handler in this package needs:

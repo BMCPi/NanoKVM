@@ -11,7 +11,7 @@ import templruntime "github.com/a-h/templ/runtime"
 import (
 	"fmt"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/telemetry"
 	"github.com/pi-bmc/nanokvm-app/ui/components/badge"
 	"github.com/pi-bmc/nanokvm-app/ui/components/card"
 	"github.com/pi-bmc/nanokvm-app/ui/components/chart"

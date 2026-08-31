@@ -9,7 +9,7 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
-	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/telemetry"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/card"
 	"github.com/pi-bmc/nanokvm-app/ui/components/field"

@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/ctxutil"
-	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/ctxutil"
+	"github.com/pi-bmc/nanokvm-app/pkg/platform/middleware"
 
 	"github.com/gin-gonic/gin"
 )
