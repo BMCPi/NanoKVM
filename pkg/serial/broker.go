@@ -8,11 +8,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	goserial "go.bug.st/serial"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
@@ -164,7 +164,7 @@ func (b *Broker) Connect(id string, output io.Writer) (*Session, error) {
 	go sess.pump()
 
 	telemetry.SerialSessionOpened(context.Background())
-	log.Infof("serial: session %q connected (%d total)", id, b.sessionCount.Load())
+	slog.Info("serial: session connected", slog.String("session", id), slog.Int("total", int(b.sessionCount.Load())))
 	return sess, nil
 }
 
@@ -195,7 +195,7 @@ func (b *Broker) Disconnect(id string) {
 	sess.wait()
 
 	telemetry.SerialSessionClosed(context.Background())
-	log.Infof("serial: session %q disconnected (%d remaining)", id, remaining)
+	slog.Info("serial: session disconnected", slog.String("session", id), slog.Int("remaining", int(remaining)))
 }
 
 // Write sends data to the serial port. Safe to call from any goroutine.
@@ -302,7 +302,7 @@ func (b *Broker) startLocked() error {
 
 	go b.readLoop()
 
-	log.Infof("serial: opened %s @ %d baud (native)", device, cfg.Serial.BaudRate)
+	slog.Info("serial: opened port (native)", slog.String("device", device), slog.Int("baud", cfg.Serial.BaudRate))
 	return nil
 }
 
@@ -322,7 +322,7 @@ func (b *Broker) stopLocked() {
 	b.port = nil
 	b.stdin = nil
 
-	log.Info("serial: closed")
+	slog.Info("serial: closed")
 }
 
 // readLoop reads from the serial port and publishes to the shared scrollback,
@@ -347,7 +347,7 @@ func (b *Broker) readLoop() {
 				// consumers remain — with the always-on capture session
 				// registered, a one-off read error must not silently end
 				// capture for the rest of the server's lifetime.
-				log.Warnf("serial: read error: %s; reopening", err)
+				slog.Warn("serial: read error; reopening", slog.Any("err", err))
 				go b.reopen()
 			}
 			return
@@ -385,7 +385,7 @@ func (b *Broker) reopen() {
 		err := b.startLocked()
 		b.mu.Unlock()
 		if err == nil {
-			log.Info("serial: reopened after read error")
+			slog.Info("serial: reopened after read error")
 			return
 		}
 		time.Sleep(captureRetryInterval)
@@ -449,7 +449,7 @@ func (s *Session) wait() {
 	select {
 	case <-s.done:
 	case <-time.After(sessionDrainTimeout):
-		log.Warnf("serial: session %q did not drain within %s; abandoning its pump", s.ID, sessionDrainTimeout)
+		slog.Warn("serial: session did not drain; abandoning its pump", slog.String("session", s.ID), slog.Duration("timeout", sessionDrainTimeout))
 	}
 }
 

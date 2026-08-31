@@ -2,13 +2,12 @@ package utils
 
 import (
 	"fmt"
+	"log/slog"
 	"math"
 	"os"
 	"runtime/debug"
 	"strconv"
 	"strings"
-
-	log "github.com/sirupsen/logrus"
 )
 
 const GoMemLimitFile = "/etc/kvm/GOMEMLIMIT"
@@ -34,21 +33,21 @@ func InitGoMemLimit() {
 	// math.MaxInt64 means "no limit set" — anything else came from the
 	// GOMEMLIMIT env var, which we respect.
 	if debug.SetMemoryLimit(-1) != math.MaxInt64 {
-		log.Debug("GOMEMLIMIT already set via environment; leaving as-is")
+		slog.Debug("GOMEMLIMIT already set via environment; leaving as-is")
 		return
 	}
 
 	if IsGoMemLimitExist() {
 		if limit, err := GetGoMemLimit(); err == nil {
 			debug.SetMemoryLimit(limit * 1024 * 1024)
-			log.Infof("set GOMEMLIMIT to %d MB (from %s)", limit, GoMemLimitFile)
+			slog.Info("set GOMEMLIMIT from file", slog.Int64("limitMB", limit), slog.String("path", GoMemLimitFile))
 			return
 		}
 	}
 
 	limit := defaultMemLimitMB()
 	debug.SetMemoryLimit(limit * 1024 * 1024)
-	log.Infof("set GOMEMLIMIT to %d MB (auto, %d%% of system RAM)", limit, memLimitPercent)
+	slog.Info("set GOMEMLIMIT automatically", slog.Int64("limitMB", limit), slog.Int("percentOfRAM", memLimitPercent))
 }
 
 // defaultMemLimitMB derives a soft limit from MemTotal, clamped to sane bounds.
@@ -94,7 +93,7 @@ func SetGoMemLimit(limit int64) error {
 	memoryLimit := max(limit, 50)
 	debug.SetMemoryLimit(memoryLimit * 1024 * 1024)
 
-	log.Debugf("set GOMEMLIMIT to %d MB", limit)
+	slog.Debug("set GOMEMLIMIT", slog.Int64("limitMB", limit))
 
 	data := []byte(fmt.Sprintf("%d", limit))
 	// 0600: this file is written and read only by this (root) process — no
@@ -102,7 +101,7 @@ func SetGoMemLimit(limit int64) error {
 	// there is no reader whose access the narrower mode would take away.
 	err := os.WriteFile(GoMemLimitFile, data, 0o600)
 	if err != nil {
-		log.Errorf("failed to write GOMEMLIMIT: %s", err)
+		slog.Error("failed to write GOMEMLIMIT", slog.Any("err", err))
 		return err
 	}
 
@@ -112,14 +111,14 @@ func SetGoMemLimit(limit int64) error {
 func GetGoMemLimit() (int64, error) {
 	data, err := os.ReadFile(GoMemLimitFile)
 	if err != nil {
-		log.Errorf("failed to read GOMEMLIMIT: %s", err)
+		slog.Error("failed to read GOMEMLIMIT", slog.Any("err", err))
 		return 0, err
 	}
 
 	content := strings.TrimSpace(string(data))
 	limit, err := strconv.ParseInt(content, 10, 64)
 	if err != nil {
-		log.Errorf("failed to parse GOMEMLIMIT: %s", err)
+		slog.Error("failed to parse GOMEMLIMIT", slog.Any("err", err))
 		return 0, err
 	}
 
@@ -131,7 +130,7 @@ func DelGoMemLimit() error {
 
 	err := os.Remove(GoMemLimitFile)
 	if err != nil {
-		log.Errorf("failed to delete GOMEMLIMIT: %s", err)
+		slog.Error("failed to delete GOMEMLIMIT", slog.Any("err", err))
 		return err
 	}
 

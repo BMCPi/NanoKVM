@@ -2,10 +2,9 @@ package telemetry
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
-
-	log "github.com/sirupsen/logrus"
 )
 
 // A short rolling history, so the dashboard can show movement rather than only
@@ -86,15 +85,16 @@ func StartSampler(ctx context.Context) {
 		for {
 			select {
 			case <-ctx.Done():
-				log.Debug("telemetry: metrics sampler stopped")
+				slog.DebugContext(ctx, "telemetry: metrics sampler stopped")
 				return
 			case <-ticker.C:
 				recordSample()
 			}
 		}
 	}()
-	log.Debugf("telemetry: sampling metrics every %s, keeping %s of history",
-		sampleInterval, time.Duration(historyDepth)*sampleInterval)
+	slog.DebugContext(ctx, "telemetry: sampling metrics",
+		slog.Duration("interval", sampleInterval),
+		slog.Duration("history", time.Duration(historyDepth)*sampleInterval))
 }
 
 func recordSample() {

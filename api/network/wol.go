@@ -3,6 +3,7 @@ package network
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/proto"
 )
@@ -48,7 +48,7 @@ func (s *Service) WakeOnLAN(c *gin.Context) {
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Errorf("failed to wake on lan: %s", err)
+		slog.ErrorContext(c.Request.Context(), "failed to wake on lan", slog.Any("err", err))
 		rsp.ErrRsp(c, -3, string(output))
 		return
 	}
@@ -56,7 +56,7 @@ func (s *Service) WakeOnLAN(c *gin.Context) {
 	go saveMac(mac)
 
 	rsp.OkRsp(c)
-	log.Debugf("wake on lan: %s", mac)
+	slog.DebugContext(c.Request.Context(), "wake on lan", slog.String("mac", mac))
 }
 
 func (s *Service) GetMac(c *gin.Context) {
@@ -86,7 +86,7 @@ func (s *Service) SetMacName(c *gin.Context) {
 
 	content, err := os.ReadFile(WolMacFile)
 	if err != nil {
-		log.Errorf("failed to open %s: %s", WolMacFile, err)
+		slog.ErrorContext(c.Request.Context(), "failed to open file", slog.String("path", WolMacFile), slog.Any("err", err))
 		rsp.ErrRsp(c, -2, "read failed")
 		return
 	}
@@ -106,7 +106,7 @@ func (s *Service) SetMacName(c *gin.Context) {
 	}
 
 	if !macFound {
-		log.Errorf("failed to found mac %s: %s", req.Mac, err)
+		slog.ErrorContext(c.Request.Context(), "failed to found mac", slog.String("mac", req.Mac), slog.Any("err", err))
 		rsp.ErrRsp(c, -3, "write failed")
 		return
 	}
@@ -114,13 +114,13 @@ func (s *Service) SetMacName(c *gin.Context) {
 	data := strings.Join(newLines, "\n")
 	err = os.WriteFile(WolMacFile, []byte(data), 0o600) //nolint:gosec // G703: destination is the hardcoded WolMacFile constant, never attacker-influenced; only the persisted MAC/name content is request-supplied, which is the intended feature
 	if err != nil {
-		log.Errorf("failed to write %s: %s", WolMacFile, err)
+		slog.ErrorContext(c.Request.Context(), "failed to write file", slog.String("path", WolMacFile), slog.Any("err", err))
 		rsp.ErrRsp(c, -3, "write failed")
 		return
 	}
 
 	rsp.OkRsp(c)
-	log.Debugf("set wol mac name: %s %s", req.Mac, req.Name)
+	slog.DebugContext(c.Request.Context(), "set wol mac name", slog.String("mac", req.Mac), slog.String("name", req.Name))
 }
 
 func (s *Service) DeleteMac(c *gin.Context) {
@@ -134,7 +134,7 @@ func (s *Service) DeleteMac(c *gin.Context) {
 
 	content, err := os.ReadFile(WolMacFile)
 	if err != nil {
-		log.Errorf("failed to open %s: %s", WolMacFile, err)
+		slog.ErrorContext(c.Request.Context(), "failed to open file", slog.String("path", WolMacFile), slog.Any("err", err))
 		rsp.ErrRsp(c, -2, "read failed")
 		return
 	}
@@ -152,13 +152,13 @@ func (s *Service) DeleteMac(c *gin.Context) {
 	data := strings.Join(newMacs, "\n")
 	err = os.WriteFile(WolMacFile, []byte(data), 0o600) //nolint:gosec // G703: destination is the hardcoded WolMacFile constant, never attacker-influenced; only the persisted MAC/name content is request-supplied, which is the intended feature
 	if err != nil {
-		log.Errorf("failed to write %s: %s", WolMacFile, err)
+		slog.ErrorContext(c.Request.Context(), "failed to write file", slog.String("path", WolMacFile), slog.Any("err", err))
 		rsp.ErrRsp(c, -3, "write failed")
 		return
 	}
 
 	rsp.OkRsp(c)
-	log.Debugf("delete wol mac: %s", req.Mac)
+	slog.DebugContext(c.Request.Context(), "delete wol mac", slog.String("mac", req.Mac))
 }
 
 func parseMAC(mac string) (string, error) {
@@ -200,13 +200,13 @@ func saveMac(mac string) {
 	// permanently at 0o644 regardless of what those calls ask for.
 	err := os.MkdirAll(filepath.Dir(WolMacFile), 0o700)
 	if err != nil {
-		log.Errorf("failed to create dir: %s", err)
+		slog.Error("failed to create dir", slog.Any("err", err))
 		return
 	}
 
 	file, err := os.OpenFile(WolMacFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
-		log.Errorf("failed to open %s: %s", WolMacFile, err)
+		slog.Error("failed to open file", slog.String("path", WolMacFile), slog.Any("err", err))
 		return
 	}
 	defer func() {
@@ -216,7 +216,7 @@ func saveMac(mac string) {
 	content := fmt.Sprintf("%s\n", mac)
 	_, err = file.WriteString(content)
 	if err != nil {
-		log.Errorf("failed to write %s: %s", WolMacFile, err)
+		slog.Error("failed to write file", slog.String("path", WolMacFile), slog.Any("err", err))
 		return
 	}
 }

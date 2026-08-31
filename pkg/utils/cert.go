@@ -6,13 +6,12 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"log/slog"
 	"math/big"
 	"net"
 	"os"
 	"strings"
 	"time"
-
-	log "github.com/sirupsen/logrus"
 )
 
 func GenerateCert() error {
@@ -32,7 +31,7 @@ func GenerateCert() error {
 
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		log.Errorf("failed to generate RSA private key: %v", err)
+		slog.Error("failed to generate RSA private key", slog.Any("err", err))
 		return err
 	}
 	publicKey := &privateKey.PublicKey
@@ -40,7 +39,7 @@ func GenerateCert() error {
 	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
 	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
 	if err != nil {
-		log.Errorf("failed to generate serial number: %v", err)
+		slog.Error("failed to generate serial number", slog.Any("err", err))
 		return err
 	}
 
@@ -61,47 +60,47 @@ func GenerateCert() error {
 
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, publicKey, privateKey)
 	if err != nil {
-		log.Errorf("failed to create certificate: %v", err)
+		slog.Error("failed to create certificate", slog.Any("err", err))
 		return err
 	}
 
 	// generate certificate
 	certOut, err := os.Create(certFile)
 	if err != nil {
-		log.Errorf("failed to create %s: %v", certFile, err)
+		slog.Error("failed to create certificate file", slog.String("path", certFile), slog.Any("err", err))
 		return err
 	}
 
 	if err := pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}); err != nil {
-		log.Errorf("failed to encode %s: %v", certFile, err)
+		slog.Error("failed to encode certificate file", slog.String("path", certFile), slog.Any("err", err))
 		return err
 	}
 
 	_ = certOut.Sync()
 	_ = certOut.Close()
-	log.Debugf("%s generated", certFile)
+	slog.Debug("certificate file generated", slog.String("path", certFile))
 
 	// generate private key
 	keyOut, err := os.OpenFile(keyFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) // 权限 0600
 	if err != nil {
-		log.Errorf("failed to create %s: %v", keyFile, err)
+		slog.Error("failed to create key file", slog.String("path", keyFile), slog.Any("err", err))
 		return err
 	}
 
 	privateBytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
 	if err != nil {
-		log.Errorf("failed to marshal private key: %v", err)
+		slog.Error("failed to marshal private key", slog.Any("err", err))
 		return err
 	}
 
 	if err := pem.Encode(keyOut, &pem.Block{Type: "PRIVATE KEY", Bytes: privateBytes}); err != nil {
-		log.Errorf("failed to encode %s: %v", keyFile, err)
+		slog.Error("failed to encode key file", slog.String("path", keyFile), slog.Any("err", err))
 		return err
 	}
 
 	_ = keyOut.Sync()
 	_ = keyOut.Close()
-	log.Debugf("%s generated", keyFile)
+	slog.Debug("key file generated", slog.String("path", keyFile))
 
 	return nil
 }
@@ -127,7 +126,7 @@ func certSubjectNames(host string) ([]string, []net.IP) {
 
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
-		log.Warnf("cert: cannot enumerate interface addresses: %v", err)
+		slog.Warn("cert: cannot enumerate interface addresses", slog.Any("err", err))
 		return dnsNames, ips
 	}
 	for _, addr := range addrs {

@@ -3,12 +3,12 @@ package network
 import (
 	"bytes"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"strings"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 )
@@ -145,7 +145,7 @@ func replaceAddr(link netlink.Link, want *netlink.Addr) error {
 			continue
 		}
 		if err := netlink.AddrDel(link, &a); err != nil {
-			log.Warnf("network: remove stale addr %s from %s: %v", a.IPNet, link.Attrs().Name, err)
+			slog.Warn("network: remove stale addr failed", slog.Any("addr", a.IPNet), slog.String("iface", link.Attrs().Name), slog.Any("err", err))
 		}
 	}
 	return nil
@@ -177,6 +177,6 @@ func writeResolvConf(servers []net.IP) {
 		fmt.Fprintf(&b, "nameserver %s\n", ip.String())
 	}
 	if err := os.WriteFile("/etc/resolv.conf", []byte(b.String()), 0o644); err != nil { //nolint:gosec // G306: system resolver config -- every process doing name resolution (busybox wget/ping, the Go runtime's own resolver) reads this well-known path, so it must stay world-readable
-		log.Warnf("network: write /etc/resolv.conf: %v", err)
+		slog.Warn("network: write /etc/resolv.conf failed", slog.Any("err", err))
 	}
 }

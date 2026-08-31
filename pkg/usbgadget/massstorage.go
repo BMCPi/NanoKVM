@@ -3,12 +3,11 @@ package usbgadget
 import (
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
-
-	log "github.com/sirupsen/logrus"
 )
 
 // Inquiry strings written to the LUNs. Preserve the exact spacing (vendor(8) +
@@ -136,7 +135,7 @@ func (g *Gadget) PresentDisk(path string) error {
 			return fmt.Errorf("rebind UDC: %w", err)
 		}
 	}
-	log.Infof("usbgadget: presented %s on lun.0", path)
+	slog.Info("usbgadget: presented disk on lun.0", slog.String("path", path))
 	return nil
 }
 
@@ -151,7 +150,7 @@ func (g *Gadget) UnpresentDisk() error {
 	}
 	// Give the kernel a moment to drop its hold on the backing file.
 	time.Sleep(100 * time.Millisecond)
-	log.Info("usbgadget: unpresented lun.0")
+	slog.Info("usbgadget: unpresented lun.0")
 	return nil
 }
 
@@ -176,7 +175,7 @@ func (g *Gadget) InsertMedia(path string) error {
 	if err := g.fs.WriteFile(filepath.Join(lun1, "file"), []byte(path), 0o666); err != nil {
 		return fmt.Errorf("set lun.1 file: %w", err)
 	}
-	log.Infof("usbgadget: virtual media lun.1 → %s", path)
+	slog.Info("usbgadget: virtual media lun.1 attached", slog.String("path", path))
 	return nil
 }
 
@@ -191,7 +190,7 @@ func (g *Gadget) EjectMedia() error {
 	if err := g.fs.WriteFile(filepath.Join(g.lun1Path(), "file"), []byte("\n"), 0o666); err != nil {
 		return fmt.Errorf("clear lun.1 file: %w", err)
 	}
-	log.Info("usbgadget: virtual media lun.1 cleared")
+	slog.Info("usbgadget: virtual media lun.1 cleared")
 	return nil
 }
 

@@ -1,12 +1,12 @@
 package timesync
 
 import (
+	"log/slog"
 	"math/rand/v2"
 	"slices"
 	"time"
 
 	"github.com/beevik/ntp"
-	log "github.com/sirupsen/logrus"
 )
 
 // fallbackNTPIPs are anycast NTP servers known by static IP, usable before DNS
@@ -59,12 +59,15 @@ func queryNTPChunk(servers []string) (time.Time, bool) {
 				err = resp.Validate()
 			}
 			if err != nil {
-				log.Debugf("timesync: ntp %s: %v", server, err)
+				slog.Debug("timesync: ntp query failed", slog.String("server", server), slog.Any("err", err))
 				results <- nil
 				return
 			}
-			log.Debugf("timesync: ntp %s: offset=%s stratum=%d rtt=%s",
-				server, resp.ClockOffset, resp.Stratum, resp.RTT)
+			slog.Debug("timesync: ntp response",
+				slog.String("server", server),
+				slog.Duration("offset", resp.ClockOffset),
+				slog.Int("stratum", int(resp.Stratum)),
+				slog.Duration("rtt", resp.RTT))
 			results <- &resp.ClockOffset
 		}()
 	}

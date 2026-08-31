@@ -2,10 +2,10 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/warthog618/go-gpiocdev"
 )
 
@@ -95,7 +95,8 @@ func (r *lineResolver) resolve(name string, offset int) GPIOPin {
 	}
 
 	if chip, line, err := gpiocdev.FindLine(name); err == nil {
-		log.Debugf("config: gpio %q -> %s:%d (named by the device tree)", name, chip, line)
+		slog.Debug("config: gpio named by the device tree",
+			slog.String("name", name), slog.String("chip", chip), slog.Int("line", line))
 		return GPIOPin{Chip: chip, Line: line}
 	}
 
@@ -103,12 +104,14 @@ func (r *lineResolver) resolve(name string, offset int) GPIOPin {
 	if err != nil {
 		if !r.reported {
 			r.reported = true
-			log.Errorf("config: no gpio lines resolvable: none are named in the device tree and %s — power control is unavailable", err)
+			slog.Error("config: no gpio lines resolvable: none are named in the device tree — power control is unavailable",
+				slog.Any("err", err))
 		}
 		return GPIOPin{}
 	}
 
-	log.Warnf("config: gpio line %q is not named in the device tree; falling back to %s:%d", name, chip, offset)
+	slog.Warn("config: gpio line is not named in the device tree; falling back",
+		slog.String("name", name), slog.String("chip", chip), slog.Int("offset", offset))
 	return GPIOPin{Chip: chip, Line: offset}
 }
 
@@ -187,7 +190,7 @@ func getHardware() Hardware {
 		return profilePcie.hardware()
 
 	default:
-		log.Errorf("Unsupported hardware version: %s", version)
+		slog.Error("unsupported hardware version", slog.String("version", version.String()))
 		return profileAlpha.hardware()
 	}
 }

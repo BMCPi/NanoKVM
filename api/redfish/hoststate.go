@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -15,7 +16,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 )
@@ -222,7 +222,7 @@ func hostStateSave() {
 	}
 	hostSaveTimer = time.AfterFunc(hostStateSaveDelay, func() {
 		if err := hostStateWrite(); err != nil {
-			log.Warnf("persisting BMC host state: %v", err)
+			slog.Warn("persisting BMC host state", slog.Any("err", err))
 		}
 	})
 }
@@ -242,7 +242,7 @@ func hostStateFlush() {
 	}
 	hostSaveMu.Unlock()
 	if err := hostStateWrite(); err != nil {
-		log.Warnf("flushing BMC host state: %v", err)
+		slog.Warn("flushing BMC host state", slog.Any("err", err))
 	}
 }
 
@@ -289,14 +289,14 @@ func LoadHostState() {
 	data, err := os.ReadFile(hostStatePath)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			log.Warnf("reading persisted BMC host state: %v", err)
+			slog.Warn("reading persisted BMC host state", slog.Any("err", err))
 		}
 		return
 	}
 
 	restored := &hostState{}
 	if err := json.Unmarshal(data, restored); err != nil {
-		log.Warnf("persisted BMC host state is unreadable; ignoring it: %v", err)
+		slog.Warn("persisted BMC host state is unreadable; ignoring it", slog.Any("err", err))
 		return
 	}
 
@@ -341,7 +341,7 @@ func LoadHostState() {
 	if !captured.IsZero() {
 		age = time.Since(captured).Round(time.Second).String()
 	}
-	log.Infof("restored BMC host state captured %s ago; the host overwrites it on its next boot", age)
+	slog.Info("restored BMC host state; the host overwrites it on its next boot", slog.String("age", age))
 }
 
 // dedupeHostCollection removes members whose content is identical to another

@@ -3,11 +3,11 @@ package vm
 import (
 	"encoding/json"
 	"io"
+	"log/slog"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/shell"
 )
@@ -26,7 +26,7 @@ import (
 func (s *Service) Shell(c *gin.Context) {
 	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		log.Errorf("failed to init websocket: %s", err)
+		slog.ErrorContext(c.Request.Context(), "failed to init websocket", slog.Any("err", err))
 		return
 	}
 	defer func() {
@@ -35,13 +35,13 @@ func (s *Service) Shell(c *gin.Context) {
 
 	session, err := shell.Start(shell.Options{})
 	if err != nil {
-		log.Errorf("failed to start bmc shell: %s", err)
+		slog.ErrorContext(c.Request.Context(), "failed to start bmc shell", slog.Any("err", err))
 		_ = ws.WriteMessage(websocket.TextMessage, []byte("shell error: "+err.Error()))
 		return
 	}
 	defer session.Close()
 
-	log.Infof("bmc shell session started (pid %d)", session.Pid())
+	slog.InfoContext(c.Request.Context(), "bmc shell session started", slog.Int("pid", session.Pid()))
 
 	// Shell → WebSocket. Closing the socket here unblocks the read loop below
 	// when the shell exits on its own (e.g. the user typed `exit`).

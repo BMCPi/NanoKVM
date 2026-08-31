@@ -1,10 +1,11 @@
 package vm
 
 import (
+	"log/slog"
+
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
 	"github.com/pi-bmc/nanokvm-app/pkg/discovery"
@@ -24,7 +25,7 @@ func (s *Service) GetInfo(c *gin.Context) {
 	}
 
 	rsp.OkRspWithData(c, data)
-	log.Debug("get vm information success")
+	slog.DebugContext(c.Request.Context(), "get vm information success")
 }
 
 func getMdns() string {

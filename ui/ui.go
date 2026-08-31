@@ -6,6 +6,7 @@ package ui
 import (
 	"encoding/json"
 	"io/fs"
+	"log/slog"
 	"net/http"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
@@ -18,7 +19,6 @@ import (
 	"github.com/pi-bmc/nanokvm-app/ui/render"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 )
 
 // Register installs the UI onto the gin engine: the templ HTML renderer
@@ -172,7 +172,7 @@ func iceServersJSON(cfg *config.Config) string {
 	}
 	b, err := json.Marshal(servers)
 	if err != nil {
-		log.Errorf("ui: marshal ice servers: %v", err)
+		slog.Error("ui: marshal ice servers", slog.Any("err", err))
 		return "[]"
 	}
 	return string(b)
@@ -184,7 +184,7 @@ func apiDocsHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		model, err := loadAPIDocsModel()
 		if err != nil {
-			log.Errorf("api docs: load model: %v", err)
+			slog.ErrorContext(c.Request.Context(), "api docs: load model", slog.Any("err", err))
 			c.String(http.StatusInternalServerError, "API docs unavailable: %v", err)
 			return
 		}

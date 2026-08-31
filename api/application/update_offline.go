@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"os"
 	"path/filepath"
@@ -11,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
 	"github.com/pi-bmc/nanokvm-app/pkg/proto"
@@ -33,12 +33,12 @@ func (s *Service) OfflineUpdate(c *gin.Context) {
 		return processUpload(reader, cacheDir)
 	})
 	if err != nil {
-		log.Errorf("offline update failed: %v", err)
+		slog.ErrorContext(c.Request.Context(), "offline update failed", slog.Any("err", err))
 		rsp.ErrRsp(c, -1, fmt.Sprintf("update failed: %s", err))
 		return
 	}
 
-	log.Debugf("offline update application success")
+	slog.DebugContext(c.Request.Context(), "offline update application success")
 	respondAndRestart(c, &rsp)
 }
 
@@ -102,19 +102,19 @@ func validateFilename(filename string) error {
 
 	// Check if the path contains directory components
 	if baseName != filename {
-		log.Warnf("Path detected in filename: %s", filename)
+		slog.Warn("path detected in filename", slog.String("filename", filename))
 		return fmt.Errorf("path detected in filename")
 	}
 
 	// Check for path traversal attempts
 	if strings.Contains(filename, "..") {
-		log.Warnf("Path traversal attempt: %s", filename)
+		slog.Warn("path traversal attempt", slog.String("filename", filename))
 		return fmt.Errorf("invalid filename: path traversal detected")
 	}
 
 	// Validate filename characters
 	if !validFilenameRegex.MatchString(filename) {
-		log.Warnf("Invalid filename characters: %s", filename)
+		slog.Warn("invalid filename characters", slog.String("filename", filename))
 		return fmt.Errorf("invalid filename: contains invalid characters")
 	}
 

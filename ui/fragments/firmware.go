@@ -18,6 +18,7 @@ package fragments
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -25,7 +26,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/utils"
@@ -186,7 +186,7 @@ func postFirmwareCapsuleUpload(d *deps.Deps) gin.HandlerFunc {
 		}
 		written, err := d.Firmware.StageCapsule(name, upload)
 		if err != nil {
-			log.Errorf("ui: stage capsule %q failed: %v", name, err)
+			slog.ErrorContext(c.Request.Context(), "ui: stage capsule failed", slog.String("name", name), slog.Any("err", err))
 			hxToast(c, "error", "Upload failed", err.Error())
 			renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(d)))
 			return
@@ -239,7 +239,7 @@ func postFirmwareCapsuleFetch(d *deps.Deps) gin.HandlerFunc {
 		go func(rawURL, name string) {
 			defer cancel()
 			if err := d.Firmware.StageCapsuleFromURL(ctx, rawURL, name); err != nil {
-				log.Errorf("ui: capsule fetch failed: %v", err)
+				slog.ErrorContext(ctx, "ui: capsule fetch failed", slog.Any("err", err))
 				firmwareFetchFinish(err)
 				return
 			}

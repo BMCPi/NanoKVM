@@ -1,10 +1,10 @@
 package utils
 
 import (
+	"log/slog"
 	"net/url"
 
 	"github.com/mervick/aes-everywhere/go/aes256"
-	log "github.com/sirupsen/logrus"
 )
 
 // SecretKey is only used to prevent the data from being transmitted in plaintext.
@@ -34,7 +34,7 @@ func Decrypt(ciphertext string) (string, error) {
 func DecodeDecrypt(data string) (string, error) {
 	ciphertext, err := url.QueryUnescape(data)
 	if err != nil {
-		log.Errorf("decode ciphertext failed: %s", err)
+		slog.Error("decode ciphertext failed", slog.Any("err", err))
 		return "", err
 	}
 

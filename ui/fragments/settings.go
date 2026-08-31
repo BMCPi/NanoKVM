@@ -7,13 +7,13 @@ package fragments
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"os/exec"
 	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 
 	apivm "github.com/pi-bmc/nanokvm-app/api/vm"
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
@@ -21,6 +21,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/discovery"
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 	"github.com/pi-bmc/nanokvm-app/pkg/network"
 	"github.com/pi-bmc/nanokvm-app/pkg/serial"
 	sshsvc "github.com/pi-bmc/nanokvm-app/pkg/ssh"
@@ -279,8 +280,9 @@ func patchSerial(c *gin.Context) {
 	config.Save()
 	serial.Restart()
 
-	log.Infof("serial: settings updated via ui (%s @ %d %d/%s/%d)",
-		s.Device, s.BaudRate, s.DataBits, s.Parity, s.StopBits)
+	slog.InfoContext(c.Request.Context(), "serial: settings updated via ui",
+		slog.String("device", s.Device), slog.Int("baudRate", s.BaudRate),
+		slog.Int("dataBits", s.DataBits), slog.String("parity", s.Parity), slog.Int("stopBits", s.StopBits))
 	hxToast(c, "success", "Serial settings saved", "The port was re-opened; reconnect the console.")
 	renderFragment(c, components.SettingsSerialBody(serialModel()))
 }
@@ -345,7 +347,8 @@ func patchNetwork(c *gin.Context) {
 	config.Save()
 	network.Restart()
 
-	log.Infof("network: settings updated via ui (eth0 mode=%s enabled=%t)", next.Eth0.Mode, next.Enabled)
+	slog.InfoContext(c.Request.Context(), "network: settings updated via ui",
+		slog.String("eth0Mode", next.Eth0.Mode), slog.Bool("enabled", next.Enabled))
 	hxToast(c, "success", "Network settings saved", "Addressing re-applied.")
 	renderFragment(c, components.SettingsNetworkBody(networkModel()))
 }
@@ -448,11 +451,11 @@ func postHardware(d *deps.Deps) gin.HandlerFunc {
 			mode = usbgadget.EthernetNCM
 		}
 		if err := gadget.SetEthernet(mode); err != nil {
-			log.Errorf("ui: set ethernet %s failed: %s", mode, err)
+			slog.ErrorContext(c.Request.Context(), "ui: set ethernet failed", slog.String("mode", mode), slog.Any("err", err))
 			hxToast(c, "error", "USB Ethernet unchanged", err.Error())
 		}
 		if err := gadget.SetDisk(checked(c, "disk")); err != nil {
-			log.Errorf("ui: set disk failed: %s", err)
+			slog.ErrorContext(c.Request.Context(), "ui: set disk failed", slog.Any("err", err))
 			hxToast(c, "error", "USB Mass Storage unchanged", err.Error())
 		}
 
@@ -465,7 +468,7 @@ func postHardware(d *deps.Deps) gin.HandlerFunc {
 func accessModel() components.SettingsAccess {
 	keys, err := sshsvc.ReadAuthorizedKeys()
 	if err != nil {
-		log.Warnf("ui: read authorized keys: %v", err)
+		slog.Warn("ui: read authorized keys", slog.Any("err", err))
 	}
 	conf := config.GetInstance()
 	return components.SettingsAccess{
@@ -506,12 +509,12 @@ func postSSHEnabled(c *gin.Context) {
 
 	if err := sshsvc.Restart(); err != nil {
 		conf.SSH = previous
-		log.Errorf("ui: apply SSH state: %s", err)
+		slog.ErrorContext(c.Request.Context(), "ui: apply SSH state", slog.Any("err", err))
 		hxToast(c, "error", "SSH unchanged", err.Error())
 		// Put the listener back the way it was; the restart above left it
 		// stopped, and the rolled-back config is what it should be running.
 		if rerr := sshsvc.Restart(); rerr != nil {
-			log.Errorf("ui: restore SSH listener: %s", rerr)
+			slog.ErrorContext(c.Request.Context(), "ui: restore SSH listener", slog.Any("err", rerr))
 		}
 	} else if previous != conf.SSH {
 		config.Save()
@@ -612,7 +615,7 @@ func postSSHKeys(c *gin.Context) {
 		return
 	}
 	if err := sshsvc.WriteAuthorizedKeys(keys); err != nil {
-		log.Errorf("ui: write authorized keys: %s", err)
+		slog.ErrorContext(c.Request.Context(), "ui: write authorized keys", slog.Any("err", err))
 		hxToast(c, "error", "Keys not saved", err.Error())
 		renderFragment(c, components.SettingsAccessBody(accessModel()))
 		return
@@ -635,7 +638,7 @@ func postTLS(c *gin.Context) {
 		err = apivm.DisableTLS()
 	}
 	if err != nil {
-		log.Errorf("ui: set TLS: %s", err)
+		slog.ErrorContext(c.Request.Context(), "ui: set TLS", slog.Any("err", err))
 		hxToast(c, "error", "TLS unchanged", err.Error())
 		renderFragment(c, components.SettingsAccessBody(accessModel()))
 		return
@@ -678,21 +681,22 @@ func advancedModel() components.SettingsAdvanced {
 	}
 }
 
-// patchLogging applies the level immediately — pkg/logger's only act on it is
-// logrus.SetLevel, so doing the same here is the whole application. An
-// unparseable level is rejected rather than defaulting, because silently
+// patchLogging applies the level immediately via logger.SetLevel, which moves
+// the shared slog.LevelVar every logging path — native slog call sites and the
+// bridged logrus ones alike — filters on. (logrus.SetLevel would not do:
+// the bridge pins logrus wide open and filters in the slog handler, so setting
+// it would pre-filter bridged entries while leaving slog call sites untouched.)
+// An unrecognised level is rejected rather than defaulting, because silently
 // logging at a different level than the one displayed is worse than an error.
 func patchLogging(c *gin.Context) {
 	lvl := strings.ToLower(strings.TrimSpace(c.PostForm("level")))
-	parsed, err := log.ParseLevel(lvl)
-	if err != nil {
+	if err := logger.SetLevel(lvl); err != nil {
 		hxToast(c, "error", "Log level unchanged", "Unrecognised level "+lvl+".")
 		renderFragment(c, components.SettingsAdvancedBody(advancedModel()))
 		return
 	}
 
 	config.GetInstance().Logger.Level = lvl
-	log.SetLevel(parsed)
 	config.Save()
 
 	hxToast(c, "success", "Settings saved", "Now logging at "+lvl+".")
@@ -747,7 +751,7 @@ func postReboot(c *gin.Context) {
 	// c.Copy().
 	go func() {
 		if err := exec.CommandContext(context.Background(), "reboot").Run(); err != nil {
-			log.Errorf("ui: reboot failed: %s", err)
+			slog.Error("ui: reboot failed", slog.Any("err", err))
 		}
 	}()
 }

@@ -9,12 +9,12 @@ package fragments
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 	"github.com/stmcginnis/gofish/schemas"
 
 	"github.com/pi-bmc/nanokvm-app/api/redfish"
@@ -148,7 +148,7 @@ func postOverviewAppUpdate(c *gin.Context) {
 	defer cancel()
 
 	if err := application.RunUpdate(ctx); err != nil {
-		log.Errorf("ui: application update failed: %s", err)
+		slog.ErrorContext(c.Request.Context(), "ui: application update failed", slog.Any("err", err))
 		hxToast(c, "error", "Update failed", err.Error())
 		c.Status(http.StatusInternalServerError)
 		return

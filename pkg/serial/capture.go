@@ -1,12 +1,11 @@
 package serial
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
-
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 )
@@ -50,10 +49,10 @@ func StartCapture() {
 		for {
 			_, err := GetBroker().Connect(captureSessionID, captureFile)
 			if err == nil {
-				log.Infof("serial: capture to %s (max %d KB)", cfg.File, cfg.MaxSizeKB)
+				slog.Info("serial: capture started", slog.String("file", cfg.File), slog.Int("maxKB", cfg.MaxSizeKB))
 				return
 			}
-			log.Warnf("serial: capture: %v (retry in %s)", err, captureRetryInterval)
+			slog.Warn("serial: capture connect failed", slog.Any("err", err), slog.Duration("retryIn", captureRetryInterval))
 			select {
 			case <-cancel:
 				return
@@ -121,14 +120,14 @@ func (w *captureWriter) Write(p []byte) (int, error) {
 
 	if w.f == nil {
 		if err := w.openLocked(); err != nil {
-			log.Debugf("serial: capture open: %v", err)
+			slog.Debug("serial: capture open", slog.Any("err", err))
 			return len(p), nil
 		}
 	}
 	n, err := w.f.Write(p)
 	w.size += int64(n)
 	if err != nil {
-		log.Debugf("serial: capture write: %v", err)
+		slog.Debug("serial: capture write", slog.Any("err", err))
 		_ = w.f.Close()
 		w.f = nil
 		return len(p), nil
@@ -162,7 +161,7 @@ func (w *captureWriter) rotateLocked() {
 	w.f = nil
 	w.size = 0
 	if err := os.Rename(w.path, w.path+".1"); err != nil {
-		log.Debugf("serial: capture rotate: %v", err)
+		slog.Debug("serial: capture rotate", slog.Any("err", err))
 	}
 }
 

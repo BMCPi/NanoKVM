@@ -27,9 +27,8 @@ package firmware
 // (api/redfish), which the host's firmware reads and applies itself.
 
 import (
+	"log/slog"
 	"sync"
-
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 )
@@ -93,7 +92,7 @@ func (c *Controller) Init() error {
 		return err
 	}
 	if err := c.presentVolume(); err != nil {
-		log.Warnf("firmware: USB gadget present failed (may not be available in this environment): %v", err)
+		slog.Warn("firmware: USB gadget present failed (may not be available in this environment)", slog.Any("err", err))
 	}
 	return nil
 }
@@ -117,7 +116,7 @@ func (c *Controller) GetStatus() Status {
 	if caps, err := c.listCapsulesLocked(); err == nil {
 		st.Capsules = caps
 	} else if st.VolumeReady {
-		log.Warnf("firmware: list capsules for status: %v", err)
+		slog.Warn("firmware: list capsules for status failed", slog.Any("err", err))
 	}
 	return st
 }

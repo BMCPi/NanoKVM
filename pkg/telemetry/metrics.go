@@ -2,8 +2,8 @@ package telemetry
 
 import (
 	"context"
+	"log/slog"
 
-	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -100,7 +100,7 @@ func initMetrics() {
 		"Bytes written to the serial port", "By")
 
 	if err != nil {
-		log.Warnf("telemetry: instrument creation: %v", err)
+		slog.Warn("telemetry: instrument creation", slog.Any("err", err))
 	}
 }
 

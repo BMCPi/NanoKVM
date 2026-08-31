@@ -18,13 +18,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"time"
-
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
 	"github.com/pi-bmc/nanokvm-app/pkg/utils"
@@ -94,7 +93,7 @@ func (c *Controller) StageCapsuleFromURL(ctx context.Context, rawURL, name strin
 		_ = os.Remove(tmpPath)
 	}()
 
-	log.Infof("firmware: downloading capsule %s from %s", fileName, rawURL)
+	slog.InfoContext(ctx, "firmware: downloading capsule", slog.String("name", fileName), slog.String("url", rawURL))
 	if err := downloadTo(ctx, rawURL, tmp, maxCapsuleFetchBytes); err != nil {
 		return err
 	}
@@ -106,7 +105,7 @@ func (c *Controller) StageCapsuleFromURL(ctx context.Context, rawURL, name strin
 	if err != nil {
 		return err
 	}
-	log.Infof("firmware: capsule %s staged (%d bytes); the host applies it at its next boot", fileName, written)
+	slog.InfoContext(ctx, "firmware: capsule staged; the host applies it at its next boot", slog.String("name", fileName), slog.Int64("bytes", written))
 	return nil
 }
 
@@ -138,6 +137,6 @@ func downloadTo(ctx context.Context, rawURL string, w io.Writer, maxBytes int64)
 	if err != nil {
 		return fmt.Errorf("download: %w", err)
 	}
-	log.Infof("firmware: downloaded %d bytes", written)
+	slog.InfoContext(ctx, "firmware: downloaded", slog.Int64("bytes", written))
 	return nil
 }

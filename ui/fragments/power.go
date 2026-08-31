@@ -8,10 +8,10 @@ package fragments
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/power"
@@ -84,7 +84,7 @@ func postPowerAction(d *deps.Deps) gin.HandlerFunc {
 		}
 
 		if err != nil {
-			log.Errorf("ui: power action %s failed: %v", action, err)
+			slog.ErrorContext(c.Request.Context(), "ui: power action failed", slog.String("action", action), slog.Any("err", err))
 			hxToast(c, "error", label+" failed", err.Error())
 			c.Status(http.StatusConflict)
 			return

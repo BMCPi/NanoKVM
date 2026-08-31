@@ -1,9 +1,8 @@
 package utils
 
 import (
+	"log/slog"
 	"os"
-
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -13,7 +12,7 @@ const (
 func PersistHDMIDisabled() {
 	f, err := os.OpenFile(HDMIDisableFile, os.O_CREATE|os.O_RDONLY, 0o644)
 	if err != nil {
-		log.Error("failed to create hdmi disable file:", err)
+		slog.Error("failed to create hdmi disable file", slog.Any("err", err))
 		return
 	}
 	f.Close()
@@ -21,7 +20,7 @@ func PersistHDMIDisabled() {
 
 func PersistHDMIEnabled() {
 	if err := os.Remove(HDMIDisableFile); err != nil {
-		log.Error("failed to remove hdmi disable file:", err)
+		slog.Error("failed to remove hdmi disable file", slog.Any("err", err))
 		return
 	}
 }
@@ -31,7 +30,7 @@ func IsHdmiDisabled() bool {
 		if os.IsNotExist(err) {
 			return false // HDMI is enabled
 		}
-		log.Error("failed to check hdmi disable file:", err)
+		slog.Error("failed to check hdmi disable file", slog.Any("err", err))
 		return false // Assume HDMI is enabled on error
 	}
 	return true // HDMI is disabled

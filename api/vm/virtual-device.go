@@ -1,8 +1,9 @@
 package vm
 
 import (
+	"log/slog"
+
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/proto"
 	"github.com/pi-bmc/nanokvm-app/pkg/usbgadget"
@@ -22,7 +23,7 @@ func (s *Service) GetVirtualDevice(c *gin.Context) {
 		Media:   media,
 		Disk:    st.Disk,
 	})
-	log.Debugf("get virtual device success")
+	slog.DebugContext(c.Request.Context(), "get virtual device success")
 }
 
 // UpdateVirtualDevice toggles the ethernet or disk gadget function. The gadget
@@ -51,14 +52,14 @@ func (s *Service) UpdateVirtualDevice(c *gin.Context) {
 			mode = usbgadget.EthernetNCM
 		}
 		if err := gadget.SetEthernet(mode); err != nil {
-			log.Errorf("set ethernet %s failed: %s", mode, err)
+			slog.ErrorContext(c.Request.Context(), "set ethernet failed", slog.String("mode", mode), slog.Any("err", err))
 			rsp.ErrRsp(c, -3, "operation failed")
 			return
 		}
 	case "disk":
 		on = !st.Disk
 		if err := gadget.SetDisk(on); err != nil {
-			log.Errorf("set disk %v failed: %s", on, err)
+			slog.ErrorContext(c.Request.Context(), "set disk failed", slog.Bool("on", on), slog.Any("err", err))
 			rsp.ErrRsp(c, -3, "operation failed")
 			return
 		}
@@ -71,5 +72,5 @@ func (s *Service) UpdateVirtualDevice(c *gin.Context) {
 		On: on,
 	})
 
-	log.Debugf("update virtual device %s success", req.Device)
+	slog.DebugContext(c.Request.Context(), "update virtual device success", slog.String("device", req.Device))
 }

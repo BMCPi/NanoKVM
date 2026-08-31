@@ -1,12 +1,11 @@
 package auth
 
 import (
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
-
-	log "github.com/sirupsen/logrus"
 )
 
 type loginAttempt struct {
@@ -67,7 +66,7 @@ func CheckLoginAttempt(clientIP string) (bool, int, string) {
 
 	if attempt, exists := loginAttempts[clientIP]; exists {
 		if time.Now().Before(attempt.lockoutEnd) {
-			log.Debugf("login blocked for IP %s: account locked due to too many failed attempts (until %s)", clientIP, attempt.lockoutEnd)
+			slog.Debug("login blocked: account locked due to too many failed attempts", slog.String("ip", clientIP), slog.Time("until", attempt.lockoutEnd))
 			return true, -5, "Account locked due to too many failed attempts, please try again later"
 		}
 
@@ -97,7 +96,7 @@ func RecordLoginFailure(clientIP string) (bool, int, string) {
 	if !exists {
 		// When the record pool is full, clear the records instead of global lockout to prevent DDoS
 		if len(loginAttempts) >= maxLoginAttemptsRecords {
-			log.Warn("Login attempt records reached maximum limit, clearing records to prevent memory overflow")
+			slog.Warn("login attempt records reached maximum limit, clearing records to prevent memory overflow")
 			loginAttempts = make(map[string]*loginAttempt)
 		}
 		attempt = &loginAttempt{}
@@ -117,7 +116,7 @@ func RecordLoginFailure(clientIP string) (bool, int, string) {
 	// Reach the failure limit, lock out
 	if attempt.failures >= conf.Security.LoginMaxFailures {
 		attempt.lockoutEnd = now.Add(time.Duration(conf.Security.LoginLockoutDuration) * time.Second)
-		log.Debugf("login failures reached threshold for IP %s, locking out until %s", clientIP, attempt.lockoutEnd)
+		slog.Debug("login failures reached threshold, locking out", slog.String("ip", clientIP), slog.Time("until", attempt.lockoutEnd))
 	}
 
 	return false, 0, ""

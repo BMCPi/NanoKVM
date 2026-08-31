@@ -1,9 +1,9 @@
 package config
 
 import (
+	"log/slog"
 	"os"
 
-	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
 
@@ -12,7 +12,7 @@ const ConfigurationFile = "/etc/kvm/server.yaml"
 func Read() (*Config, error) {
 	data, err := os.ReadFile(ConfigurationFile)
 	if err != nil {
-		log.Errorf("failed to read config: %v", err)
+		slog.Error("failed to read config", slog.Any("err", err))
 		return nil, err
 	}
 
@@ -23,18 +23,18 @@ func Read() (*Config, error) {
 		// below unreachable. Read is a library call reached from HTTP
 		// handlers (api/vm/tls.go) that already inspect its error, so a
 		// malformed server.yaml must fail that request, not the daemon.
-		log.Errorf("failed to unmarshal config: %v", err)
+		slog.Error("failed to unmarshal config", slog.Any("err", err))
 		return nil, err
 	}
 
-	log.Debugf("read %s successfully", ConfigurationFile)
+	slog.Debug("read config successfully", slog.String("path", ConfigurationFile))
 	return &conf, nil
 }
 
 func Write(conf *Config) error {
 	data, err := yaml.Marshal(&conf)
 	if err != nil {
-		log.Errorf("failed to marshal config: %v", err)
+		slog.Error("failed to marshal config", slog.Any("err", err))
 		return err
 	}
 
@@ -43,10 +43,10 @@ func Write(conf *Config) error {
 	// (running as root) reads it.
 	err = os.WriteFile(ConfigurationFile, data, 0o600)
 	if err != nil {
-		log.Errorf("failed to write config: %v", err)
+		slog.Error("failed to write config", slog.Any("err", err))
 		return err
 	}
 
-	log.Debugf("write to %s successfully", ConfigurationFile)
+	slog.Debug("write config successfully", slog.String("path", ConfigurationFile))
 	return nil
 }

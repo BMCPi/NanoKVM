@@ -2,18 +2,18 @@ package vm
 
 import (
 	"context"
+	"log/slog"
 	"os/exec"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/proto"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 )
 
 func (s *Service) Reboot(c *gin.Context) {
 	var rsp proto.Response
 
-	log.Println("reboot system...")
+	slog.InfoContext(c.Request.Context(), "reboot system")
 
 	// context.Background(), not c.Request.Context(): a client disconnect must
 	// not abort a reboot partway through, so the command's lifetime is
@@ -26,10 +26,10 @@ func (s *Service) Reboot(c *gin.Context) {
 	err := exec.CommandContext(context.Background(), "reboot").Run()
 	if err != nil {
 		rsp.ErrRsp(c, -1, "operation failed")
-		log.Errorf("failed to reboot: %s", err)
+		slog.ErrorContext(c.Request.Context(), "failed to reboot", slog.Any("err", err))
 		return
 	}
 
 	rsp.OkRsp(c)
-	log.Debug("system rebooted")
+	slog.DebugContext(c.Request.Context(), "system rebooted")
 }

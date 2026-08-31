@@ -8,8 +8,7 @@ package firmware
 
 import (
 	"context"
-
-	log "github.com/sirupsen/logrus"
+	"log/slog"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
 	"github.com/pi-bmc/nanokvm-app/pkg/usbgadget"
@@ -38,7 +37,7 @@ func (c *Controller) presentVolume() error {
 	// record disappear exactly when a client disconnected mid-operation —
 	// while the gadget stayed presented.
 	telemetry.FirmwarePresented(context.Background(), true)
-	log.Infof("firmware: presented capsule volume %s via USB gadget", c.capsulePath)
+	slog.Info("firmware: presented capsule volume via USB gadget", slog.String("path", c.capsulePath))
 	return nil
 }
 
@@ -55,7 +54,7 @@ func (c *Controller) unpresentVolume() error {
 	c.presented = false
 	// See presentVolume for why this is not a caller's context.
 	telemetry.FirmwarePresented(context.Background(), false)
-	log.Info("firmware: unpresented USB gadget")
+	slog.Info("firmware: unpresented USB gadget")
 	return nil
 }
 

@@ -1,17 +1,17 @@
 package logger
 
-// logrus_bridge.go keeps the codebase's existing logrus call sites working
-// while they are migrated to slog.
+// logrus_bridge.go routes logrus into slog for the dependencies that still
+// log through it.
 //
-// The app has ~400 `log.Errorf(...)` calls against `log
-// "github.com/sirupsen/logrus"`. Converting them all in one change would be a
-// large unreviewable diff, and leaving logrus configured independently would
-// mean two formats, two levels and two destinations in the same file. So
-// logrus keeps its API and loses its backend: a hook forwards every entry into
-// slog, and logrus's own writer is pointed at io.Discard.
+// First-party code logs with slog directly (a depguard rule keeps it that
+// way), but go-diskfs logs through the global logrus logger, and any future
+// dependency might too. Left unbridged that would mean a second format, a
+// second level and a second destination in the same log file. So logrus keeps
+// its API and loses its backend: a hook forwards every entry into slog, and
+// logrus's own writer is pointed at io.Discard.
 //
-// Removing this file is the last step of the migration, not the first — once
-// no package imports logrus, bridgeLogrus becomes a no-op and can go.
+// This file stays for as long as go.mod contains logrus — which is a
+// dependency decision, not ours to schedule.
 
 import (
 	"context"
@@ -83,8 +83,8 @@ func (h *slogHook) Fire(e *logrus.Entry) error {
 // see past that; a PC handed downstream cannot.
 //
 // So bridged records carry "caller" while native slog records carry "source".
-// The difference is a marker of what has not been migrated yet, and it goes
-// away with this file.
+// A "caller" attr in the log is therefore also a marker that the line came
+// from a dependency logging through logrus, not from first-party code.
 func callerSite() string {
 	var pcs [16]uintptr
 	// Skip runtime.Callers and callerSite itself; the rest of the walk filters.

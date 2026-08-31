@@ -16,13 +16,13 @@ package redfish
 
 import (
 	"io"
+	"log/slog"
 	"net/http"
 	"path"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 	"github.com/stmcginnis/gofish/schemas"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/utils"
@@ -184,7 +184,7 @@ func (s *Service) SimpleUpdate(c *gin.Context) {
 	go func(url string) {
 		defer cancel()
 		if err := ctrl.StageCapsuleFromURL(ctx, url, ""); err != nil {
-			log.Errorf("redfish: capsule staging failed: %v", err)
+			slog.ErrorContext(ctx, "redfish: capsule staging failed", slog.Any("err", err))
 		}
 	}(req.ImageURI)
 
@@ -240,7 +240,8 @@ func (s *Service) PushCapsule(c *gin.Context) {
 		redfishErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	log.Infof("redfish: staged pushed capsule %s (%d bytes)", name, written)
+	slog.InfoContext(c.Request.Context(), "redfish: staged pushed capsule",
+		slog.String("name", name), slog.Int64("bytes", written))
 
 	c.JSON(http.StatusAccepted, Message{
 		ODataType: "#Message.v1_1_0.Message",

@@ -8,6 +8,7 @@ package fragments
 
 import (
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -15,7 +16,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/utils"
@@ -256,7 +256,7 @@ func postMediaUpload(d *deps.Deps) gin.HandlerFunc {
 
 		written, err := d.Firmware.SaveMediaFile(name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes))
 		if err != nil {
-			log.Errorf("ui: save media file %q failed: %v", name, err)
+			slog.ErrorContext(c.Request.Context(), "ui: save media file failed", slog.String("name", name), slog.Any("err", err))
 			hxToast(c, "error", "Upload failed", err.Error())
 			mediaRenderAdd(c, d)
 			return
@@ -342,7 +342,7 @@ func postMediaFetch(d *deps.Deps) gin.HandlerFunc {
 
 			written, err := d.Firmware.SaveMediaFile(name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes))
 			if err != nil {
-				log.Errorf("ui: save fetched media %q failed: %v", name, err)
+				slog.ErrorContext(ctx, "ui: save fetched media failed", slog.String("name", name), slog.Any("err", err))
 				mediaFetchFinish(err)
 				return
 			}

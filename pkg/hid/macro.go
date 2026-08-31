@@ -3,10 +3,9 @@ package hid
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
-
-	log "github.com/sirupsen/logrus"
 )
 
 // Macro execution. A macro is a list of steps; each step asserts a report
@@ -88,7 +87,7 @@ func ResolveStep(keys, modifiers []string, delayMS int) (Step, error) {
 func (c *Controller) RunMacro(ctx context.Context, steps []Step) error {
 	defer func() {
 		if err := c.ReleaseAll(); err != nil {
-			log.Debugf("hid: releasing keys after macro failed: %s", err)
+			slog.DebugContext(ctx, "hid: releasing keys after macro failed", slog.Any("err", err))
 		}
 	}()
 

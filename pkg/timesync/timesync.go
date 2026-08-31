@@ -17,10 +17,10 @@ package timesync
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
@@ -64,7 +64,7 @@ var (
 func Start() {
 	cfg := config.GetInstance().TimeSync
 	if !cfg.Enabled {
-		log.Info("timesync: disabled by config")
+		slog.Info("timesync: disabled by config")
 		return
 	}
 
@@ -129,17 +129,17 @@ func (s *Service) seedFromRTC() {
 	}
 	t, err := s.rtc.read()
 	if err != nil {
-		log.Warnf("timesync: read rtc: %v", err)
+		slog.Warn("timesync: read rtc failed", slog.Any("err", err))
 		return
 	}
 	if !t.After(time.Now()) {
 		return
 	}
 	if err := setSystemTime(t); err != nil {
-		log.Warnf("timesync: seed clock from rtc: %v", err)
+		slog.Warn("timesync: seed clock from rtc failed", slog.Any("err", err))
 		return
 	}
-	log.Infof("timesync: seeded clock from rtc (%s)", t.Format(time.RFC3339))
+	slog.Info("timesync: seeded clock from rtc", slog.Time("time", t))
 }
 
 func (s *Service) loop() {
@@ -155,7 +155,7 @@ func (s *Service) loop() {
 		}
 
 		if err := s.sync(); err != nil {
-			log.Warnf("timesync: %v (retry in %s)", err, backoff)
+			slog.Warn("timesync: sync failed", slog.Any("err", err), slog.Duration("retryIn", backoff))
 			timer.Reset(backoff)
 			backoff = min(backoff*2, retryCap)
 			continue
@@ -189,7 +189,7 @@ func (s *Service) sync() error {
 		}
 		if s.rtc != nil {
 			if err := s.rtc.set(now); err != nil {
-				log.Warnf("timesync: write rtc: %v", err)
+				slog.Warn("timesync: write rtc failed", slog.Any("err", err))
 			}
 		}
 		s.mu.Lock()
@@ -197,9 +197,9 @@ func (s *Service) sync() error {
 		s.lastSync, s.source = now, src.name
 		s.mu.Unlock()
 		if first {
-			log.Infof("timesync: clock set to %s (source %s)", now.Format(time.RFC3339), src.name)
+			slog.Info("timesync: clock set", slog.Time("time", now), slog.String("source", src.name))
 		} else {
-			log.Debugf("timesync: clock refreshed from %s", src.name)
+			slog.Debug("timesync: clock refreshed", slog.String("source", src.name))
 		}
 		return nil
 	}

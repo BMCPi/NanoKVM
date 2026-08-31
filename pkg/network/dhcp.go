@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -14,7 +15,6 @@ import (
 
 	"github.com/insomniacslk/dhcp/dhcpv4"
 	"github.com/insomniacslk/dhcp/dhcpv4/nclient4"
-	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 )
 
@@ -93,7 +93,7 @@ func (d *dhcpRunner) run() {
 		// The netdev can vanish and reappear (driver rebind, admin-down); make
 		// sure it exists and is up before talking DHCP.
 		if err := ensureLinkUp(d.iface); err != nil {
-			log.Warnf("network: dhcp %s: %v (retry in %s)", d.iface, err, backoff)
+			slog.Warn("network: dhcp link not ready", slog.String("iface", d.iface), slog.Any("err", err), slog.Duration("retryIn", backoff))
 			d.signalAttempt()
 			if d.waitBackoff(backoff) {
 				return
@@ -113,7 +113,7 @@ func (d *dhcpRunner) run() {
 					return // exchange cancelled by shutdown
 				default:
 				}
-				log.Warnf("network: dhcp %s: %v (retry in %s)", d.iface, err, backoff)
+				slog.Warn("network: dhcp acquisition failed", slog.String("iface", d.iface), slog.Any("err", err), slog.Duration("retryIn", backoff))
 				if d.waitBackoff(backoff) {
 					return
 				}
@@ -124,7 +124,7 @@ func (d *dhcpRunner) run() {
 		}
 
 		if err := applyLease(d.iface, lease); err != nil {
-			log.Errorf("network: dhcp %s apply lease: %v", d.iface, err)
+			slog.Error("network: dhcp apply lease failed", slog.String("iface", d.iface), slog.Any("err", err))
 			lease = nil
 			if d.waitBackoff(dhcpMinRetry) {
 				return
@@ -133,8 +133,10 @@ func (d *dhcpRunner) run() {
 		}
 		t1, t2, expiry := leaseTimes(lease)
 		rememberAddr(d.iface, lease.ACK.YourIPAddr)
-		log.Infof("network: dhcp %s bound %s (renew in %s, rebind in %s, expires in %s)",
-			d.iface, lease.ACK.YourIPAddr, until(t1), until(t2), until(expiry))
+		slog.Info("network: dhcp bound",
+			slog.String("iface", d.iface), slog.Any("addr", lease.ACK.YourIPAddr),
+			slog.Duration("renewIn", until(t1)), slog.Duration("rebindIn", until(t2)),
+			slog.Duration("expiresIn", until(expiry)))
 
 		outcome, renewed := d.maintain(lease)
 		switch outcome {
@@ -188,11 +190,12 @@ func (d *dhcpRunner) maintain(lease *nclient4.Lease) (dhcpOutcome, *nclient4.Lea
 			// address instead of holding it until expiry.
 			var nak *nclient4.ErrNak
 			if errors.As(err, &nak) {
-				log.Warnf("network: dhcp %s: server rejected the lease; reacquiring", d.iface)
+				slog.Warn("network: dhcp server rejected the lease; reacquiring", slog.String("iface", d.iface))
 				return dhcpExpired, nil
 			}
-			log.Warnf("network: dhcp %s: %s failed (%v); retrying, lease expires in %s",
-				d.iface, phaseName(rebinding), err, until(expiry))
+			slog.Warn("network: dhcp lease extension failed; retrying",
+				slog.String("iface", d.iface), slog.String("phase", phaseName(rebinding)),
+				slog.Any("err", err), slog.Duration("expiresIn", until(expiry)))
 			// Pace from now, not from the top of the iteration: a failed
 			// exchange can itself burn dhcpOverallTimeout, and pacing off the
 			// stale timestamp would leave no gap at all between attempts —
@@ -211,7 +214,7 @@ func (d *dhcpRunner) maintain(lease *nclient4.Lease) (dhcpOutcome, *nclient4.Lea
 			}
 
 		default:
-			log.Warnf("network: dhcp %s: lease expired; reacquiring", d.iface)
+			slog.Warn("network: dhcp lease expired; reacquiring", slog.String("iface", d.iface))
 			return dhcpExpired, nil
 		}
 	}
@@ -234,9 +237,9 @@ func (d *dhcpRunner) sleepUntil(deadline time.Time, lease *nclient4.Lease) (stop
 		return false, true
 	case <-d.kick:
 		if !leaseApplied(d.iface, lease) {
-			log.Warnf("network: dhcp %s: address lost; re-applying lease", d.iface)
+			slog.Warn("network: dhcp address lost; re-applying lease", slog.String("iface", d.iface))
 			if err := applyLease(d.iface, lease); err != nil {
-				log.Warnf("network: dhcp %s: re-apply failed: %v", d.iface, err)
+				slog.Warn("network: dhcp re-apply failed", slog.String("iface", d.iface), slog.Any("err", err))
 			}
 		}
 		return false, false
@@ -347,7 +350,7 @@ func (d *dhcpRunner) obtain(remembered net.IP) (*nclient4.Lease, error) {
 	if remembered != nil {
 		lease, err := d.initReboot(remembered)
 		if err == nil {
-			log.Infof("network: dhcp %s: reclaimed remembered address %s", d.iface, remembered)
+			slog.Info("network: dhcp reclaimed remembered address", slog.String("iface", d.iface), slog.Any("addr", remembered))
 			return lease, nil
 		}
 		// Drop it now rather than leaving it to be overwritten by the next
@@ -355,8 +358,8 @@ func (d *dhcpRunner) obtain(remembered net.IP) (*nclient4.Lease, error) {
 		// remembered address that no server will confirm -- typically one from
 		// a different network -- would otherwise cost this attempt on every
 		// single start until DHCP eventually succeeds.
-		log.Infof("network: dhcp %s: could not reclaim %s (%v); forgetting it and running discover",
-			d.iface, remembered, err)
+		slog.Info("network: dhcp could not reclaim remembered address; forgetting it and running discover",
+			slog.String("iface", d.iface), slog.Any("addr", remembered), slog.Any("err", err))
 		forgetRememberedAddr(d.iface)
 	}
 
@@ -496,7 +499,7 @@ func rememberAddr(iface string, ip net.IP) {
 		return // unchanged; do not rewrite on every renewal
 	}
 	if err := os.WriteFile(path, []byte(ip.String()+"\n"), 0o600); err != nil {
-		log.Debugf("network: dhcp %s: remember %s: %v", iface, ip, err)
+		slog.Debug("network: dhcp remember address failed", slog.String("iface", iface), slog.Any("addr", ip), slog.Any("err", err))
 	}
 }
 
@@ -504,7 +507,7 @@ func rememberAddr(iface string, ip net.IP) {
 // the next start. Best-effort: the worst case is one more failed reclaim.
 func forgetRememberedAddr(iface string) {
 	if err := os.Remove(rememberedAddrPath(iface)); err != nil && !os.IsNotExist(err) {
-		log.Debugf("network: dhcp %s: forget remembered address: %v", iface, err)
+		slog.Debug("network: dhcp forget remembered address failed", slog.String("iface", iface), slog.Any("err", err))
 	}
 }
 
@@ -568,7 +571,7 @@ func applyLease(iface string, lease *nclient4.Lease) error {
 	}
 	if gw != nil {
 		if err := replaceDefaultRoute(link, gw); err != nil {
-			log.Warnf("network: %v", err)
+			slog.Warn("network: set default route failed", slog.Any("err", err))
 		}
 	}
 	writeResolvConf(dns)

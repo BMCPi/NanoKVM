@@ -6,10 +6,10 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
-	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -71,7 +71,8 @@ func generateHostKey(path string) (ssh.Signer, error) {
 		return nil, fmt.Errorf("host key signer: %w", err)
 	}
 
-	log.Infof("ssh: generated ed25519 host key at %s (fingerprint %s)",
-		path, ssh.FingerprintSHA256(signer.PublicKey()))
+	slog.Info("ssh: generated ed25519 host key",
+		slog.String("path", path),
+		slog.String("fingerprint", ssh.FingerprintSHA256(signer.PublicKey())))
 	return signer, nil
 }

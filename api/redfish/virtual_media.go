@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"net/url"
@@ -13,7 +14,6 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 	"github.com/stmcginnis/gofish/schemas"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
@@ -156,7 +156,8 @@ func (s *Service) insertMediaStream(c *gin.Context) {
 
 	protocol := strings.ToUpper(parsed.Scheme)
 	recordTransfer("Stream", protocol, req.Image)
-	log.Infof("redfish: virtual media inserted (stream): %s", name)
+	slog.InfoContext(c.Request.Context(), "redfish: virtual media inserted (stream)",
+		slog.String("name", name))
 	c.JSON(http.StatusOK, buildVirtualMediaResource(s.Firmware))
 }
 
@@ -218,7 +219,8 @@ func (s *Service) insertMediaUpload(c *gin.Context) {
 	if trailing, err := parseInsertMediaMeta(upload.Rest()); err == nil && trailing.Image != "" {
 		if want := mediaFilename(trailing.Image, upload.Filename); want != name {
 			if renamed, err := renameStagedMedia(s.Firmware, name, want); err != nil {
-				log.Warnf("redfish: keeping staged name %q: %v", name, err)
+				slog.WarnContext(c.Request.Context(), "redfish: keeping staged name",
+					slog.String("name", name), slog.Any("err", err))
 			} else {
 				name = renamed
 			}
@@ -234,7 +236,8 @@ func (s *Service) insertMediaUpload(c *gin.Context) {
 	}
 
 	recordTransfer("Upload", "", name)
-	log.Infof("redfish: virtual media inserted (upload): %s (%d bytes)", name, n)
+	slog.InfoContext(c.Request.Context(), "redfish: virtual media inserted (upload)",
+		slog.String("name", name), slog.Int64("bytes", n))
 	c.JSON(http.StatusOK, buildVirtualMediaResource(s.Firmware))
 }
 
@@ -317,7 +320,7 @@ func (s *Service) EjectMedia(c *gin.Context) {
 	}
 
 	recordTransfer("", "", "")
-	log.Info("redfish: virtual media ejected")
+	slog.InfoContext(c.Request.Context(), "redfish: virtual media ejected")
 	c.Status(http.StatusNoContent)
 }
 

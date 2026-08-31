@@ -2,10 +2,9 @@ package sysinfo
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"strings"
-
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -25,7 +24,7 @@ func listInterfaces() ([]*interfaceInfo, error) {
 
 	interfaces, err := net.Interfaces()
 	if err != nil {
-		log.Errorf("failed to get net interfaces: %s", err)
+		slog.Error("failed to get net interfaces", slog.Any("err", err))
 		return nil, err
 	}
 
@@ -80,7 +79,7 @@ func getInterfaceType(iface net.Interface) string {
 func getInterfaceIP(iface net.Interface) net.IP {
 	addrs, err := iface.Addrs()
 	if err != nil {
-		log.Errorf("failed to get interface addresses: %s", err)
+		slog.Error("failed to get interface addresses", slog.Any("err", err))
 		return nil
 	}
 

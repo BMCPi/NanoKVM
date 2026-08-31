@@ -3,11 +3,10 @@ package network
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
-
-	log "github.com/sirupsen/logrus"
 )
 
 // applyRHIIsolation pins the Redfish-Host-Interface isolation knobs for the
@@ -30,7 +29,7 @@ func applyRHIIsolation(iface string) {
 		// Mode is ignored for existing /proc entries; a missing entry (e.g.
 		// ipv6 disabled) is fine.
 		if err := os.WriteFile(path, []byte(val), 0o600); err != nil && !os.IsNotExist(err) {
-			log.Debugf("network: sysctl %s: %v", path, err)
+			slog.Debug("network: sysctl write failed", slog.String("path", path), slog.Any("err", err))
 		}
 	}
 
@@ -84,6 +83,6 @@ table inet nanokvm_usb0 {
 	cmd := exec.CommandContext(context.Background(), nft, "-f", "-")
 	cmd.Stdin = strings.NewReader(script)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Warnf("network: nft guard: %v (%s)", err, strings.TrimSpace(string(out)))
+		slog.Warn("network: nft guard failed", slog.Any("err", err), slog.String("output", strings.TrimSpace(string(out))))
 	}
 }

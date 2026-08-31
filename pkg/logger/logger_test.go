@@ -126,6 +126,35 @@ func TestParseLevel(t *testing.T) {
 	}
 }
 
+func TestSetLevel(t *testing.T) {
+	prev := level.Level()
+	defer level.Set(prev)
+
+	if err := SetLevel("debug"); err != nil {
+		t.Fatalf("SetLevel(debug) = %v, want nil", err)
+	}
+	if got := level.Level(); got != slog.LevelDebug {
+		t.Errorf("level after SetLevel(debug) = %v, want %v", got, slog.LevelDebug)
+	}
+
+	// Unknown names are rejected and the threshold is left untouched --
+	// the settings UI depends on this to refuse rather than silently
+	// log at a level other than the one displayed.
+	if err := SetLevel("nonsense"); err == nil {
+		t.Error("SetLevel(nonsense) = nil, want error")
+	}
+	if got := level.Level(); got != slog.LevelDebug {
+		t.Errorf("level after rejected SetLevel = %v, want unchanged %v", got, slog.LevelDebug)
+	}
+
+	if err := SetLevel("  WARNING  "); err != nil {
+		t.Fatalf("SetLevel(WARNING) = %v, want nil (trimmed, case-folded)", err)
+	}
+	if got := level.Level(); got != slog.LevelWarn {
+		t.Errorf("level after SetLevel(WARNING) = %v, want %v", got, slog.LevelWarn)
+	}
+}
+
 // TestConsoleHandlerFormat pins the console layout: the bracketed
 // timestamp/level prefix the app has always printed, with structured attrs
 // appended as key=value.

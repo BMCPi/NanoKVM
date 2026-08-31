@@ -13,6 +13,7 @@ package ipmi
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 
 	"github.com/bougou/go-ipmi/pkg/bmc"
@@ -20,7 +21,6 @@ import (
 	"github.com/bougou/go-ipmi/pkg/server"
 	"github.com/bougou/go-ipmi/pkg/transport/udp"
 	"github.com/bougou/go-ipmi/pkg/types"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/bmcsensor"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
@@ -133,11 +133,11 @@ func startServer(ctx context.Context, d deps) (*Server, error) {
 	go func() {
 		defer close(s.done)
 		if err := srv.Serve(serveCtx); err != nil && serveCtx.Err() == nil {
-			log.Errorf("IPMI serve: %s", err)
+			slog.ErrorContext(serveCtx, "ipmi serve failed", slog.Any("err", err))
 		}
 	}()
 
-	log.Infof("IPMI server started on %s", s.addr)
+	slog.InfoContext(ctx, "ipmi server started", slog.Any("addr", s.addr))
 	return s, nil
 }
 
@@ -149,7 +149,7 @@ func (s *Server) Stop() {
 	s.cancel()
 	_ = s.srv.Close()
 	<-s.done
-	log.Info("IPMI server stopped")
+	slog.Info("ipmi server stopped")
 }
 
 // telemetryMiddleware counts dispatched commands through the existing IPMI

@@ -29,6 +29,7 @@ package rtc
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -37,7 +38,6 @@ import (
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/video"
 )
@@ -312,7 +312,7 @@ func (h *Hub) stopPipelineLocked() {
 	close(h.stop)
 	h.stop = nil
 	if err := h.cap.Stop(); err != nil && !errors.Is(err, video.ErrNotSupported) {
-		log.Warnf("rtc: stop capture: %s", err)
+		slog.Warn("rtc: stop capture", slog.Any("err", err))
 	}
 }
 
@@ -360,7 +360,7 @@ func (h *Hub) pump(stop <-chan struct{}) {
 			// pipeline and the browser completing negotiation are simply
 			// dropped rather than treated as failures.
 			if err := h.track.WriteSample(media.Sample{Data: f.Data, Duration: d}); err != nil {
-				log.Warnf("rtc: write sample: %s", err)
+				slog.Warn("rtc: write sample", slog.Any("err", err))
 				continue
 			}
 			h.written.Add(1)
@@ -420,7 +420,7 @@ func (h *Hub) readRTCP(sender *webrtc.RTPSender) {
 			switch p.(type) {
 			case *rtcp.PictureLossIndication, *rtcp.FullIntraRequest:
 				if err := h.cap.RequestKeyframe(); err != nil {
-					log.Debugf("rtc: keyframe request: %s", err)
+					slog.Debug("rtc: keyframe request", slog.Any("err", err))
 				}
 			}
 		}

@@ -3,12 +3,11 @@ package application
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"syscall"
 	"time"
-
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 )
@@ -66,7 +65,7 @@ func RunOfflineUpdate(stage func(cacheDir string) (string, error)) error {
 // handler, so listeners and the gadget shut down exactly as on a system
 // stop.
 func RestartService() {
-	log.Info("restart requested; exiting for init to respawn")
+	slog.Info("restart requested; exiting for init to respawn")
 	_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
 }
 
@@ -95,12 +94,12 @@ func update(ctx context.Context) error {
 
 	target := fmt.Sprintf("%s/%s", CacheDir, latest.Name)
 	if err := download(ctx, latest.URL, target); err != nil {
-		log.Errorf("download app failed: %s", err)
+		slog.ErrorContext(ctx, "download app failed", slog.Any("err", err))
 		return err
 	}
 
 	if err := installPackage(target); err != nil {
-		log.Errorf("failed to install package: %v", err)
+		slog.ErrorContext(ctx, "failed to install package", slog.Any("err", err))
 		return err
 	}
 
@@ -109,7 +108,7 @@ func update(ctx context.Context) error {
 
 func download(ctx context.Context, url string, target string) (err error) {
 	for i := range maxTries {
-		log.Debugf("attempt #%d/%d", i+1, maxTries)
+		slog.DebugContext(ctx, "download attempt", slog.Int("attempt", i+1), slog.Int("max", maxTries))
 		if i > 0 {
 			// Back off between attempts, but give up immediately if the caller
 			// has gone away rather than sleeping through a cancelled update.
@@ -123,14 +122,14 @@ func download(ctx context.Context, url string, target string) (err error) {
 		var req *http.Request
 		req, err = http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
-			log.Errorf("new request err: %s", err)
+			slog.ErrorContext(ctx, "new request err", slog.Any("err", err))
 			continue
 		}
 
-		log.Debugf("update will be saved to: %s", target)
+		slog.DebugContext(ctx, "update will be saved", slog.String("path", target))
 		err = utils.Download(req, target)
 		if err != nil {
-			log.Errorf("downloading latest application failed, try again...")
+			slog.ErrorContext(ctx, "downloading latest application failed, try again", slog.Any("err", err))
 			continue
 		}
 		return nil

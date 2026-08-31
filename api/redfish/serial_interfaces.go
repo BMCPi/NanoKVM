@@ -3,6 +3,7 @@ package redfish
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,7 +12,6 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/serial"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 	"github.com/stmcginnis/gofish/schemas"
 )
 
@@ -94,7 +94,7 @@ func (s *Service) PatchSerialInterface(c *gin.Context) {
 
 	// NOTE: active serial broker sessions will not pick up new settings
 	// until the next Connect(). A broker restart may be needed.
-	log.Debugf("redfish serial interface updated via central config")
+	slog.DebugContext(c.Request.Context(), "redfish serial interface updated via central config")
 	c.JSON(http.StatusOK, buildSerialInterfaceResource())
 }
 

@@ -3,7 +3,7 @@ package v4l2
 import (
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -119,12 +119,12 @@ func Open() (*Capturer, error) {
 	// failure, never fatal — a bridge with no EDID still locks whatever
 	// the host decides to send.
 	if cur, err := c.EDID(); err != nil {
-		log.Printf("v4l2: bridge EDID check skipped: %v", err)
+		slog.Warn("v4l2: bridge EDID check skipped", slog.Any("err", err))
 	} else if !lt6911.ValidEDID(cur) {
 		if err := c.SetEDID(lt6911.DefaultEDID()); err != nil {
-			log.Printf("v4l2: bridge EDID: %v", err)
+			slog.Warn("v4l2: bridge EDID programming failed", slog.Any("err", err))
 		} else {
-			log.Printf("v4l2: bridge EDID was blank or invalid, programmed the default")
+			slog.Info("v4l2: bridge EDID was blank or invalid, programmed the default")
 		}
 	}
 
@@ -228,7 +228,7 @@ func (c *Capturer) closeDevices() {
 	// delete_module fails on a module still in use.
 	if len(c.ownedModules) > 0 {
 		if err := unloadPipelineModules(c.ownedModules); err != nil {
-			log.Printf("v4l2: %v", err)
+			slog.Warn("v4l2: module unload failed", slog.Any("err", err))
 		}
 		c.ownedModules = nil
 	}
@@ -609,7 +609,7 @@ func (c *Capturer) effectiveBitrate(bitrate int) int {
 func (c *Capturer) publishErr(err error) {
 	// Logged as well as published: the published form reaches the UI as
 	// "not streaming", which looks the same as an idle host.
-	log.Printf("v4l2: %v", err)
+	slog.Error("v4l2: pipeline error", slog.Any("err", err))
 
 	st := c.State()
 	st.Err = err.Error()

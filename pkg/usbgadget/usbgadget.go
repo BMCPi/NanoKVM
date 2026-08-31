@@ -15,10 +15,9 @@ package usbgadget
 
 import (
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"sync"
-
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 )
@@ -89,7 +88,7 @@ func (g *Gadget) Init() error {
 	g.cfg = config.GetInstance().UsbGadget
 
 	if !g.cfg.Enabled {
-		log.Info("usbgadget: disabled by config; leaving gadget untouched")
+		slog.Info("usbgadget: disabled by config; leaving gadget untouched")
 		return nil
 	}
 
@@ -100,8 +99,13 @@ func (g *Gadget) Init() error {
 		return fmt.Errorf("build gadget: %w", err)
 	}
 
-	log.Infof("usbgadget: g0 ready (vid=%s pid=%s hid=%v ethernet=%s disk=%v udc-bound=%v)",
-		g.cfg.VendorID, g.cfg.ProductID, g.cfg.HID, g.cfg.Ethernet, g.cfg.Disk, g.udcBoundLocked())
+	slog.Info("usbgadget: g0 ready",
+		slog.String("vid", g.cfg.VendorID),
+		slog.String("pid", g.cfg.ProductID),
+		slog.Bool("hid", g.cfg.HID),
+		slog.String("ethernet", g.cfg.Ethernet),
+		slog.Bool("disk", g.cfg.Disk),
+		slog.Bool("udcBound", g.udcBoundLocked()))
 	return nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"sync"
@@ -11,7 +12,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/serial"
 )
@@ -60,7 +60,7 @@ func (w *wsWriter) Write(p []byte) (int, error) {
 func (s *Service) Terminal(c *gin.Context) {
 	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		log.Errorf("failed to init websocket: %s", err)
+		slog.ErrorContext(c.Request.Context(), "failed to init websocket", slog.Any("err", err))
 		return
 	}
 	defer func() {
@@ -73,7 +73,7 @@ func (s *Service) Terminal(c *gin.Context) {
 	writer := &wsWriter{ws: ws}
 	_, err = broker.Connect(sessionID, writer)
 	if err != nil {
-		log.Errorf("serial broker connect failed: %s", err)
+		slog.ErrorContext(c.Request.Context(), "serial broker connect failed", slog.Any("err", err))
 		// Best-effort error message to the client before closing.
 		_ = ws.WriteMessage(websocket.TextMessage, []byte("serial error: "+err.Error()))
 		return
@@ -94,14 +94,15 @@ func (s *Service) Terminal(c *gin.Context) {
 		if msgType == websocket.BinaryMessage {
 			var winSize WinSize
 			if json.Unmarshal(p, &winSize) == nil {
-				log.Debugf("terminal resize %dx%d (ignored – serial)", winSize.Cols, winSize.Rows)
+				slog.DebugContext(c.Request.Context(), "terminal resize (ignored – serial)",
+					slog.Int("cols", int(winSize.Cols)), slog.Int("rows", int(winSize.Rows)))
 			}
 			continue
 		}
 
 		// Text messages are keyboard input destined for the serial port.
 		if _, err := broker.Write(p); err != nil {
-			log.Errorf("serial write failed: %s", err)
+			slog.ErrorContext(c.Request.Context(), "serial write failed", slog.Any("err", err))
 			return
 		}
 	}

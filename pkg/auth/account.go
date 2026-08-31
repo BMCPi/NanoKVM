@@ -3,12 +3,12 @@ package auth
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 
-	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -34,7 +34,7 @@ func GetAccount() (*Account, error) {
 
 	var account Account
 	if err = json.Unmarshal(content, &account); err != nil {
-		log.Errorf("unmarshal account failed: %s", err)
+		slog.Error("unmarshal account failed", slog.Any("err", err))
 		return nil, err
 	}
 
@@ -51,13 +51,13 @@ func SetAccount(username string, hashedPassword string) error {
 		Password: hashedPassword,
 	})
 	if err != nil {
-		log.Errorf("failed to marshal account information to json: %s", err)
+		slog.Error("failed to marshal account information to json", slog.Any("err", err))
 		return err
 	}
 
 	err = os.MkdirAll(filepath.Dir(accountFile), 0o644)
 	if err != nil {
-		log.Errorf("create directory %s failed: %s", accountFile, err)
+		slog.Error("create directory failed", slog.String("path", accountFile), slog.Any("err", err))
 		return err
 	}
 
@@ -66,7 +66,7 @@ func SetAccount(username string, hashedPassword string) error {
 	// world-readable.
 	err = os.WriteFile(accountFile, account, 0o600)
 	if err != nil {
-		log.Errorf("write password failed: %s", err)
+		slog.Error("write password failed", slog.Any("err", err))
 		return err
 	}
 
@@ -137,7 +137,7 @@ func ComparePlainAccount(username string, plainPassword string) bool {
 
 func DelAccount() error {
 	if err := os.Remove(accountFile); err != nil {
-		log.Errorf("failed to delete password: %s", err)
+		slog.Error("failed to delete password", slog.Any("err", err))
 		return err
 	}
 

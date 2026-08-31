@@ -3,11 +3,11 @@ package rtc
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/pion/webrtc/v4"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/video"
 )
@@ -69,7 +69,7 @@ func (s *Session) armNegotiation() {
 	defer s.mu.Unlock()
 
 	s.negotiate = time.AfterFunc(negotiationTimeout, func() {
-		log.Warnf("rtc: no offer within %s, dropping session", negotiationTimeout)
+		slog.Warn("rtc: no offer, dropping session", slog.Duration("timeout", negotiationTimeout))
 		s.Close()
 	})
 }
@@ -96,7 +96,7 @@ func (s *Session) armDisconnect() {
 		return
 	}
 	s.disconnect = time.AfterFunc(disconnectGrace, func() {
-		log.Infof("rtc: still disconnected after %s, dropping session", disconnectGrace)
+		slog.Info("rtc: still disconnected, dropping session", slog.Duration("grace", disconnectGrace))
 		s.Close()
 	})
 }
@@ -158,7 +158,7 @@ func (h *Hub) NewSession(sig Signaler) (*Session, error) {
 	})
 
 	pc.OnConnectionStateChange(func(st webrtc.PeerConnectionState) {
-		log.Debugf("rtc: connection state %s", st)
+		slog.Debug("rtc: connection state", slog.Any("state", st))
 		switch st {
 		case webrtc.PeerConnectionStateConnected:
 			s.clearDisconnect()
@@ -178,7 +178,7 @@ func (h *Hub) NewSession(sig Signaler) (*Session, error) {
 			// otherwise see nothing until the next scheduled one.
 			if err := h.cap.RequestKeyframe(); err != nil &&
 				!errors.Is(err, video.ErrNotSupported) {
-				log.Warnf("rtc: keyframe on connect: %s", err)
+				slog.Warn("rtc: keyframe on connect", slog.Any("err", err))
 			}
 
 		case webrtc.PeerConnectionStateDisconnected:
@@ -251,7 +251,7 @@ func (s *Session) Close() {
 		s.hub.detach(s)
 		if s.pc != nil {
 			if err := s.pc.Close(); err != nil {
-				log.Debugf("rtc: close peer connection: %s", err)
+				slog.Debug("rtc: close peer connection", slog.Any("err", err))
 			}
 		}
 	})
@@ -305,8 +305,8 @@ func (s *Session) handleCandidate(c *webrtc.ICECandidateInit) error {
 	if !s.haveRemote {
 		if len(s.pending) >= maxPendingCandidates {
 			s.mu.Unlock()
-			log.Warnf("rtc: dropping ICE candidate, %d already queued with no offer",
-				maxPendingCandidates)
+			slog.Warn("rtc: dropping ICE candidate, queue full with no offer",
+				slog.Int("queued", maxPendingCandidates))
 			return nil
 		}
 		s.pending = append(s.pending, *c)
@@ -333,7 +333,7 @@ func (s *Session) flushCandidates() {
 
 	for _, c := range pending {
 		if err := s.pc.AddICECandidate(c); err != nil {
-			log.Warnf("rtc: queued ice candidate rejected: %s", err)
+			slog.Warn("rtc: queued ice candidate rejected", slog.Any("err", err))
 		}
 	}
 }

@@ -1,10 +1,10 @@
 package redfish
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/auth"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
@@ -61,7 +61,9 @@ func HostTrace() gin.HandlerFunc {
 			return
 		}
 		c.Next()
-		log.Infof("redfish host: %s %s -> %d",
-			c.Request.Method, c.Request.URL.Path, c.Writer.Status())
+		slog.InfoContext(c.Request.Context(), "redfish host: request",
+			slog.String("method", c.Request.Method),
+			slog.String("path", c.Request.URL.Path),
+			slog.Int("status", c.Writer.Status()))
 	}
 }

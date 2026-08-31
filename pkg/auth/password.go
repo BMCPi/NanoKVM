@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -31,7 +31,7 @@ func ChangePassword(username, plainPassword string) error {
 		return err
 	}
 
-	log.Debugf("change password success, username: %s", username)
+	slog.Debug("change password success", slog.String("username", username))
 	return nil
 }
 
@@ -68,11 +68,11 @@ func IsPasswordUpdated() (bool, error) {
 func changeRootPassword(password string) error {
 	err := passwd(password)
 	if err != nil {
-		log.Errorf("failed to change root password: %s", err)
+		slog.Error("failed to change root password", slog.Any("err", err))
 		return err
 	}
 
-	log.Debugf("change root password successful.")
+	slog.Debug("change root password successful")
 	return nil
 }
 

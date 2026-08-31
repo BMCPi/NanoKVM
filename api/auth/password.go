@@ -1,8 +1,9 @@
 package auth
 
 import (
+	"log/slog"
+
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/auth"
 	"github.com/pi-bmc/nanokvm-app/pkg/proto"
@@ -33,7 +34,7 @@ func (s *Service) ChangePassword(c *gin.Context) {
 	}
 
 	rsp.OkRsp(c)
-	log.Debugf("change password success, username: %s", req.Username)
+	slog.DebugContext(c.Request.Context(), "change password success", slog.String("username", req.Username))
 }
 
 // IsPasswordUpdated reports whether the default admin password was changed.

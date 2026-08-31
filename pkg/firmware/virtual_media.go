@@ -18,11 +18,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
-
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/usbgadget"
 )
@@ -237,7 +236,7 @@ func (c *Controller) SaveMediaFile(name string, r io.Reader) (int64, error) {
 		_ = os.Remove(tmpPath)
 		return n, fmt.Errorf("install media file: %w", err)
 	}
-	log.Infof("firmware: saved media file %q (%d bytes)", name, n)
+	slog.Info("firmware: saved media file", slog.String("name", name), slog.Int64("bytes", n))
 	return n, nil
 }
 
@@ -307,7 +306,7 @@ func (c *Controller) insertStagedMedia(name string, ephemeral bool) error {
 		if err := os.WriteFile(marker, nil, 0o600); err != nil {
 			// Degrade to persistence rather than promising a deletion the
 			// next process (or the sweep) would know nothing about.
-			log.Warnf("firmware: cannot mark %q ephemeral: %v (file will persist after eject)", name, err)
+			slog.Warn("firmware: cannot mark media ephemeral; file will persist after eject", slog.String("name", name), slog.Any("err", err))
 			ephemeral = false
 		}
 	} else {
@@ -317,7 +316,7 @@ func (c *Controller) insertStagedMedia(name string, ephemeral bool) error {
 	}
 
 	c.vmState = VirtualMediaState{Inserted: true, ImageName: name, ImageSize: info.Size(), Ephemeral: ephemeral}
-	log.Infof("firmware: inserted virtual media %q (%d bytes, ephemeral=%t) via lun.1", name, info.Size(), ephemeral)
+	slog.Info("firmware: inserted virtual media via lun.1", slog.String("name", name), slog.Int64("bytes", info.Size()), slog.Bool("ephemeral", ephemeral))
 	return nil
 }
 
@@ -340,7 +339,7 @@ func (c *Controller) EjectVirtualMedia() error {
 
 	c.vmState = VirtualMediaState{}
 	c.removeEphemeralLocked(prev)
-	log.Infof("firmware: ejected virtual media %s", prev.ImageName)
+	slog.Info("firmware: ejected virtual media", slog.String("name", prev.ImageName))
 	return nil
 }
 
@@ -358,13 +357,13 @@ func (c *Controller) removeEphemeralLocked(prev VirtualMediaState) {
 			err = os.Remove(path)
 		}
 		if err != nil && !os.IsNotExist(err) {
-			log.Warnf("firmware: delete ephemeral media %q: %v", prev.ImageName, err)
+			slog.Warn("firmware: delete ephemeral media failed", slog.String("name", prev.ImageName), slog.Any("err", err))
 			return // keep the marker so the sweep can finish the job
 		}
-		log.Infof("firmware: deleted ephemeral media %q", prev.ImageName)
+		slog.Info("firmware: deleted ephemeral media", slog.String("name", prev.ImageName))
 	}
 	if err := os.Remove(c.ephemeralMarkerPath(prev.ImageName)); err != nil && !os.IsNotExist(err) {
-		log.Warnf("firmware: clear ephemeral marker for %q: %v", prev.ImageName, err)
+		slog.Warn("firmware: clear ephemeral marker failed", slog.String("name", prev.ImageName), slog.Any("err", err))
 	}
 }
 
@@ -397,11 +396,11 @@ func (c *Controller) sweepEphemeralMediaLocked() {
 			err = os.Remove(path)
 		}
 		if err != nil && !os.IsNotExist(err) {
-			log.Warnf("firmware: sweep ephemeral media %q: %v", name, err)
+			slog.Warn("firmware: sweep ephemeral media failed", slog.String("name", name), slog.Any("err", err))
 			continue // keep the marker; retry next startup
 		}
 		_ = os.Remove(marker)
-		log.Infof("firmware: swept leftover ephemeral media %q", name)
+		slog.Info("firmware: swept leftover ephemeral media", slog.String("name", name))
 	}
 }
 
@@ -450,14 +449,14 @@ func (c *Controller) SaveMediaISO(name string, r io.Reader) (string, int64, erro
 
 	// Source ISO no longer needed once the hybrid image exists.
 	if err := os.Remove(isoPath); err != nil && !os.IsNotExist(err) {
-		log.Warnf("firmware: could not remove staged ISO %q: %v", isoPath, err)
+		slog.Warn("firmware: could not remove staged ISO", slog.String("path", isoPath), slog.Any("err", err))
 	}
 
 	info, err := os.Stat(imgPath)
 	if err != nil {
 		return "", 0, err
 	}
-	log.Infof("firmware: built hybrid image %q (%d bytes) from %q", imgName, info.Size(), name)
+	slog.Info("firmware: built hybrid image", slog.String("image", imgName), slog.Int64("bytes", info.Size()), slog.String("source", name))
 	return imgName, info.Size(), nil
 }
 
@@ -477,10 +476,10 @@ func buildHybridImage(isoPath, imgPath string) error {
 	if err != nil {
 		return fmt.Errorf("derive hybrid params: %w", err)
 	}
-	log.Infof(
-		"firmware: hybrid params for %q: imageSize=%d sectorSize=%d skip=%d count=%d",
-		filepath.Base(isoPath), params.ImageSize, params.SectorSize,
-		params.OverlaySkipSects, params.OverlayCountSect,
+	slog.Info("firmware: hybrid params",
+		slog.String("iso", filepath.Base(isoPath)),
+		slog.Int64("imageSize", params.ImageSize), slog.Int64("sectorSize", params.SectorSize),
+		slog.Int64("skip", params.OverlaySkipSects), slog.Int64("count", params.OverlayCountSect),
 	)
 
 	out, err := os.OpenFile(imgPath, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0o644)
@@ -514,10 +513,10 @@ func buildHybridImage(isoPath, imgPath string) error {
 			return fmt.Errorf("write overlay: %w", err)
 		}
 		if n < overlayLen {
-			log.Warnf("firmware: hybrid overlay short read: wrote %d of %d bytes", n, overlayLen)
+			slog.Warn("firmware: hybrid overlay short read", slog.Int64("written", n), slog.Int64("expected", overlayLen))
 		}
 	} else {
-		log.Warnf("firmware: no overlay partition found in %q; image may not boot as block device", filepath.Base(isoPath))
+		slog.Warn("firmware: no overlay partition found; image may not boot as block device", slog.String("iso", filepath.Base(isoPath)))
 	}
 
 	return out.Sync()

@@ -24,6 +24,7 @@ package discovery
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"sort"
@@ -31,8 +32,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/discovery/mdns"
@@ -107,7 +106,7 @@ func Start() (*Responder, error) {
 	ssdpOn := disc.SSDP.Enabled && cfg.Redfish.Enabled
 
 	if !mdnsOn && !ssdpOn {
-		log.Info("discovery: mdns and ssdp both disabled")
+		slog.Info("discovery: mdns and ssdp both disabled")
 		return nil, nil
 	}
 
@@ -120,7 +119,7 @@ func Start() (*Responder, error) {
 		stopCh:        make(chan struct{}),
 	}
 	if err := r.start(); err != nil {
-		log.Warnf("discovery: initial start failed (watcher will retry): %v", err)
+		slog.Warn("discovery: initial start failed (watcher will retry)", slog.Any("err", err))
 	}
 	go r.watch()
 
@@ -265,7 +264,8 @@ func (r *Responder) startMDNSLocked(cfg *config.Config, host string) error {
 		return fmt.Errorf("mdns: %w", err)
 	}
 	r.mdnsR = mr
-	log.Infof("discovery: mdns advertising %s on %s", host, ifaceDesc(r.ifaceName))
+	slog.Info("discovery: mdns advertising",
+		slog.String("host", host), slog.String("iface", ifaceDesc(r.ifaceName)))
 	return nil
 }
 
@@ -298,7 +298,8 @@ func (r *Responder) startSSDPLocked(cfg *config.Config) error {
 		return fmt.Errorf("ssdp: %w", err)
 	}
 	r.ssdpR = sr
-	log.Infof("discovery: ssdp advertising %s on %s", location, ifaceDesc(r.ssdpIfaceName))
+	slog.Info("discovery: ssdp advertising",
+		slog.String("location", location), slog.String("iface", ifaceDesc(r.ssdpIfaceName)))
 	return nil
 }
 
@@ -409,9 +410,9 @@ func (r *Responder) watch() {
 				continue
 			}
 			if err := r.start(); err != nil {
-				log.Debugf("discovery: restart on change failed (will retry): %v", err)
+				slog.Debug("discovery: restart on change failed (will retry)", slog.Any("err", err))
 			} else {
-				log.Debug("discovery: (re)started after network/hostname change")
+				slog.Debug("discovery: (re)started after network/hostname change")
 			}
 		}
 	}
@@ -539,7 +540,7 @@ func Restart() {
 	prev.Stop() // nil-safe
 
 	if _, err := Start(); err != nil {
-		log.Warnf("discovery: restart: %v", err)
+		slog.Warn("discovery: restart failed", slog.Any("err", err))
 	}
 }
 

@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/power"
 	"github.com/pi-bmc/nanokvm-app/pkg/proto"
@@ -64,7 +64,7 @@ func (s *Service) SetGpio(c *gin.Context) {
 		return
 	}
 
-	log.Debugf("power action %s completed", req.Action)
+	slog.DebugContext(c.Request.Context(), "power action completed", slog.String("action", req.Action))
 	rsp.OkRsp(c)
 }
 
@@ -157,7 +157,7 @@ func (s *Service) StreamGpio(c *gin.Context) {
 		case <-poll:
 			on, err := ctrl.State(ctx)
 			if err != nil {
-				log.Debugf("gpio stream: poll failed: %s", err)
+				slog.DebugContext(ctx, "gpio stream: poll failed", slog.Any("err", err))
 				continue
 			}
 			if on == pwr {
@@ -200,6 +200,6 @@ func writePower(w io.Writer, on bool) {
 		return // GetGpioRsp is two bools; unreachable.
 	}
 	if _, err := fmt.Fprintf(w, "event: power\ndata: %s\n\n", body); err != nil {
-		log.Debugf("gpio stream: write failed: %s", err)
+		slog.Debug("gpio stream: write failed", slog.Any("err", err))
 	}
 }

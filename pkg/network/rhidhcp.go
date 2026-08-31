@@ -1,12 +1,12 @@
 package network
 
 import (
+	"log/slog"
 	"net"
 	"time"
 
 	"github.com/insomniacslk/dhcp/dhcpv4"
 	"github.com/insomniacslk/dhcp/dhcpv4/server4"
-	log "github.com/sirupsen/logrus"
 )
 
 // rhiLeaseTime matches the old udhcpd-usb0.conf lease option.
@@ -40,10 +40,10 @@ func startRHIDHCP(iface string, serverIP, leaseIP net.IP, mask net.IPMask) (*rhi
 		// Serve returns on Close or on a socket error (e.g. the netdev was
 		// torn down); the next RHI (re)configure starts a fresh server.
 		if err := srv.Serve(); err != nil {
-			log.Debugf("network: RHI dhcp server on %s exited: %v", iface, err)
+			slog.Debug("network: RHI dhcp server exited", slog.String("iface", iface), slog.Any("err", err))
 		}
 	}()
-	log.Infof("network: RHI dhcp server on %s (single lease %s)", iface, leaseIP)
+	slog.Info("network: RHI dhcp server started", slog.String("iface", iface), slog.Any("lease", leaseIP))
 	return s, nil
 }
 
@@ -57,7 +57,7 @@ func (s *rhiDHCPServer) handle(conn net.PacketConn, peer net.Addr, req *dhcpv4.D
 		return
 	}
 	if _, err := conn.WriteTo(resp.ToBytes(), peer); err != nil {
-		log.Debugf("network: RHI dhcp reply: %v", err)
+		slog.Debug("network: RHI dhcp reply failed", slog.Any("err", err))
 	}
 }
 
@@ -98,7 +98,7 @@ func (s *rhiDHCPServer) reply(req *dhcpv4.DHCPv4) *dhcpv4.DHCPv4 {
 	}
 	resp, err := dhcpv4.NewReplyFromRequest(req, mods...)
 	if err != nil {
-		log.Debugf("network: RHI dhcp reply build: %v", err)
+		slog.Debug("network: RHI dhcp reply build failed", slog.Any("err", err))
 		return nil
 	}
 	return resp

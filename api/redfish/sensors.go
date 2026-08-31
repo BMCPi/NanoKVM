@@ -18,10 +18,10 @@ package redfish
 // where a client already looks for BMC-observed telemetry.
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/bmcsensor"
 	"github.com/stmcginnis/gofish/schemas"
@@ -143,7 +143,7 @@ func socSensorResource() Sensor {
 
 	reading, err := socReader.Read()
 	if err != nil {
-		log.Debugf("redfish: SoC sensor unavailable: %v", err)
+		slog.Debug("redfish: SoC sensor unavailable", slog.Any("err", err))
 		return sensor
 	}
 

@@ -12,6 +12,7 @@ package firmware
 
 import (
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -19,7 +20,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
@@ -140,7 +140,7 @@ func registerCapsules(fw *gin.RouterGroup, d *deps.Deps, ctrl *firmware.Controll
 		go func(rawURL, name string) {
 			defer cancel()
 			if err := ctrl.StageCapsuleFromURL(ctx, rawURL, name); err != nil {
-				log.Errorf("firmware: capsule fetch failed: %v", err)
+				slog.ErrorContext(ctx, "firmware: capsule fetch failed", slog.Any("err", err))
 			}
 		}(req.URL, filepath.Base(req.Name))
 

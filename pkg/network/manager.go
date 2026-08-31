@@ -16,12 +16,12 @@ package network
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"strings"
 	"sync"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
@@ -152,7 +152,7 @@ func WaitReady(timeout time.Duration) {
 func startLocked() {
 	cfg := config.GetInstance().Network
 	if !cfg.Enabled {
-		log.Info("network: disabled by config; leaving interface setup to init scripts")
+		slog.Info("network: disabled by config; leaving interface setup to init scripts")
 		return
 	}
 
@@ -223,8 +223,9 @@ func (m *Manager) awaitEth0(done <-chan struct{}) {
 	case <-m.eth0Ready:
 	case <-done:
 	case <-timer.C:
-		log.Warnf("network: %s not configured after %s; bringing up %s anyway",
-			m.cfg.Eth0.Name, rhiEth0Wait, m.cfg.RHI.Interface)
+		slog.Warn("network: uplink not configured; bringing up RHI anyway",
+			slog.String("iface", m.cfg.Eth0.Name), slog.Duration("waited", rhiEth0Wait),
+			slog.String("rhi", m.cfg.RHI.Interface))
 	}
 }
 
@@ -244,11 +245,11 @@ func (m *Manager) waitReady(timeout time.Duration) {
 		select {
 		case <-w.ready:
 		case <-timer.C:
-			log.Warnf("network: timed out waiting for initial %s configuration; continuing startup", w.name)
+			slog.Warn("network: timed out waiting for initial configuration; continuing startup", slog.String("link", w.name))
 			return
 		}
 	}
-	log.Info("network: initial interface configuration complete")
+	slog.Info("network: initial interface configuration complete")
 }
 
 // ---- eth0 ------------------------------------------------------------------
@@ -265,7 +266,7 @@ func (m *Manager) superviseEth0(done <-chan struct{}) {
 	for {
 		link, err := waitForLink(ic.Name, 20, 500*time.Millisecond, done)
 		if err != nil {
-			log.Errorf("network: eth0: %v (retry in %s)", err, backoff)
+			slog.Error("network: eth0 link wait failed", slog.Any("err", err), slog.Duration("retryIn", backoff))
 			m.signalEth0Ready()
 			if sleepOrDone(done, backoff) {
 				return
@@ -291,11 +292,11 @@ func (m *Manager) superviseEth0(done <-chan struct{}) {
 			// lease and every open session) for no reason.
 			_ = netlink.LinkSetDown(link)
 			if err := setMAC(link, mac); err != nil {
-				log.Warnf("network: eth0: %v", err)
+				slog.Warn("network: eth0 set mac failed", slog.Any("err", err))
 			}
 		}
 		if err := ensureUp(link); err != nil {
-			log.Errorf("network: eth0: %v (retry in %s)", err, backoff)
+			slog.Error("network: eth0 bring-up failed", slog.Any("err", err), slog.Duration("retryIn", backoff))
 			m.signalEth0Ready()
 			if sleepOrDone(done, backoff) {
 				return
@@ -307,7 +308,7 @@ func (m *Manager) superviseEth0(done <-chan struct{}) {
 		switch strings.ToLower(ic.Mode) {
 		case ModeStatic:
 			if err := m.applyStatic(link, ic); err != nil {
-				log.Errorf("network: eth0 static config: %v (retry in %s)", err, backoff)
+				slog.Error("network: eth0 static config failed", slog.Any("err", err), slog.Duration("retryIn", backoff))
 				m.signalEth0Ready()
 				if sleepOrDone(done, backoff) {
 					return
@@ -349,13 +350,13 @@ func (m *Manager) applyStatic(link netlink.Link, ic config.InterfaceConfig) erro
 	if ic.Gateway != "" {
 		gw := net.ParseIP(ic.Gateway)
 		if gw == nil {
-			log.Warnf("network: eth0: invalid gateway %q", ic.Gateway)
+			slog.Warn("network: eth0 invalid gateway", slog.String("gateway", ic.Gateway))
 		} else if err := replaceDefaultRoute(link, gw); err != nil {
-			log.Warnf("network: eth0: %v", err)
+			slog.Warn("network: eth0 set default route failed", slog.Any("err", err))
 		}
 	}
 	writeResolvConf(parseDNS(ic.DNS))
-	log.Infof("network: eth0 static %s gw=%s", ic.Address, ic.Gateway)
+	slog.Info("network: eth0 static configured", slog.String("addr", ic.Address), slog.String("gateway", ic.Gateway))
 	return nil
 }
 
@@ -377,13 +378,13 @@ func (m *Manager) reconcileEth0Static() {
 	if isAdminUp(link) && hasAddr(link, addr) {
 		return
 	}
-	log.Warnf("network: eth0 static config lost; re-applying")
+	slog.Warn("network: eth0 static config lost; re-applying")
 	if err := ensureUp(link); err != nil {
-		log.Warnf("network: eth0: %v", err)
+		slog.Warn("network: eth0 bring-up failed", slog.Any("err", err))
 		return
 	}
 	if err := m.applyStatic(link, ic); err != nil {
-		log.Warnf("network: eth0 static re-apply: %v", err)
+		slog.Warn("network: eth0 static re-apply failed", slog.Any("err", err))
 	}
 }
 
@@ -393,7 +394,7 @@ func parseDNS(list []string) []net.IP {
 		if ip := net.ParseIP(s); ip != nil {
 			out = append(out, ip)
 		} else {
-			log.Warnf("network: ignoring invalid dns server %q", s)
+			slog.Warn("network: ignoring invalid dns server", slog.String("server", s))
 		}
 	}
 	return out
@@ -407,7 +408,7 @@ func (m *Manager) superviseRHI(done <-chan struct{}) {
 	// so wait for it (JetKVM's usb.go retries the same way). Ongoing
 	// re-assertion after USB re-enumeration is owned by the link monitor.
 	if link, err := waitForLink(m.cfg.RHI.Interface, 40, 500*time.Millisecond, done); err != nil {
-		log.Warnf("network: RHI: %v", err)
+		slog.Warn("network: RHI link wait failed", slog.Any("err", err))
 	} else {
 		m.configureRHI(link)
 	}
@@ -416,21 +417,21 @@ func (m *Manager) superviseRHI(done <-chan struct{}) {
 
 func (m *Manager) configureRHI(link netlink.Link) {
 	if err := ensureUp(link); err != nil {
-		log.Warnf("network: RHI: %v", err)
+		slog.Warn("network: RHI bring-up failed", slog.Any("err", err))
 		return
 	}
 	addr, err := netlink.ParseAddr(m.cfg.RHI.Address)
 	if err != nil {
-		log.Errorf("network: RHI address %q: %v", m.cfg.RHI.Address, err)
+		slog.Error("network: RHI address invalid", slog.String("addr", m.cfg.RHI.Address), slog.Any("err", err))
 		return
 	}
 	// AddrReplace is idempotent — safe to re-run on every link event. This is
 	// the RHI's own link-local address; we do not disturb any other address.
 	if err := netlink.AddrReplace(link, addr); err != nil {
-		log.Warnf("network: RHI addr %s on %s: %v", m.cfg.RHI.Address, m.cfg.RHI.Interface, err)
+		slog.Warn("network: RHI addr replace failed", slog.String("addr", m.cfg.RHI.Address), slog.String("iface", m.cfg.RHI.Interface), slog.Any("err", err))
 		return
 	}
-	log.Infof("network: RHI %s = %s", m.cfg.RHI.Interface, m.cfg.RHI.Address)
+	slog.Info("network: RHI configured", slog.String("iface", m.cfg.RHI.Interface), slog.String("addr", m.cfg.RHI.Address))
 
 	// The rest of the RHI contract, formerly the build's ifupdown hooks:
 	// isolation knobs + nft guard, and the single-lease DHCP server for the
@@ -450,7 +451,7 @@ func (m *Manager) ensureRHIDHCP(addr *netlink.Addr) {
 	}
 	leaseIP := net.ParseIP(lease)
 	if leaseIP == nil {
-		log.Errorf("network: RHI lease %q: not an IP address", lease)
+		slog.Error("network: RHI lease is not an IP address", slog.String("lease", lease))
 		return
 	}
 
@@ -462,7 +463,7 @@ func (m *Manager) ensureRHIDHCP(addr *netlink.Addr) {
 	}
 	srv, err := startRHIDHCP(m.cfg.RHI.Interface, addr.IP, leaseIP, addr.Mask)
 	if err != nil {
-		log.Warnf("network: RHI dhcp server: %v", err)
+		slog.Warn("network: RHI dhcp server start failed", slog.Any("err", err))
 		return
 	}
 	m.rhiDHCP = srv
@@ -497,7 +498,7 @@ func (m *Manager) monitorLinks(done <-chan struct{}) {
 
 	events := make(chan netlink.LinkUpdate, 16)
 	if err := netlink.LinkSubscribe(events, done); err != nil {
-		log.Warnf("network: link monitor unavailable (%v); relying on periodic reconcile", err)
+		slog.Warn("network: link monitor unavailable; relying on periodic reconcile", slog.Any("err", err))
 		events = nil
 	}
 
@@ -538,7 +539,7 @@ func (m *Manager) noteEth0Carrier(up bool) {
 	if !rose || !dhcpMode(m.cfg.Eth0.Mode) {
 		return
 	}
-	log.Infof("network: %s carrier up; reacquiring a lease", m.cfg.Eth0.Name)
+	slog.Info("network: carrier up; reacquiring a lease", slog.String("iface", m.cfg.Eth0.Name))
 	select {
 	case m.dhcpReacquire <- struct{}{}:
 	default: // one pending reacquire is as good as several

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sort"
 	"sync"
@@ -12,7 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/hid"
@@ -89,7 +89,7 @@ func (s *Service) HID(c *gin.Context) {
 
 	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		log.Errorf("hid: failed to init websocket: %s", err)
+		slog.ErrorContext(c.Request.Context(), "hid: failed to init websocket", slog.Any("err", err))
 		return
 	}
 
@@ -100,7 +100,7 @@ func (s *Service) HID(c *gin.Context) {
 	// down: a dropped socket is indistinguishable from a lost key-up.
 	defer func() {
 		if err := ctrl.ReleaseAll(); err != nil {
-			log.Debugf("hid: release on disconnect failed: %s", err)
+			slog.DebugContext(c.Request.Context(), "hid: release on disconnect failed", slog.Any("err", err))
 		}
 		_ = ws.Close()
 	}()
@@ -136,9 +136,9 @@ func (s *Service) HID(c *gin.Context) {
 	}()
 	defer close(done)
 
-	log.Debugf("hid: input session from %s opened", c.ClientIP())
+	slog.DebugContext(c.Request.Context(), "hid: input session opened", slog.String("client", c.ClientIP()))
 	s.readHIDEvents(ws, ctrl)
-	log.Debugf("hid: input session from %s closed", c.ClientIP())
+	slog.DebugContext(c.Request.Context(), "hid: input session closed", slog.String("client", c.ClientIP()))
 }
 
 // keyEventBuffer bounds the ordered keyboard queue. Key events are stateful
@@ -210,7 +210,7 @@ func (a *hidApplier) enqueue(ev hidEvent) {
 	case a.keys <- ev:
 	case <-a.done:
 	default:
-		log.Debugf("hid: keyboard queue full; dropping %q (host not consuming reports)", ev.Type)
+		slog.Debug("hid: keyboard queue full; dropping event (host not consuming reports)", slog.String("type", ev.Type))
 	}
 }
 
@@ -252,7 +252,7 @@ func (a *hidApplier) keyboardLane() {
 			if err := a.apply(ev); err != nil {
 				// Usually "the host is not listening", which is normal for a
 				// BMC and already logged at debug by pkg/hid.
-				log.Debugf("hid: applying %q failed: %s", ev.Type, err)
+				slog.Debug("hid: applying event failed", slog.String("type", ev.Type), slog.Any("err", err))
 			}
 		}
 	}
@@ -277,7 +277,7 @@ func (a *hidApplier) pointerLane() {
 				break
 			}
 			if err := a.apply(*ev); err != nil {
-				log.Debugf("hid: applying %q failed: %s", ev.Type, err)
+				slog.Debug("hid: applying event failed", slog.String("type", ev.Type), slog.Any("err", err))
 			}
 		}
 	}
@@ -299,7 +299,7 @@ func (s *Service) readHIDEvents(ws *websocket.Conn, ctrl *hid.Controller) {
 
 		var ev hidEvent
 		if err := json.Unmarshal(data, &ev); err != nil {
-			log.Debugf("hid: bad event from client: %s", err)
+			slog.Debug("hid: bad event from client", slog.Any("err", err))
 			continue
 		}
 
@@ -357,7 +357,7 @@ func (s *Service) CreateMacro(c *gin.Context) {
 
 	conf.Macros = append(conf.Macros, macro)
 	config.Save()
-	log.Infof("hid: macro %q created", macro.Name)
+	slog.InfoContext(c.Request.Context(), "hid: macro created", slog.String("name", macro.Name))
 	c.JSON(http.StatusOK, gin.H{"macro": macro})
 }
 
@@ -385,7 +385,7 @@ func (s *Service) UpdateMacro(c *gin.Context) {
 
 	conf.Macros[idx] = macro
 	config.Save()
-	log.Infof("hid: macro %q updated", macro.Name)
+	slog.InfoContext(c.Request.Context(), "hid: macro updated", slog.String("name", macro.Name))
 	c.JSON(http.StatusOK, gin.H{"macro": macro})
 }
 
@@ -401,7 +401,7 @@ func (s *Service) DeleteMacro(c *gin.Context) {
 	name := conf.Macros[idx].Name
 	conf.Macros = append(conf.Macros[:idx], conf.Macros[idx+1:]...)
 	config.Save()
-	log.Infof("hid: macro %q deleted", name)
+	slog.InfoContext(c.Request.Context(), "hid: macro deleted", slog.String("name", name))
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -435,12 +435,12 @@ func (s *Service) RunMacro(c *gin.Context) {
 	defer cancel()
 
 	if err := ctrl.RunMacro(ctx, steps); err != nil {
-		log.Warnf("hid: macro %q failed: %s", macro.Name, err)
+		slog.WarnContext(c.Request.Context(), "hid: macro failed", slog.String("name", macro.Name), slog.Any("err", err))
 		c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 		return
 	}
 
-	log.Infof("hid: macro %q sent", macro.Name)
+	slog.InfoContext(c.Request.Context(), "hid: macro sent", slog.String("name", macro.Name))
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 

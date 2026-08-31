@@ -3,11 +3,11 @@ package redfish
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 	"github.com/stmcginnis/gofish/schemas"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
@@ -72,7 +72,8 @@ func (s *Service) ResetSystem(c *gin.Context) {
 		return
 	}
 
-	log.Debugf("redfish reset action: %s", req.ResetType)
+	slog.DebugContext(c.Request.Context(), "redfish reset action",
+		slog.String("resetType", string(req.ResetType)))
 	c.Status(http.StatusNoContent)
 }
 
@@ -164,7 +165,7 @@ func applyBootPatch(target schemas.BootSource, enabled schemas.BootSourceOverrid
 
 	if enabled == schemas.DisabledBootSourceOverrideEnabled || target == schemas.NoneBootSource {
 		clearBootOverride()
-		log.Debug("redfish boot override cleared")
+		slog.Debug("redfish boot override cleared")
 		return nil
 	}
 
@@ -173,7 +174,8 @@ func applyBootPatch(target schemas.BootSource, enabled schemas.BootSourceOverrid
 	}
 
 	stageBootOverride(target, enabled)
-	log.Debugf("redfish boot override staged: target=%s enabled=%s", target, enabled)
+	slog.Debug("redfish boot override staged",
+		slog.String("target", string(target)), slog.String("enabled", string(enabled)))
 	return nil
 }
 

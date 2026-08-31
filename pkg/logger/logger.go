@@ -16,6 +16,7 @@
 package logger
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -131,6 +132,26 @@ func Close() error {
 		return closer.Close()
 	}
 	return nil
+}
+
+// SetLevel changes the process-wide minimum level at runtime. It is strict
+// where parseLevel is lenient: an unrecognised name is an error and leaves
+// the level unchanged, because the caller (the settings UI) shows the name to
+// the operator, and silently logging at a different level than the one
+// displayed is worse than refusing.
+//
+// The shared LevelVar means the change applies to every path at once: native
+// slog call sites, the standard library bridge, and the logrus bridge, whose
+// hook filters against this same threshold.
+func SetLevel(name string) error {
+	trimmed := strings.ToLower(strings.TrimSpace(name))
+	switch trimmed {
+	case "trace", "debug", "info", "warn", "warning", "error", "fatal", "panic":
+		level.Set(parseLevel(trimmed))
+		return nil
+	default:
+		return fmt.Errorf("logger: unrecognised level %q", name)
+	}
 }
 
 // parseLevel maps the configured level name onto a slog level. It accepts the

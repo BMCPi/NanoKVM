@@ -2,6 +2,7 @@ package redfish
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -9,7 +10,6 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 )
 
 func (s *Service) GetSessionService(c *gin.Context) {
@@ -51,7 +51,7 @@ func (s *Service) CreateSession(c *gin.Context) {
 	sessionID := fmt.Sprintf("%d", time.Now().UnixNano())
 	sessionURI := sessionsPath + "/" + sessionID
 
-	log.Debugf("redfish session created for user: %s", req.UserName)
+	slog.DebugContext(c.Request.Context(), "redfish session created", slog.String("user", req.UserName))
 
 	c.Header("X-Auth-Token", token)
 	// Location is where the client learns its own session URI. gofish reads

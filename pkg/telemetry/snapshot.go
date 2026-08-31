@@ -1,11 +1,11 @@
 package telemetry
 
 import (
+	"log/slog"
 	"sort"
 	"strings"
 
 	dto "github.com/prometheus/client_model/go"
-	log "github.com/sirupsen/logrus"
 )
 
 // Reading the app's own metrics back out for the dashboard.
@@ -68,7 +68,7 @@ func Gather() Snapshot {
 	if err != nil {
 		// Gather returns partial results alongside an error, so this is worth
 		// noting but not worth discarding what it did collect.
-		log.Debugf("telemetry: gathering metrics for the dashboard: %s", err)
+		slog.Debug("telemetry: gathering metrics for the dashboard", slog.Any("err", err))
 	}
 	if len(families) == 0 {
 		return snap

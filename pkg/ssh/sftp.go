@@ -3,10 +3,10 @@ package ssh
 import (
 	"errors"
 	"io"
+	"log/slog"
 	"strings"
 
 	"github.com/pkg/sftp"
-	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/shell"
@@ -32,17 +32,17 @@ func serveSFTP(ch ssh.Channel) {
 		sftp.WithDebug(debugWriter{}),
 	)
 	if err != nil {
-		log.Errorf("ssh: sftp: %s", err)
+		slog.Error("ssh: sftp server failed", slog.Any("err", err))
 		exitSession(ch, 1)
 		return
 	}
 
-	log.Debugf("ssh: sftp subsystem started (working directory %s)", shell.Dir())
+	slog.Debug("ssh: sftp subsystem started", slog.String("dir", shell.Dir()))
 
 	// Serve runs until the client closes the channel. A clean disconnect
 	// surfaces as EOF and is the normal end of a transfer, not a failure.
 	if err := server.Serve(); err != nil && !errors.Is(err, io.EOF) {
-		log.Warnf("ssh: sftp session ended: %s", err)
+		slog.Warn("ssh: sftp session ended", slog.Any("err", err))
 		exitSession(ch, 1)
 		return
 	}
@@ -55,6 +55,6 @@ func serveSFTP(ch ssh.Channel) {
 type debugWriter struct{}
 
 func (debugWriter) Write(p []byte) (int, error) {
-	log.Warnf("ssh: sftp: %s", strings.TrimRight(string(p), "\n"))
+	slog.Warn("ssh: sftp", slog.String("msg", strings.TrimRight(string(p), "\n")))
 	return len(p), nil
 }

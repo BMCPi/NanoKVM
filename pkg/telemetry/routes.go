@@ -1,11 +1,12 @@
 package telemetry
 
 import (
+	"log/slog"
+
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 )
 
@@ -43,6 +44,6 @@ func Routes(r *gin.Engine) {
 			Registry: PromRegistry,
 		})
 		r.GET(path, gin.WrapH(handler))
-		log.Infof("telemetry: prometheus exposed at %s", path)
+		slog.Info("telemetry: prometheus exposed", slog.String("path", path))
 	}
 }

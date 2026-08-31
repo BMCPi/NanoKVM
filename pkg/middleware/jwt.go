@@ -1,13 +1,13 @@
 package middleware
 
 import (
+	"log/slog"
 	"math"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 )
@@ -191,7 +191,7 @@ func ParseJWT(jwtToken string) (*Token, error) {
 		return []byte(conf.JWT.SecretKey), nil
 	})
 	if err != nil {
-		log.Debugf("parse jwt error: %s", err)
+		slog.Debug("parse jwt error", slog.Any("err", err))
 		return nil, err
 	}
 

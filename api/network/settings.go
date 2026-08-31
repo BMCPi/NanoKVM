@@ -1,10 +1,10 @@
 package network
 
 import (
+	"log/slog"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/network"
@@ -88,5 +88,6 @@ func (s *Service) UpdateSettings(c *gin.Context) {
 	network.Restart()
 
 	rsp.OkRspWithData(c, conf.Network)
-	log.Infof("network: settings updated (eth0 mode=%s enabled=%t)", next.Eth0.Mode, next.Enabled)
+	slog.InfoContext(c.Request.Context(), "network: settings updated",
+		slog.String("eth0Mode", next.Eth0.Mode), slog.Bool("enabled", next.Enabled))
 }

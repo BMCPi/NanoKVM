@@ -16,6 +16,7 @@ package telemetry
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -23,7 +24,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
-	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
@@ -105,7 +105,7 @@ func Init(ctx context.Context) error {
 			if err := PromRegistry.Register(collectors.NewProcessCollector(
 				collectors.ProcessCollectorOpts{ReportErrors: true},
 			)); err != nil {
-				log.Warnf("telemetry: process collector: %v", err)
+				slog.WarnContext(ctx, "telemetry: process collector", slog.Any("err", err))
 			}
 
 			// Bridges OTel metric instruments → the Prometheus registry,
@@ -170,8 +170,10 @@ func Init(ctx context.Context) error {
 
 		enabled = true
 		initMetrics() // create the application metric instruments
-		log.Infof("telemetry: enabled (service=%s, prometheus=%v, otlp=%q)",
-			cfg.ServiceName, cfg.Prometheus.Enabled, cfg.OTLP.Endpoint)
+		slog.InfoContext(ctx, "telemetry: enabled",
+			slog.String("service", cfg.ServiceName),
+			slog.Bool("prometheus", cfg.Prometheus.Enabled),
+			slog.String("otlp", cfg.OTLP.Endpoint))
 	})
 	return initErr
 }
@@ -181,12 +183,12 @@ func Init(ctx context.Context) error {
 func Shutdown(ctx context.Context) {
 	if tracerProvider != nil {
 		if err := tracerProvider.Shutdown(ctx); err != nil {
-			log.Warnf("telemetry: tracer shutdown: %v", err)
+			slog.WarnContext(ctx, "telemetry: tracer shutdown", slog.Any("err", err))
 		}
 	}
 	if meterProvider != nil {
 		if err := meterProvider.Shutdown(ctx); err != nil {
-			log.Warnf("telemetry: meter shutdown: %v", err)
+			slog.WarnContext(ctx, "telemetry: meter shutdown", slog.Any("err", err))
 		}
 	}
 }

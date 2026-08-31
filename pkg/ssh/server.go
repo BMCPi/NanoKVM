@@ -17,13 +17,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/auth"
@@ -83,7 +83,7 @@ func Start() error {
 
 	conf := config.GetInstance().SSH
 	if !conf.Enabled {
-		log.Info("ssh: disabled by configuration")
+		slog.Info("ssh: disabled by configuration")
 		return nil
 	}
 
@@ -166,8 +166,10 @@ func newServer(conf config.SSH) (*Server, error) {
 	s.wg.Add(1)
 	go s.accept()
 
-	log.Infof("ssh: server started on port %d (password auth: %t, host key %s)",
-		conf.Port, conf.PasswordAuth, ssh.FingerprintSHA256(signer.PublicKey()))
+	slog.Info("ssh: server started",
+		slog.Int("port", conf.Port),
+		slog.Bool("passwordAuth", conf.PasswordAuth),
+		slog.String("hostKey", ssh.FingerprintSHA256(signer.PublicKey())))
 	return s, nil
 }
 
@@ -182,7 +184,7 @@ func (s *Server) shutdown() {
 	s.mu.Unlock()
 
 	s.wg.Wait()
-	log.Info("ssh: server stopped")
+	slog.Info("ssh: server stopped")
 }
 
 func (s *Server) accept() {
@@ -198,7 +200,7 @@ func (s *Server) accept() {
 			}
 			// A transient accept error (fd pressure) should not kill the
 			// listener; back off briefly and keep serving.
-			log.Warnf("ssh: accept: %s", err)
+			slog.Warn("ssh: accept failed", slog.Any("err", err))
 			select {
 			case <-s.stop:
 				return
@@ -227,8 +229,9 @@ func (s *Server) handleConn(nConn net.Conn) {
 	select {
 	case s.handshakes <- struct{}{}:
 	default:
-		log.Warnf("ssh: refusing %s: %d handshakes already in flight",
-			nConn.RemoteAddr(), maxPendingHandshakes)
+		slog.Warn("ssh: refusing connection, handshakes already in flight",
+			slog.String("addr", nConn.RemoteAddr().String()),
+			slog.Int("handshakes", maxPendingHandshakes))
 		return
 	}
 
@@ -240,7 +243,7 @@ func (s *Server) handleConn(nConn net.Conn) {
 	<-s.handshakes
 	if err != nil {
 		// Failed handshakes are routine (port scanners, key probes); debug.
-		log.Debugf("ssh: handshake from %s failed: %s", nConn.RemoteAddr(), err)
+		slog.Debug("ssh: handshake failed", slog.String("addr", nConn.RemoteAddr().String()), slog.Any("err", err))
 		return
 	}
 	defer func() {
@@ -248,7 +251,7 @@ func (s *Server) handleConn(nConn net.Conn) {
 	}()
 
 	_ = nConn.SetDeadline(time.Time{})
-	log.Infof("ssh: %s@%s authenticated", conn.User(), conn.RemoteAddr())
+	slog.Info("ssh: client authenticated", slog.String("user", conn.User()), slog.String("addr", conn.RemoteAddr().String()))
 
 	go ssh.DiscardRequests(reqs)
 
@@ -261,7 +264,7 @@ func (s *Server) handleConn(nConn net.Conn) {
 
 		ch, chReqs, err := newChan.Accept()
 		if err != nil {
-			log.Warnf("ssh: accept channel: %s", err)
+			slog.Warn("ssh: accept channel failed", slog.Any("err", err))
 			continue
 		}
 
@@ -273,7 +276,7 @@ func (s *Server) handleConn(nConn net.Conn) {
 	}
 	sessions.Wait()
 
-	log.Infof("ssh: %s@%s disconnected", conn.User(), conn.RemoteAddr())
+	slog.Info("ssh: client disconnected", slog.String("user", conn.User()), slog.String("addr", conn.RemoteAddr().String()))
 }
 
 func (s *Server) track(c net.Conn, add bool) {
@@ -312,7 +315,7 @@ func (s *Server) authPublicKey(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.P
 		// does: both sides are public data, so an exact match is the whole
 		// requirement.
 		if bytes.Equal(allowed.Marshal(), key.Marshal()) {
-			log.Infof("ssh: %s authenticated with key %s", conn.User(), ssh.FingerprintSHA256(key))
+			slog.Info("ssh: user authenticated with key", slog.String("user", conn.User()), slog.String("fingerprint", ssh.FingerprintSHA256(key)))
 			return &ssh.Permissions{}, nil
 		}
 	}
@@ -326,7 +329,7 @@ func (s *Server) authPassword(conn ssh.ConnMetadata, password []byte) (*ssh.Perm
 	// Share the web login's lockout state so an attacker cannot sidestep it by
 	// switching from HTTP to SSH.
 	if locked, _, msg := auth.CheckLoginAttempt(clientIP); locked {
-		log.Warnf("ssh: %s rejected: %s", clientIP, msg)
+		slog.Warn("ssh: login rejected", slog.String("ip", clientIP), slog.String("reason", msg))
 		return nil, errors.New("too many failed attempts")
 	}
 
@@ -457,7 +460,7 @@ func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request) {
 
 			s, err := shell.Start(opts)
 			if err != nil {
-				log.Errorf("ssh: start session: %s", err)
+				slog.Error("ssh: start session failed", slog.Any("err", err))
 				replyRequest(req, false)
 				return
 			}
@@ -465,7 +468,7 @@ func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request) {
 			started = true
 			replyRequest(req, true)
 
-			log.Debugf("ssh: session started (pid %d, pty %t)", session.Pid(), session.HasPTY())
+			slog.Debug("ssh: session started", slog.Int("pid", session.Pid()), slog.Bool("pty", session.HasPTY()))
 			// Run the session inline: this goroutine owns the channel, and the
 			// request loop keeps serving window-change/signal from the client
 			// only after the pipes are wired, so pump in the background.

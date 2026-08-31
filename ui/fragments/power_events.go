@@ -13,13 +13,13 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/a-h/templ"
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/power"
@@ -153,7 +153,7 @@ func getPowerEvents(d *deps.Deps) gin.HandlerFunc {
 			case <-poll:
 				on, err := ctrl.State(ctx)
 				if err != nil {
-					log.Debugf("power events stream: poll failed: %s", err)
+					slog.DebugContext(ctx, "power events stream: poll failed", slog.Any("err", err))
 					continue
 				}
 				if on == pwr {

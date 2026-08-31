@@ -10,14 +10,13 @@ package autoupdate
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
-
-	log "github.com/sirupsen/logrus"
 )
 
 // minInterval is the floor for how often we hit upstream version APIs.
@@ -55,7 +54,7 @@ func Start(ctx context.Context) {
 
 	cfg := config.GetInstance().AutoUpdate
 	if !cfg.Enabled {
-		log.Info("autoupdate: disabled by config")
+		slog.InfoContext(ctx, "autoupdate: disabled by config")
 		return
 	}
 
@@ -69,8 +68,8 @@ func Start(ctx context.Context) {
 	}
 
 	go loop(loopCtx, interval)
-	log.Infof("autoupdate: enabled (interval=%s, application=%v)",
-		interval, cfg.Application)
+	slog.InfoContext(ctx, "autoupdate: enabled",
+		slog.Duration("interval", interval), slog.Bool("application", cfg.Application))
 }
 
 // Stop cancels the background ticker. Safe to call when not running.
@@ -82,7 +81,7 @@ func Stop() {
 	}
 	cancel()
 	running = false
-	log.Info("autoupdate: stopped")
+	slog.Info("autoupdate: stopped")
 }
 
 // loop is the worker goroutine: an initial check after one interval (so the
@@ -111,7 +110,7 @@ func runOnce(ctx context.Context) {
 
 	if cfg.Application {
 		if err := applyAppUpdateIfNewer(ctx); err != nil {
-			log.Warnf("autoupdate: application: %v", err)
+			slog.WarnContext(ctx, "autoupdate: application update failed", slog.Any("err", err))
 		}
 	}
 }
@@ -122,12 +121,13 @@ func applyAppUpdateIfNewer(ctx context.Context) error {
 	if latest == "" || latest == current {
 		return nil
 	}
-	log.Infof("autoupdate: application update available (%s → %s)", current, latest)
+	slog.InfoContext(ctx, "autoupdate: application update available",
+		slog.String("current", current), slog.String("latest", latest))
 
 	if err := application.RunUpdate(ctx); err != nil {
 		return err
 	}
-	log.Info("autoupdate: application update applied; restarting service")
+	slog.InfoContext(ctx, "autoupdate: application update applied; restarting service")
 	time.Sleep(preRestartDelay)
 	application.RestartService()
 	return nil

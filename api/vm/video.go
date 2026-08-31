@@ -1,13 +1,13 @@
 package vm
 
 import (
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/video/rtc"
 )
@@ -53,7 +53,7 @@ func (s *Service) Video(c *gin.Context) {
 
 	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		log.Errorf("failed to init video websocket: %s", err)
+		slog.ErrorContext(c.Request.Context(), "failed to init video websocket", slog.Any("err", err))
 		return
 	}
 	defer func() {
@@ -65,7 +65,7 @@ func (s *Service) Video(c *gin.Context) {
 
 	session, err := s.VideoHub.NewSession(sig)
 	if err != nil {
-		log.Errorf("failed to start video session: %s", err)
+		slog.ErrorContext(c.Request.Context(), "failed to start video session", slog.Any("err", err))
 		_ = sig.Send(rtc.Message{Type: rtc.TypeError, Error: err.Error()})
 		return
 	}
@@ -88,7 +88,7 @@ func (s *Service) Video(c *gin.Context) {
 			// Report and keep the socket open: a rejected candidate or a
 			// malformed offer is recoverable, and the browser can retry
 			// on the same session.
-			log.Warnf("video signaling: %s", err)
+			slog.WarnContext(c.Request.Context(), "video signaling", slog.Any("err", err))
 			_ = sig.Send(rtc.Message{Type: rtc.TypeError, Error: err.Error()})
 		}
 	}

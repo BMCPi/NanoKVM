@@ -2,9 +2,9 @@ package vm
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
@@ -29,7 +29,7 @@ func (s *Service) SetTLS(c *gin.Context) {
 	}
 
 	if err != nil {
-		log.Errorf("failed to set TLS: %s", err)
+		slog.ErrorContext(c.Request.Context(), "failed to set TLS", slog.Any("err", err))
 		rsp.ErrRsp(c, -2, "operation failed")
 		return
 	}

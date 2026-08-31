@@ -1,8 +1,9 @@
 package vm
 
 import (
+	"log/slog"
+
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/proto"
@@ -41,7 +42,7 @@ func setSSHEnabled(c *gin.Context, enabled bool) {
 		// Roll back so the reported state matches reality — a port already in
 		// use must not leave the UI showing SSH as enabled.
 		conf.SSH.Enabled = previous
-		log.Errorf("failed to apply SSH state: %s", err)
+		slog.ErrorContext(c.Request.Context(), "failed to apply SSH state", slog.Any("err", err))
 		rsp.ErrRsp(c, -1, "operation failed")
 		return
 	}
@@ -52,9 +53,9 @@ func setSSHEnabled(c *gin.Context, enabled bool) {
 
 	rsp.OkRsp(c)
 	if enabled {
-		log.Info("SSH enabled")
+		slog.InfoContext(c.Request.Context(), "SSH enabled")
 	} else {
-		log.Info("SSH disabled")
+		slog.InfoContext(c.Request.Context(), "SSH disabled")
 	}
 }
 
@@ -64,7 +65,7 @@ func (s *Service) GetSSHKeys(c *gin.Context) {
 
 	keys, err := sshsvc.ReadAuthorizedKeys()
 	if err != nil {
-		log.Errorf("failed to read authorized keys: %s", err)
+		slog.ErrorContext(c.Request.Context(), "failed to read authorized keys", slog.Any("err", err))
 		rsp.ErrRsp(c, -1, "operation failed")
 		return
 	}
@@ -87,7 +88,7 @@ func (s *Service) SetSSHKeys(c *gin.Context) {
 	}
 
 	if err := sshsvc.WriteAuthorizedKeys(req.SSHKey); err != nil {
-		log.Errorf("failed to write authorized keys: %s", err)
+		slog.ErrorContext(c.Request.Context(), "failed to write authorized keys", slog.Any("err", err))
 		rsp.ErrRsp(c, -1, err.Error())
 		return
 	}

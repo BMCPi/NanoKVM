@@ -2,11 +2,11 @@ package ipmi
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 
 	"github.com/bougou/go-ipmi/pkg/hal"
 	"github.com/bougou/go-ipmi/pkg/types"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/api/redfish"
 	"github.com/pi-bmc/nanokvm-app/pkg/power"
@@ -34,12 +34,13 @@ type chassisHAL struct {
 
 // detach runs op with the action timeout, off the dispatch goroutine.
 func (c *chassisHAL) detach(what string, op func(ctx context.Context) error) {
-	log.Infof("IPMI: chassis %s", what)
+	slog.Info("ipmi: chassis action", slog.String("action", what))
 	go func() {
 		ctx, cancel := context.WithTimeout(c.root, power.ActionTimeout)
 		defer cancel()
 		if err := op(ctx); err != nil {
-			log.Errorf("IPMI: %s failed: %s", what, err)
+			slog.ErrorContext(ctx, "ipmi: chassis action failed",
+				slog.String("action", what), slog.Any("err", err))
 		}
 	}()
 }

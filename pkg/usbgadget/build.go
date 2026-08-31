@@ -3,13 +3,12 @@ package usbgadget
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	log "github.com/sirupsen/logrus"
 )
 
 // ensureConfigFS makes sure configfs is mounted at configFSPath. S01fs also
@@ -189,7 +188,7 @@ func (g *Gadget) reconcileLinks() error {
 	// Topology change ⇒ full relink. Unbind first so configfs lets us edit the
 	// config's function list.
 	if err := g.unbindUDCLocked(); err != nil {
-		log.Warnf("usbgadget: unbind before relink failed: %v", err)
+		slog.Warn("usbgadget: unbind before relink failed", slog.Any("err", err))
 	}
 
 	// Remove every existing function symlink, then recreate the desired set in
@@ -205,7 +204,7 @@ func (g *Gadget) reconcileLinks() error {
 		}
 	}
 
-	log.Infof("usbgadget: relinked functions %v", desired)
+	slog.Info("usbgadget: relinked functions", slog.Any("functions", desired))
 	return g.ensureBindState()
 }
 
@@ -221,7 +220,7 @@ func (g *Gadget) ensureBindState() error {
 		}
 	}
 	if err := g.setOTGRoleLocked("device"); err != nil {
-		log.Warnf("usbgadget: set otg role failed: %v", err)
+		slog.Warn("usbgadget: set otg role failed", slog.Any("err", err))
 	}
 	return nil
 }

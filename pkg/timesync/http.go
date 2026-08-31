@@ -2,12 +2,11 @@ package timesync
 
 import (
 	"context"
+	"log/slog"
 	"math/rand/v2"
 	"net/http"
 	"slices"
 	"time"
-
-	log "github.com/sirupsen/logrus"
 )
 
 // fallbackHTTPURLs are captive-portal probe endpoints: tiny responses, very
@@ -44,7 +43,7 @@ func queryHTTPChunk(urls []string) (time.Time, bool) {
 		go func() {
 			t, err := queryHTTPTime(url)
 			if err != nil {
-				log.Debugf("timesync: http %s: %v", url, err)
+				slog.Debug("timesync: http query failed", slog.String("url", url), slog.Any("err", err))
 				results <- nil
 				return
 			}

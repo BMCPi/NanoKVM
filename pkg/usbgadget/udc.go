@@ -2,12 +2,11 @@ package usbgadget
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"sort"
 	"strings"
 	"time"
-
-	log "github.com/sirupsen/logrus"
 )
 
 const udcClassPath = "/sys/class/udc"
@@ -95,7 +94,7 @@ func (g *Gadget) RebindUDC() error {
 
 func (g *Gadget) rebindUDCLocked() error {
 	if err := g.unbindUDCLocked(); err != nil {
-		log.Warnf("usbgadget: unbind during rebind: %v", err)
+		slog.Warn("usbgadget: unbind during rebind", slog.Any("err", err))
 	}
 	time.Sleep(200 * time.Millisecond)
 	return g.bindUDCLocked()
@@ -138,6 +137,6 @@ func (g *Gadget) RebindPHY() error {
 	if err := g.fs.writeAttr(dwc2BindPath, dev); err != nil {
 		return fmt.Errorf("dwc2 bind %s: %w", dev, err)
 	}
-	log.Infof("usbgadget: rebound dwc2 PHY %s", dev)
+	slog.Info("usbgadget: rebound dwc2 PHY", slog.String("device", dev))
 	return nil
 }

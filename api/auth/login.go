@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"log/slog"
 	"time"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/auth"
@@ -9,7 +10,6 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/proto"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 )
 
 func (s *Service) Login(c *gin.Context) {
@@ -63,7 +63,7 @@ func (s *Service) Login(c *gin.Context) {
 		Token: token,
 	})
 
-	log.Debugf("login success, username: %s", req.Username)
+	slog.DebugContext(c.Request.Context(), "login success", slog.String("username", req.Username))
 }
 
 func (s *Service) Logout(c *gin.Context) {
@@ -89,7 +89,7 @@ func (s *Service) GetAccount(c *gin.Context) {
 	rsp.OkRspWithData(c, &proto.GetAccountRsp{
 		Username: account.Username,
 	})
-	log.Debugf("get account successful")
+	slog.DebugContext(c.Request.Context(), "get account successful")
 }
 
 // requestIP gets a reliable real IP for brute-force accounting.

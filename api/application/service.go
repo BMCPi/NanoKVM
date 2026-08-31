@@ -2,10 +2,10 @@ package application
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
@@ -36,7 +36,7 @@ func (s *Service) GetVersion(c *gin.Context) {
 	var rsp proto.Response
 
 	current := application.CurrentVersion()
-	log.Debugf("current version: %s", current)
+	slog.DebugContext(c.Request.Context(), "current version", slog.String("version", current))
 
 	rsp.OkRspWithData(c, &proto.GetVersionRsp{
 		Current: current,
@@ -57,7 +57,7 @@ func (s *Service) Update(c *gin.Context) {
 		return
 	}
 
-	log.Debugf("update application success")
+	slog.DebugContext(c.Request.Context(), "update application success")
 	respondAndRestart(c, &rsp)
 }
 

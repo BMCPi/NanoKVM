@@ -19,11 +19,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"sync"
 	"time"
-
-	log "github.com/sirupsen/logrus"
 )
 
 // signedByte reinterprets a signed report field as the two's-complement byte
@@ -231,7 +230,7 @@ func (c *Controller) applyKey(code byte, press bool) (byte, []byte) {
 	if !placed && press {
 		// More keys held than the array can carry. A real keyboard reports
 		// rollover rather than silently dropping one.
-		log.Warnf("hid: key buffer full, reporting rollover (key 0x%02x)", code)
+		slog.Warn("hid: key buffer full, reporting rollover", slog.String("key", fmt.Sprintf("0x%02x", code)))
 		for i := range keys {
 			keys[i] = errorRollOver
 		}
@@ -302,8 +301,10 @@ func (c *Controller) warnAboveRange(keys []byte) {
 	for _, k := range keys {
 		if k > MaxReportableKeyCode {
 			c.warnedAboveRange = true
-			log.Warnf("hid: key 0x%02x is above the keyboard descriptor's usage maximum (0x%02x); "+
-				"the host will ignore it — widen the descriptor in pkg/usbgadget/hid.go to reach these keys", k, MaxReportableKeyCode)
+			slog.Warn("hid: key is above the keyboard descriptor's usage maximum; "+
+				"the host will ignore it — widen the descriptor in pkg/usbgadget/hid.go to reach these keys",
+				slog.String("key", fmt.Sprintf("0x%02x", k)),
+				slog.String("max", fmt.Sprintf("0x%02x", MaxReportableKeyCode)))
 			return
 		}
 	}
@@ -365,13 +366,13 @@ func (c *Controller) autoReleaseFire(code byte) {
 		return
 	}
 
-	log.Debugf("hid: auto-releasing key 0x%02x (no key-up received)", code)
+	slog.Debug("hid: auto-releasing key (no key-up received)", slog.String("key", fmt.Sprintf("0x%02x", code)))
 	modifier, keys := c.applyKey(code, false)
 	err := c.writeKeyboard(modifier, keys)
 	c.mu.Unlock()
 
 	if err != nil {
-		log.Debugf("hid: auto-release of 0x%02x failed: %s", code, err)
+		slog.Debug("hid: auto-release failed", slog.String("key", fmt.Sprintf("0x%02x", code)), slog.Any("err", err))
 	}
 }
 
@@ -425,7 +426,7 @@ func (c *Controller) watchLEDReports() {
 			if errors.Is(err, os.ErrDeadlineExceeded) {
 				continue
 			}
-			log.Debugf("hid: keyboard LED reader stopped: %s", err)
+			slog.Debug("hid: keyboard LED reader stopped", slog.Any("err", err))
 			return
 		}
 		if n < 1 {
@@ -437,7 +438,7 @@ func (c *Controller) watchLEDReports() {
 
 func (c *Controller) updateLEDs(state byte) {
 	if state&^ledValidMask != 0 {
-		log.Debugf("hid: ignoring LED report with unknown bits (0x%02x)", state)
+		slog.Debug("hid: ignoring LED report with unknown bits", slog.String("bits", fmt.Sprintf("0x%02x", state)))
 		return
 	}
 
@@ -454,7 +455,7 @@ func (c *Controller) updateLEDs(state byte) {
 	c.ledMu.Unlock()
 
 	led := ledStateOf(state)
-	log.Debugf("hid: host LED state now %+v", led)
+	slog.Debug("hid: host LED state changed", slog.Any("state", led))
 	for _, ch := range subs {
 		// Non-blocking with replacement: the publisher must never stall on a
 		// subscriber that has stopped reading.
@@ -550,13 +551,13 @@ func (d *device) open() (*os.File, error) {
 	if err != nil {
 		if !d.missing {
 			d.missing = true
-			log.Warnf("hid: %s unavailable: %s (is the USB gadget configured?)", d.path, err)
+			slog.Warn("hid: device unavailable (is the USB gadget configured?)", slog.String("device", d.path), slog.Any("err", err))
 		}
 		return nil, fmt.Errorf("open %s: %w", d.path, err)
 	}
 	d.missing = false
 	d.file = f
-	log.Debugf("hid: opened %s", d.path)
+	slog.Debug("hid: opened device", slog.String("device", d.path))
 	return f, nil
 }
 
@@ -579,7 +580,7 @@ func (d *device) write(report []byte) error {
 	if err := f.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
 		// Not every kernel makes hidg pollable; without deadline support the
 		// write still works, it just cannot be bounded.
-		log.Debugf("hid: %s does not support write deadlines: %s", d.path, err)
+		slog.Debug("hid: device does not support write deadlines", slog.String("device", d.path), slog.Any("err", err))
 	}
 
 	if _, err := f.Write(report); err != nil {
@@ -587,10 +588,10 @@ func (d *device) write(report []byte) error {
 			// Nobody is polling the endpoint — host off, cable out, or the
 			// driver not yet bound. Dropping the report is right, and it is
 			// not an error worth surfacing to the caller.
-			log.Debugf("hid: %s write timed out; host is not polling", d.path)
+			slog.Debug("hid: write timed out; host is not polling", slog.String("device", d.path))
 			return nil
 		}
-		log.Debugf("hid: %s write failed: %s", d.path, err)
+		slog.Debug("hid: write failed", slog.String("device", d.path), slog.Any("err", err))
 		d.close()
 		return fmt.Errorf("write %s: %w", d.path, err)
 	}

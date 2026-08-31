@@ -3,12 +3,12 @@ package ssh
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
@@ -107,7 +107,7 @@ func WriteAuthorizedKeys(sshKey string) error {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("remove authorized keys: %w", err)
 		}
-		log.Info("ssh: authorized keys cleared")
+		slog.Info("ssh: authorized keys cleared")
 		return nil
 	}
 
@@ -122,7 +122,7 @@ func WriteAuthorizedKeys(sshKey string) error {
 		return fmt.Errorf("write authorized keys: %w", err)
 	}
 
-	log.Info("ssh: authorized keys updated")
+	slog.Info("ssh: authorized keys updated")
 	return nil
 }
 
@@ -132,7 +132,7 @@ func WriteAuthorizedKeys(sshKey string) error {
 func authorizedKeys() []ssh.PublicKey {
 	content, err := ReadAuthorizedKeys()
 	if err != nil {
-		log.Warnf("ssh: %s", err)
+		slog.Warn("ssh: read authorized keys failed", slog.Any("err", err))
 		return nil
 	}
 
