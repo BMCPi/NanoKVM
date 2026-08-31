@@ -144,26 +144,86 @@ func TestCPUPercentStaysInRange(t *testing.T) {
 
 // The ring is the only unbounded-looking thing in this package, and it runs
 // forever on a device with 256 MB of RAM.
-func TestResourceHistoryIsBoundedAndDropsTheFirstPoint(t *testing.T) {
+func TestResourceHistoryIsBounded(t *testing.T) {
 	resetResourceHistory(t)
 
-	// One point is not a history: the sole reading's CPU is always zero.
-	pushResourcePoint(ResourcePoint{At: "00:00", CPU: 0, Memory: 40})
-	if got := ResourceHistory(); got != nil {
-		t.Errorf("history with one reading = %v, want nil", got)
-	}
-
-	pushResourcePoint(ResourcePoint{At: "00:01", CPU: 12, Memory: 41})
-	got := ResourceHistory()
-	if len(got) != 1 || got[0].At != "00:01" {
-		t.Fatalf("history = %+v, want just the second reading", got)
-	}
-
 	for i := 0; i < resourceDepth*2; i++ {
-		pushResourcePoint(ResourcePoint{At: "01:00", CPU: 1})
+		appendResourceSample(validUsage(40), "00:00")
 	}
 	if n := len(ResourceHistory()); n > resourceDepth {
 		t.Errorf("history grew to %d readings, want at most %d", n, resourceDepth)
+	}
+}
+
+// The first sample has no CPU rate behind it. Recording it would put a zero at
+// the left edge of every graph for the next half hour.
+func TestFirstUnprimedSampleIsNotRecorded(t *testing.T) {
+	resetResourceHistory(t)
+
+	unprimed := Usage{CPURead: true, MemPercent: 40, MemValid: true}
+	appendResourceSample(unprimed, "00:00")
+	if n := len(historyPoints()); n != 0 {
+		t.Fatalf("stored %d points for the un-primed first sample, want 0", n)
+	}
+
+	appendResourceSample(validUsage(12), "00:10")
+	if got := historyPoints(); len(got) != 1 || got[0].CPU != 12 {
+		t.Errorf("after priming: %+v, want one point at 12%%", got)
+	}
+}
+
+// ...but where /proc/stat cannot be read at all, CPUValid never becomes true.
+// Holding out for it would suppress the memory and disk graphs forever.
+func TestAMachineWithNoCPUCounterStillGetsAHistory(t *testing.T) {
+	resetResourceHistory(t)
+
+	noCPU := Usage{CPURead: false, MemPercent: 55, MemValid: true}
+	appendResourceSample(noCPU, "00:00")
+	appendResourceSample(noCPU, "00:10")
+
+	got := ResourceHistory()
+	if len(got) != 2 {
+		t.Fatalf("history = %d points, want 2 — an unreadable /proc/stat must "+
+			"not suppress the other two graphs", len(got))
+	}
+	if got[0].Memory != 55 {
+		t.Errorf("memory = %v, want 55", got[0].Memory)
+	}
+}
+
+// A reading that could not be taken is not a reading of zero. Plotting one
+// draws a trough the machine never had.
+func TestAnUnreadableSampleCarriesTheLastValueForward(t *testing.T) {
+	resetResourceHistory(t)
+
+	appendResourceSample(validUsage(30), "00:00")
+	appendResourceSample(validUsage(35), "00:10")
+	// Everything fails this tick: /proc unreadable, statfs errored.
+	appendResourceSample(Usage{CPURead: true}, "00:20")
+
+	got := ResourceHistory()
+	last := got[len(got)-1]
+	if last.CPU == 0 || last.Memory == 0 || last.Disk == 0 {
+		t.Errorf("a failed sample recorded zeros (%+v); it should carry "+
+			"%+v forward", last, got[len(got)-2])
+	}
+	if last.CPU != 35 {
+		t.Errorf("carried CPU = %v, want the previous 35", last.CPU)
+	}
+}
+
+// Once the ring has wrapped, the oldest stored point is a real reading. An
+// earlier version sliced points[1:] on every read to drop the un-primed first
+// sample, and went on discarding a good point forever after that sample had
+// been evicted.
+func TestAFullRingDoesNotKeepDiscardingItsOldestReading(t *testing.T) {
+	resetResourceHistory(t)
+
+	for i := 0; i < resourceDepth+10; i++ {
+		appendResourceSample(validUsage(float64(i%90)+1), "00:00")
+	}
+	if n := len(ResourceHistory()); n != resourceDepth {
+		t.Errorf("a full ring returned %d readings, want all %d", n, resourceDepth)
 	}
 }
 
@@ -171,8 +231,8 @@ func TestResourceHistoryIsBoundedAndDropsTheFirstPoint(t *testing.T) {
 // ticks must not see the slice mutate underneath them.
 func TestResourceHistoryHandsOutACopy(t *testing.T) {
 	resetResourceHistory(t)
-	pushResourcePoint(ResourcePoint{At: "00:00"})
-	pushResourcePoint(ResourcePoint{At: "00:01", CPU: 7})
+	appendResourceSample(validUsage(7), "00:00")
+	appendResourceSample(validUsage(7), "00:10")
 
 	got := ResourceHistory()
 	got[0].CPU = 999
@@ -181,22 +241,47 @@ func TestResourceHistoryHandsOutACopy(t *testing.T) {
 	}
 }
 
-func resetResourceHistory(t *testing.T) {
-	t.Helper()
+func validUsage(pct float64) Usage {
+	return Usage{
+		CPUPercent: pct, CPUValid: true, CPURead: true,
+		MemPercent: pct, MemValid: true,
+		DiskPercent: pct, DiskValid: true,
+	}
+}
+
+func historyPoints() []ResourcePoint {
 	resources.mu.Lock()
 	defer resources.mu.Unlock()
-	resources.points = nil
-	resources.latest = Usage{}
-	t.Cleanup(func() {
+	return append([]ResourcePoint(nil), resources.points...)
+}
+
+func resetResourceHistory(t *testing.T) {
+	t.Helper()
+	reset := func() {
 		resources.mu.Lock()
 		defer resources.mu.Unlock()
 		resources.points = nil
 		resources.latest = Usage{}
-	})
+	}
+	reset()
+	t.Cleanup(reset)
 }
 
-// pushResourcePoint goes through the production ring rather than reproducing
-// it, so the bound above is actually the bound recordResourceSample enforces.
-func pushResourcePoint(p ResourcePoint) {
-	appendResourcePoint(Usage{CPUPercent: p.CPU, MemPercent: p.Memory, DiskPercent: p.Disk}, p)
+// iowait is not monotonic (Documentation/filesystems/proc.rst), and it is
+// counted as idle here — so a drop in it shrinks the total by more than it
+// shrinks the busy half, and the ratio comes out above one.
+func TestCPUPercentRefusesWhenIowaitWentBackwards(t *testing.T) {
+	var s ResourceSampler
+	// busy=700 total=1000 → idle 300, of which some is iowait.
+	s.cpuPercent(700, 1000)
+
+	// Busy grew 50, but total grew only 20 because iowait fell by 30.
+	if got, ok := s.cpuPercent(750, 1020); ok {
+		t.Errorf("cpuPercent = %v, ok=true; a busy delta larger than the total "+
+			"delta is a non-monotonic iowait, not a %v%% interval", got, got)
+	}
+	// The reading still becomes the baseline, so the next interval is usable.
+	if got, ok := s.cpuPercent(760, 1040); !ok || math.Abs(got-50) > 0.001 {
+		t.Errorf("next interval: got %v ok=%v, want 50 true", got, ok)
+	}
 }

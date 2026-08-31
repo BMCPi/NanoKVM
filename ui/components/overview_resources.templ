@@ -23,7 +23,19 @@ templ overviewResourcesCard() {
 				Processor, memory and storage on the BMC itself.
 			}
 		}
-		<div class="contents" hx-get="/ui/overview/resources" hx-trigger="overview-opened from:body">
+		// Two triggers. The open event is the first render; the poll is what
+		// keeps a graph from freezing the moment someone opens the drawer to
+		// watch it — overview-opened fires on a state *transition*, so on its
+		// own it renders once and never again. The filter is what makes the
+		// poll affordable: htmx evaluates it before issuing the request, so a
+		// closed drawer costs one predicate call every ten seconds and no
+		// round trip at all. Ten seconds because that is the sample interval;
+		// polling faster would re-render the same ring.
+		<div
+			class="contents"
+			hx-get="/ui/overview/resources"
+			hx-trigger="overview-opened from:body, every 10s [isOverviewOpen()]"
+		>
 			@OverviewResourcesBody(OverviewResources{})
 		</div>
 	}
@@ -49,8 +61,12 @@ templ OverviewResourcesBody(m OverviewResources) {
 	}
 }
 
-// resourceGraph is one labelled trace: the reading on the same label/value
-// rhythm as every other row in the drawer, with the trend beneath it.
+// resourceGraph is one labelled trace: the reading above, the trend below.
+//
+// Deliberately not statusRow's two-column grid. That grid exists so a column of
+// values can be read straight down; here each value belongs to the graph
+// directly under it, and pushing the reading into a 7.5rem gutter would part it
+// from the thing it labels to align it with rows in a different card.
 templ resourceGraph(s ResourceSeries) {
 	<div class="flex flex-col gap-1">
 		<div class="flex items-baseline justify-between gap-2">

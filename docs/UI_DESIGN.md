@@ -227,7 +227,6 @@ overlay).
 | Toolbar duplication | `videoToolbar` mirrors `ConsoleToolbar` in container classes, badge cluster, and button set — acknowledged in a comment, never extracted (~70 duplicated lines) | `video_panel.templ:50-127` vs `console_toolbar.templ:20-109` |
 | Hardcoded status colors | `bg-green-500/15 text-green-500` and friends re-spelled at 11+ sites across six components; no `--success`/`--warning` token exists | console_toolbar, video_panel, overview, power_menu, virtual_media, `virtual_keyboard.templ:43` (the app's only blue) |
 | Two visibility idioms | Convention is the `hidden` **attribute**; ConsoleSearchBar still toggles `hidden`/`flex` **classes** | `console_toolbar.templ:113-115`, `console_script.templ:180-193` |
-| Duplicated boot-device list | Two hand-maintained copies of the same six targets, "kept in sync" by comment | `power_menu.templ:143-152`, `overview.templ:326-353` |
 | Copy-paste twins | `settingsRow`/`settingsRowWide` differ only in Field orientation | `settings_menu.templ:617-667` |
 | Misplaced shared primitive | `NativeSelect` used by two components but defined inside power_menu; its class string hand-copies Input styling | `power_menu.templ:157-161`, used at `virtual_media.templ:195` |
 | Global-scope offender | `console_script` declares top-level globals; every other script IIFE-wraps specifically to dodge it | `console_script.templ:8-18` |
@@ -539,9 +538,8 @@ plus the tier-1 serial pill.
 - Implement or remove the `macro-editor:open` dispatch (`macro_bar.templ:122`).
 - Adopt `separator` for hand-rolled dividers; `h-11` for the inline style; `icon.ChevronRight` for
   the api_docs inline SVGs; dedupe the method-pill twins.
-- Share the boot-device list as one Go slice; merge `settingsRow`/`settingsRowWide`; move
-  `NativeSelect` to its own file; IIFE-wrap `console_script`; migrate ConsoleSearchBar to the
-  hidden-attribute idiom.
+- Merge `settingsRow`/`settingsRowWide`; move `NativeSelect` to its own file; IIFE-wrap
+  `console_script`; migrate ConsoleSearchBar to the hidden-attribute idiom.
 - Resolve naming drift: settings says "Back to KVM", the docs button says "Dashboard", the route is
   `/dashboard`. Pick one.
 

@@ -37,22 +37,34 @@ func initResourceMetrics() {
 		return g
 	}
 
-	cpu := gauge("nanokvm_bmc_cpu_utilization_ratio",
+	// No unit in the name: the exporter is built without otelprom.WithoutUnits
+	// (see telemetry.go), so it appends one from WithUnit — "%" becomes
+	// _percent and "By" becomes _bytes. Spelling the unit here too would ship
+	// nanokvm_bmc_cpu_utilization_ratio_percent, which names two different
+	// units in one metric.
+	cpu := gauge("nanokvm_bmc_cpu_utilization",
 		"BMC processor busy percentage over the last sampling interval", "%")
-	mem := gauge("nanokvm_bmc_memory_utilization_ratio",
+	mem := gauge("nanokvm_bmc_memory_utilization",
 		"BMC memory in use as a percentage of total, counting reclaimable memory as available", "%")
-	disk := gauge("nanokvm_bmc_disk_utilization_ratio",
+	disk := gauge("nanokvm_bmc_disk_utilization",
 		"Writable data volume in use as a percentage of the space available to it", "%")
-	memBytes := gauge("nanokvm_bmc_memory_used_bytes", "BMC memory in use", "By")
-	diskBytes := gauge("nanokvm_bmc_disk_used_bytes", "Writable data volume in use", "By")
+
+	// The absolute figures as well as the ratios. Without the totals a scraper
+	// cannot turn a percentage back into headroom, and MemTotal is not a
+	// constant it can hardcode — the device tree carves a reserved region out
+	// of RAM, so it differs between hardware revisions.
+	memUsed := gauge("nanokvm_bmc_memory_used", "BMC memory in use", "By")
+	memTotal := gauge("nanokvm_bmc_memory_total", "BMC memory installed and visible to the kernel", "By")
+	diskUsed := gauge("nanokvm_bmc_disk_used", "Writable data volume in use", "By")
+	diskTotal := gauge("nanokvm_bmc_disk_total", "Writable data volume capacity", "By")
 
 	if err != nil {
 		pkgLog.Warn("telemetry: resource instrument creation", slog.Any("err", err))
 		return
 	}
 
-	// One callback for all five: sysinfo.LatestUsage takes a mutex, and five
-	// separate callbacks would take it five times per scrape for the same
+	// One callback for all seven: sysinfo.LatestUsage takes a mutex, and seven
+	// separate callbacks would take it seven times per scrape for the same
 	// struct. The Valid flags gate each observation, so a subsystem that could
 	// not be read reports nothing rather than a zero an alert would fire on.
 	const bytesPerMB = 1024 * 1024
@@ -63,14 +75,16 @@ func initResourceMetrics() {
 		}
 		if u.MemValid {
 			o.ObserveFloat64(mem, u.MemPercent)
-			o.ObserveFloat64(memBytes, float64(u.MemUsedMB)*bytesPerMB)
+			o.ObserveFloat64(memUsed, float64(u.MemUsedMB)*bytesPerMB)
+			o.ObserveFloat64(memTotal, float64(u.MemTotalMB)*bytesPerMB)
 		}
 		if u.DiskValid {
 			o.ObserveFloat64(disk, u.DiskPercent)
-			o.ObserveFloat64(diskBytes, float64(u.DiskUsedMB)*bytesPerMB)
+			o.ObserveFloat64(diskUsed, float64(u.DiskUsedMB)*bytesPerMB)
+			o.ObserveFloat64(diskTotal, float64(u.DiskTotalMB)*bytesPerMB)
 		}
 		return nil
-	}, cpu, mem, disk, memBytes, diskBytes)
+	}, cpu, mem, disk, memUsed, memTotal, diskUsed, diskTotal)
 	if err != nil {
 		pkgLog.Warn("telemetry: resource callback registration", slog.Any("err", err))
 	}

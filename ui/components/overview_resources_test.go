@@ -10,9 +10,9 @@ import (
 //
 // These graphs plot percentages, and the whole reason they are hand-drawn
 // rather than handed to the vendored chart component is that the y axis must
-// be pinned to 0..100 — the chart derives its domain from the data, so an idle
-// BMC wobbling between 1% and 3% would fill the plot and read as a machine in
-// trouble. If that pinning ever breaks, the graphs become actively misleading
+// be pinned to 0..100 — the chart's Go API exposes no domain override, so it
+// scales to the data and an idle BMC wobbling between 1% and 3% would fill the
+// plot and read as a machine in trouble. If that pinning ever breaks, the graphs become actively misleading
 // rather than merely wrong, so it is the thing tested hardest here.
 
 func TestSparklineIsPinnedToZeroAndOneHundred(t *testing.T) {

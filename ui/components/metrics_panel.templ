@@ -126,8 +126,8 @@ templ metricsTrendChart(id, unit, key string, height int, trend []telemetry.Poin
 // the two trends, without the counter bar charts.
 //
 // The bar charts are omitted rather than narrowed. Each reserves a 92px gutter
-// for word labels ("bad-password", "forceoff"), which inside the drawer's 24rem
-// leaves under 250px of plot — and five of them would turn a glance panel into a
+// for word labels ("bad-password", "forceoff"), which inside the drawer's 28rem
+// leaves under 300px of plot — and five of them would turn a glance panel into a
 // scrolling chart gallery. They stay in Settings, where the panel is 5xl and
 // lays them out two-up.
 templ MetricsOverviewBody(snap telemetry.Snapshot, trend []telemetry.Point) {
@@ -165,7 +165,7 @@ templ metricsOverviewTrend(id, title, unit, key string, trend []telemetry.Point)
 			<p class={ SectionLabelClass }>{ title }</p>
 			<span class="text-xs text-muted-foreground">per 15s, last hour</span>
 		</div>
-		@metricsTrendChart(id, unit, key, 104, trend)
+		@metricsTrendChart(id, unit, key, 120, trend)
 	</div>
 }
 
@@ -231,10 +231,10 @@ templ metricsStatTiles(snap telemetry.Snapshot, gridClass string) {
 }
 
 templ metricsStateTile(label string, on bool, onText, offText string) {
-	@card.Card(card.Props{Class: "gap-0 py-3"}) {
+	@card.Card(card.Props{Class: "gap-0 [--card-spacing:--spacing(3)]"}) {
 		@card.Content(card.ContentProps{Class: "px-3"}) {
 			<p class="text-xs text-muted-foreground">{ label }</p>
-			<div class="mt-1.5">
+			<div class="mt-2">
 				if on {
 					@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "bg-green-500/15 text-green-500"}) {
 						{ onText }
@@ -250,10 +250,10 @@ templ metricsStateTile(label string, on bool, onText, offText string) {
 }
 
 templ metricsCountTile(label string, count int) {
-	@card.Card(card.Props{Class: "gap-0 py-3"}) {
+	@card.Card(card.Props{Class: "gap-0 [--card-spacing:--spacing(3)]"}) {
 		@card.Content(card.ContentProps{Class: "px-3"}) {
 			<p class="text-xs text-muted-foreground">{ label }</p>
-			<p class="mt-0.5 text-2xl font-semibold tabular-nums">{ fmt.Sprint(count) }</p>
+			<p class="mt-1 text-2xl font-semibold tabular-nums">{ fmt.Sprint(count) }</p>
 		}
 	}
 }

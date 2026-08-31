@@ -42,7 +42,7 @@ func powerFragmentRoutes(g *gin.RouterGroup, h *handlers) {
 }
 
 // getPowerBootOverride renders the power menu's boot-override section from
-// the same staged state the overview card reads — the Boot block of the
+// the same staged state the Host Firmware card reads — the Boot block of the
 // Redfish system inventory, which is what PATCH /redfish/v1/Systems/1 writes
 // and the host firmware applies at its next boot.
 func (h *handlers) getPowerBootOverride(c *gin.Context) {

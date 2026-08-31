@@ -5,10 +5,12 @@ package components
 //
 // The graphs are hand-drawn SVG rather than the vendored chart component, for
 // one reason: they plot percentages, and a percentage graph has to be pinned to
-// 0..100. The chart derives its y domain from the data it is given (see
-// domainTicks in ui/components/chart/chart.js) and exposes no way to override
-// it from Go, so an idle BMC drifting between 1% and 3% would fill the plot and
-// read as a machine under load. Pinned, it reads as the flat line it is.
+// 0..100. The chart's client does support a fixed ceiling — chart.js reads
+// m.domainMax and lays the ticks out against it — but nothing in chart.templ
+// puts that field in the model, so it is unreachable from Go and the domain
+// comes from domainTicks(), which derives it from the data. An idle BMC
+// drifting between 1% and 3% would therefore fill the plot and read as a
+// machine under load. Pinned, it reads as the flat line it is.
 //
 // Drawing them here also keeps three ResizeObserver-driven chart instances out
 // of a drawer on a 1 GHz single core, and means the graphs arrive fully drawn

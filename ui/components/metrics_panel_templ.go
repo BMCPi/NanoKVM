@@ -433,8 +433,8 @@ func metricsTrendChart(id, unit, key string, height int, trend []telemetry.Point
 // the two trends, without the counter bar charts.
 //
 // The bar charts are omitted rather than narrowed. Each reserves a 92px gutter
-// for word labels ("bad-password", "forceoff"), which inside the drawer's 24rem
-// leaves under 250px of plot — and five of them would turn a glance panel into a
+// for word labels ("bad-password", "forceoff"), which inside the drawer's 28rem
+// leaves under 300px of plot — and five of them would turn a glance panel into a
 // scrolling chart gallery. They stay in Settings, where the panel is 5xl and
 // lays them out two-up.
 func MetricsOverviewBody(snap telemetry.Snapshot, trend []telemetry.Point) templ.Component {
@@ -580,7 +580,7 @@ func metricsOverviewTrend(id, title, unit, key string, trend []telemetry.Point) 
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = metricsTrendChart(id, unit, key, 104, trend).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = metricsTrendChart(id, unit, key, 120, trend).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -820,7 +820,7 @@ func metricsStateTile(label string, on bool, onText, offText string) templ.Compo
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "</p><div class=\"mt-1.5\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "</p><div class=\"mt-2\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -893,7 +893,7 @@ func metricsStateTile(label string, on bool, onText, offText string) templ.Compo
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = card.Card(card.Props{Class: "gap-0 py-3"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var27), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = card.Card(card.Props{Class: "gap-0 [--card-spacing:--spacing(3)]"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var27), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -959,14 +959,14 @@ func metricsCountTile(label string, count int) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "</p><p class=\"mt-0.5 text-2xl font-semibold tabular-nums\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "</p><p class=\"mt-1 text-2xl font-semibold tabular-nums\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var38 string
 				templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(count))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/metrics_panel.templ`, Line: 256, Col: 76}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/metrics_panel.templ`, Line: 256, Col: 74}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 				if templ_7745c5c3_Err != nil {
@@ -984,7 +984,7 @@ func metricsCountTile(label string, count int) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = card.Card(card.Props{Class: "gap-0 py-3"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var35), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = card.Card(card.Props{Class: "gap-0 [--card-spacing:--spacing(3)]"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var35), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

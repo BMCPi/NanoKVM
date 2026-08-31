@@ -96,26 +96,54 @@ func recordResourceSample() {
 	sampler := &resources.sampler
 	resources.mu.Unlock()
 
-	u := sampler.Sample()
-
-	appendResourcePoint(u, ResourcePoint{
-		At:     time.Now().Format("15:04"),
-		CPU:    u.CPUPercent,
-		Memory: u.MemPercent,
-		Disk:   u.DiskPercent,
-	})
+	appendResourceSample(sampler.Sample(), time.Now().Format("15:04"))
 }
 
-// appendResourcePoint stores one reading, evicting the oldest once the ring is
-// full. Copying a 180-element slice every ten seconds is cheaper than the
+// appendResourceSample stores one reading, evicting the oldest once the ring
+// is full. Copying a 180-element slice every ten seconds is cheaper than the
 // bookkeeping a ring index would add, and matches what pkg/telemetry's history
 // does for the same reason.
-func appendResourcePoint(u Usage, p ResourcePoint) {
+//
+// A subsystem that could not be read this tick carries its previous value
+// forward rather than recording zero. Zero is a reading, and plotting one
+// draws a trough the machine never had — which on a graph whose whole job is
+// spotting troughs and spikes is the worst available answer. The flat segment
+// a carry-forward leaves is honest by comparison: nothing was observed to
+// change, because nothing was observed.
+func appendResourceSample(u Usage, at string) {
 	resources.mu.Lock()
 	defer resources.mu.Unlock()
 
 	resources.latest = u
-	resources.points = append(resources.points, p)
+
+	var prev ResourcePoint
+	hasPrev := len(resources.points) > 0
+	if hasPrev {
+		prev = resources.points[len(resources.points)-1]
+	}
+
+	// The first reading has no CPU rate behind it — a rate needs an interval.
+	// Waiting one tick for it costs ten seconds; recording it costs a zero at
+	// the left edge of every graph for the next half hour. But wait only when
+	// /proc/stat is actually readable: where it is not, CPUValid never becomes
+	// true and holding out for it would suppress the memory and disk graphs
+	// forever.
+	if !hasPrev && !u.CPUValid && u.CPURead {
+		return
+	}
+
+	carry := func(valid bool, now, before float64) float64 {
+		if valid {
+			return now
+		}
+		return before
+	}
+	resources.points = append(resources.points, ResourcePoint{
+		At:     at,
+		CPU:    carry(u.CPUValid, u.CPUPercent, prev.CPU),
+		Memory: carry(u.MemValid, u.MemPercent, prev.Memory),
+		Disk:   carry(u.DiskValid, u.DiskPercent, prev.Disk),
+	})
 	if len(resources.points) > resourceDepth {
 		resources.points = append(resources.points[:0], resources.points[1:]...)
 	}
@@ -131,15 +159,18 @@ func LatestUsage() Usage {
 
 // ResourceHistory returns the recorded readings, oldest first.
 //
-// The first reading is dropped: its CPU figure is always zero because a rate
-// needs two samples, and a graph that opens with a trough the machine never
-// had is worse than one that starts a tick later.
+// Every stored point is plottable: the un-primed first sample is dropped at
+// write time (see appendResourceSample) rather than sliced off here, which is
+// what an earlier version did — and that slice went on discarding a perfectly
+// good oldest reading forever once the ring had wrapped past the sample it was
+// meant to remove.
 func ResourceHistory() []ResourcePoint {
 	resources.mu.Lock()
 	defer resources.mu.Unlock()
 
+	// One point is a value, not a trend, and the card says "last 30 minutes".
 	if len(resources.points) < 2 {
 		return nil
 	}
-	return append([]ResourcePoint(nil), resources.points[1:]...)
+	return append([]ResourcePoint(nil), resources.points...)
 }

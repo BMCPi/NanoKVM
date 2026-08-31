@@ -272,7 +272,8 @@ templ OverviewAppUpdateBody(m OverviewUpdateCheck) {
 
 // overviewHostFirmwareCard shows what the host firmware last reported over
 // the Redfish host interface, plus the boot override currently staged for
-// it. Pure display — the controls live in the Boot Override card below.
+// it. Pure display — an override is staged from the navbar's power menu
+// (PowerBootOverride in power_menu.templ), the only control for it.
 templ overviewHostFirmwareCard() {
 	@card.Card(card.Props{Class: overviewCardClass}) {
 		@card.Header(card.HeaderProps{Class: "gap-1"}) {
@@ -387,6 +388,9 @@ templ overviewToggleScript() {
 			window.toggleOverview = () => {
 				collapsed() ? openOverview() : closeOverview();
 			};
+			// Read by the live cards' hx-trigger poll filters, so a closed
+			// drawer issues no requests.
+			window.isOverviewOpen = () => !collapsed();
 
 			// Dragging the handle all the way shut is a close, and dragging it
 			// open is an open — including the first one, which has to fire the

@@ -38,8 +38,9 @@ type OverviewHostFirmware struct {
 	BootProgress string
 }
 
-// OverviewBootOverride is the Boot Override card body: the override staged
-// on the BMC for the host firmware to pick up at its next boot. Target and
+// OverviewBootOverride is the override staged on the BMC for the host
+// firmware to pick up at its next boot. Rendered by the navbar power menu's
+// staging form and by the Host Firmware card's read-only row. Target and
 // Enabled use the Redfish Boot vocabulary (BootSourceOverrideTarget /
 // BootSourceOverrideEnabled).
 type OverviewBootOverride struct {

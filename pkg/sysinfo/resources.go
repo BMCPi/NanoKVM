@@ -46,7 +46,13 @@ const (
 // the processor graph.
 type Usage struct {
 	CPUPercent float64
-	CPUValid   bool
+	// CPUValid is true once a rate could be computed, which needs two
+	// readings. CPURead distinguishes the two reasons it might be false: the
+	// sampler has only just started (read, not yet valid) versus /proc/stat
+	// is not readable at all. The history needs to tell those apart — the
+	// first is worth waiting one tick for, the second never resolves.
+	CPUValid bool
+	CPURead  bool
 
 	MemPercent float64
 	MemUsedMB  uint64
@@ -80,6 +86,7 @@ func (s *ResourceSampler) Sample() Usage {
 	var u Usage
 
 	if busy, all, err := readCPUTimes(); err == nil {
+		u.CPURead = true
 		u.CPUPercent, u.CPUValid = s.cpuPercent(busy, all)
 	}
 
@@ -116,11 +123,20 @@ func (s *ResourceSampler) cpuPercent(busy, all uint64) (float64, bool) {
 		return 0, false
 	}
 
-	deltaAll := all - prevAll
+	deltaAll, deltaBusy := all-prevAll, busy-prevBusy
 	if deltaAll == 0 {
 		return 0, false
 	}
-	return clampPercent(float64(busy-prevBusy) / float64(deltaAll) * 100), true
+	// iowait is not monotonic — Documentation/filesystems/proc.rst says so
+	// outright — and it is counted as idle here, so a drop in it shrinks the
+	// total by more than it shrinks the busy half. That yields a ratio above
+	// one out of an interval where nothing unusual happened. Reporting no
+	// reading leaves a flat segment; clamping would paint a 100% spike the
+	// machine never had.
+	if deltaBusy > deltaAll {
+		return 0, false
+	}
+	return clampPercent(float64(deltaBusy) / float64(deltaAll) * 100), true
 }
 
 // readCPUTimes reads the aggregate cpu line from /proc/stat.
