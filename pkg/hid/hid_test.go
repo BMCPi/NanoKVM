@@ -1,6 +1,7 @@
 package hid
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,6 +15,7 @@ func newTestController(t *testing.T) *Controller {
 	t.Helper()
 
 	dir := t.TempDir()
+	log := slog.New(slog.DiscardHandler)
 
 	// The real devices already exist as character devices, so the opener passes
 	// no create mode; create the stand-ins here with a readable one.
@@ -22,10 +24,10 @@ func newTestController(t *testing.T) *Controller {
 		if err := os.WriteFile(path, nil, 0o600); err != nil {
 			t.Fatalf("create %s: %v", path, err)
 		}
-		return &device{path: path, flags: os.O_RDWR}
+		return &device{path: path, flags: os.O_RDWR, log: log}
 	}
 
-	c := NewController()
+	c := NewController(log)
 	c.keyboard = stub("hidg0")
 	c.mouse = stub("hidg1")
 	t.Cleanup(c.Close)

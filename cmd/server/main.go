@@ -302,7 +302,7 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 	// The HID gadget driver opens its character devices lazily, so building it
 	// here costs nothing on a board whose gadget is not configured; the input
 	// handlers report that condition instead.
-	hidCtrl := hid.NewController()
+	hidCtrl := hid.NewController(rootLog.With("component", "hid"))
 	defer hidCtrl.Close()
 
 	d := &deps.Deps{

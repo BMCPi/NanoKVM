@@ -23,6 +23,8 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 )
 
 // signedByte reinterprets a signed report field as the two's-complement byte
@@ -144,18 +146,22 @@ type Controller struct {
 	warnedAboveRange bool
 
 	ledsOnce sync.Once
+
+	log *slog.Logger
 }
 
 // NewController returns a Controller. No device is opened until first use: the
 // gadget may not be bound yet at startup, and a BMC whose host never plugs in
 // should not log open failures forever.
-func NewController() *Controller {
+func NewController(log *slog.Logger) *Controller {
+	log = logger.Or(log)
 	return &Controller{
-		keyboard:    &device{path: keyboardDevice, flags: os.O_RDWR},
-		mouse:       &device{path: mouseDevice, flags: os.O_WRONLY},
+		keyboard:    &device{path: keyboardDevice, flags: os.O_RDWR, log: log},
+		mouse:       &device{path: mouseDevice, flags: os.O_WRONLY, log: log},
 		keys:        KeysDown{Keys: make([]byte, keyBufferSize)},
 		autoRelease: make(map[byte]*time.Timer),
 		subs:        make(map[chan LEDState]struct{}),
+		log:         log,
 	}
 }
 
@@ -230,7 +236,7 @@ func (c *Controller) applyKey(code byte, press bool) (byte, []byte) {
 	if !placed && press {
 		// More keys held than the array can carry. A real keyboard reports
 		// rollover rather than silently dropping one.
-		slog.Warn("hid: key buffer full, reporting rollover", slog.String("key", fmt.Sprintf("0x%02x", code)))
+		c.log.Warn("hid: key buffer full, reporting rollover", slog.String("key", fmt.Sprintf("0x%02x", code)))
 		for i := range keys {
 			keys[i] = errorRollOver
 		}
@@ -301,7 +307,7 @@ func (c *Controller) warnAboveRange(keys []byte) {
 	for _, k := range keys {
 		if k > MaxReportableKeyCode {
 			c.warnedAboveRange = true
-			slog.Warn("hid: key is above the keyboard descriptor's usage maximum; "+
+			c.log.Warn("hid: key is above the keyboard descriptor's usage maximum; "+
 				"the host will ignore it — widen the descriptor in pkg/usbgadget/hid.go to reach these keys",
 				slog.String("key", fmt.Sprintf("0x%02x", k)),
 				slog.String("max", fmt.Sprintf("0x%02x", MaxReportableKeyCode)))
@@ -366,13 +372,13 @@ func (c *Controller) autoReleaseFire(code byte) {
 		return
 	}
 
-	slog.Debug("hid: auto-releasing key (no key-up received)", slog.String("key", fmt.Sprintf("0x%02x", code)))
+	c.log.Debug("hid: auto-releasing key (no key-up received)", slog.String("key", fmt.Sprintf("0x%02x", code)))
 	modifier, keys := c.applyKey(code, false)
 	err := c.writeKeyboard(modifier, keys)
 	c.mu.Unlock()
 
 	if err != nil {
-		slog.Debug("hid: auto-release failed", slog.String("key", fmt.Sprintf("0x%02x", code)), slog.Any("err", err))
+		c.log.Debug("hid: auto-release failed", slog.String("key", fmt.Sprintf("0x%02x", code)), slog.Any("err", err))
 	}
 }
 
@@ -426,7 +432,7 @@ func (c *Controller) watchLEDReports() {
 			if errors.Is(err, os.ErrDeadlineExceeded) {
 				continue
 			}
-			slog.Debug("hid: keyboard LED reader stopped", slog.Any("err", err))
+			c.log.Debug("hid: keyboard LED reader stopped", slog.Any("err", err))
 			return
 		}
 		if n < 1 {
@@ -438,7 +444,7 @@ func (c *Controller) watchLEDReports() {
 
 func (c *Controller) updateLEDs(state byte) {
 	if state&^ledValidMask != 0 {
-		slog.Debug("hid: ignoring LED report with unknown bits", slog.String("bits", fmt.Sprintf("0x%02x", state)))
+		c.log.Debug("hid: ignoring LED report with unknown bits", slog.String("bits", fmt.Sprintf("0x%02x", state)))
 		return
 	}
 
@@ -455,7 +461,7 @@ func (c *Controller) updateLEDs(state byte) {
 	c.ledMu.Unlock()
 
 	led := ledStateOf(state)
-	slog.Debug("hid: host LED state changed", slog.Any("state", led))
+	c.log.Debug("hid: host LED state changed", slog.Any("state", led))
 	for _, ch := range subs {
 		// Non-blocking with replacement: the publisher must never stall on a
 		// subscriber that has stopped reading.
@@ -531,6 +537,8 @@ type device struct {
 	// missing suppresses repeat open-failure logs for a gadget that is simply
 	// not configured (no host attached, HID disabled).
 	missing bool
+
+	log *slog.Logger
 }
 
 func (d *device) handle() *os.File {
@@ -551,13 +559,13 @@ func (d *device) open() (*os.File, error) {
 	if err != nil {
 		if !d.missing {
 			d.missing = true
-			slog.Warn("hid: device unavailable (is the USB gadget configured?)", slog.String("device", d.path), slog.Any("err", err))
+			d.log.Warn("hid: device unavailable (is the USB gadget configured?)", slog.String("device", d.path), slog.Any("err", err))
 		}
 		return nil, fmt.Errorf("open %s: %w", d.path, err)
 	}
 	d.missing = false
 	d.file = f
-	slog.Debug("hid: opened device", slog.String("device", d.path))
+	d.log.Debug("hid: opened device", slog.String("device", d.path))
 	return f, nil
 }
 
@@ -580,7 +588,7 @@ func (d *device) write(report []byte) error {
 	if err := f.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
 		// Not every kernel makes hidg pollable; without deadline support the
 		// write still works, it just cannot be bounded.
-		slog.Debug("hid: device does not support write deadlines", slog.String("device", d.path), slog.Any("err", err))
+		d.log.Debug("hid: device does not support write deadlines", slog.String("device", d.path), slog.Any("err", err))
 	}
 
 	if _, err := f.Write(report); err != nil {
@@ -588,10 +596,10 @@ func (d *device) write(report []byte) error {
 			// Nobody is polling the endpoint — host off, cable out, or the
 			// driver not yet bound. Dropping the report is right, and it is
 			// not an error worth surfacing to the caller.
-			slog.Debug("hid: write timed out; host is not polling", slog.String("device", d.path))
+			d.log.Debug("hid: write timed out; host is not polling", slog.String("device", d.path))
 			return nil
 		}
-		slog.Debug("hid: write failed", slog.String("device", d.path), slog.Any("err", err))
+		d.log.Debug("hid: write failed", slog.String("device", d.path), slog.Any("err", err))
 		d.close()
 		return fmt.Errorf("write %s: %w", d.path, err)
 	}

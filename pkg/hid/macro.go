@@ -87,7 +87,7 @@ func ResolveStep(keys, modifiers []string, delayMS int) (Step, error) {
 func (c *Controller) RunMacro(ctx context.Context, steps []Step) error {
 	defer func() {
 		if err := c.ReleaseAll(); err != nil {
-			slog.DebugContext(ctx, "hid: releasing keys after macro failed", slog.Any("err", err))
+			c.log.DebugContext(ctx, "hid: releasing keys after macro failed", slog.Any("err", err))
 		}
 	}()
 
