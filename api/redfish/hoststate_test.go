@@ -79,6 +79,7 @@ func hostRouter() *gin.Engine {
 	r.GET("/redfish/v1/Systems/1/EthernetInterfaces", svc.GetEthernetInterfaceCollection)
 	r.GET("/redfish/v1/Systems/1/EthernetInterfaces/:nic", svc.GetEthernetInterface)
 	r.POST("/redfish/v1/Systems/1/EthernetInterfaces", svc.PostEthernetInterface)
+	r.DELETE("/redfish/v1/Systems/1/EthernetInterfaces/:nic", svc.DeleteEthernetInterface)
 	r.PATCH("/redfish/v1/Systems/1/EthernetInterfaces/:nic", svc.PatchEthernetInterface)
 	r.POST("/redfish/v1/Systems/1/BootOptions", svc.PostBootOption)
 	r.GET("/redfish/v1/Systems/1/BootOptions/:option", svc.GetBootOption)
@@ -141,6 +142,7 @@ func TestHostWritesRejectedFromLAN(t *testing.T) {
 	for _, tc := range []struct{ method, path string }{
 		{http.MethodPost, "/redfish/v1/Systems/1/BootOptions"},
 		{http.MethodPost, "/redfish/v1/Systems/1/EthernetInterfaces"},
+		{http.MethodDelete, "/redfish/v1/Systems/1/EthernetInterfaces/eth1"},
 		{http.MethodPost, "/redfish/v1/Systems/1/Memory"},
 		{http.MethodPost, "/redfish/v1/Systems/1/Processors"},
 		{http.MethodPatch, "/redfish/v1/Systems/1/Processors/CPU1"},
@@ -1137,5 +1139,33 @@ func TestEthernetInterfaceHostReport(t *testing.T) {
 	// An unreported NIC stays a 404, not an invented member.
 	if w = do(r, http.MethodGet, "/redfish/v1/Systems/1/EthernetInterfaces/eth9", lanIP, "", nil); w.Code != http.StatusNotFound {
 		t.Fatalf("missing member GET = %d, want 404", w.Code)
+	}
+}
+
+// The firmware retires ghost NIC members it no longer reports -- the
+// stale-member DELETE contract, host-lane gated.
+func TestEthernetInterfaceStaleDelete(t *testing.T) {
+	resetHostState(t)
+	r := hostRouter()
+	for _, id := range []string{"eth0", "eth1"} {
+		body := `{"Id":"` + id + `","MACAddress":"D8:3A:DD:C9:8C:28"}`
+		if w := do(r, http.MethodPost, "/redfish/v1/Systems/1/EthernetInterfaces", hostIP(t), body, nil); w.Code != http.StatusCreated {
+			t.Fatalf("seed POST %s = %d", id, w.Code)
+		}
+	}
+
+	if w := do(r, http.MethodDelete, "/redfish/v1/Systems/1/EthernetInterfaces/eth1", hostIP(t), "", nil); w.Code != http.StatusNoContent {
+		t.Fatalf("host DELETE = %d, want 204", w.Code)
+	}
+	if w := do(r, http.MethodDelete, "/redfish/v1/Systems/1/EthernetInterfaces/eth1", hostIP(t), "", nil); w.Code != http.StatusNotFound {
+		t.Fatalf("second DELETE = %d, want 404", w.Code)
+	}
+
+	w := do(r, http.MethodGet, "/redfish/v1/Systems/1/EthernetInterfaces", lanIP, "", nil)
+	var coll struct {
+		Count int `json:"Members@odata.count"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &coll); err != nil || coll.Count != 1 {
+		t.Fatalf("collection after delete: count=%d err=%v", coll.Count, err)
 	}
 }

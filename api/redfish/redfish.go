@@ -11,16 +11,18 @@ import (
 func Register(r *gin.Engine, d *deps.Deps) {
 	service := NewService(d)
 
-	// Public endpoints
-	r.GET("/redfish", service.GetRedfishBase)
+	// Public endpoints. HostTrace records requests arriving over the USB
+	// host interface — the only boot-time record of what the managed host's
+	// firmware did, since its RELEASE builds log nothing themselves.
+	r.GET("/redfish", HostTrace(), service.GetRedfishBase)
 
 	// The service root is served at both spellings. The canonical form is
 	// schemas.DefaultServiceRoot ("/redfish/v1/", trailing slash) — that is
 	// what gofish requests on Login and what we now emit as @odata.id. The
 	// bare "/redfish/v1" stays registered so existing callers keep working
 	// rather than relying on gin's 301 redirect.
-	r.GET(ServiceRootPath, service.GetServiceRoot)
-	r.GET(strings.TrimSuffix(ServiceRootPath, "/"), service.GetServiceRoot)
+	r.GET(ServiceRootPath, HostTrace(), service.GetServiceRoot)
+	r.GET(strings.TrimSuffix(ServiceRootPath, "/"), HostTrace(), service.GetServiceRoot)
 
 	// $metadata is referenced by the @odata.context of every response, so it
 	// has to resolve for anyone who can read a response at all — including
@@ -40,7 +42,7 @@ func Register(r *gin.Engine, d *deps.Deps) {
 	// Protected endpoints. CheckAuth passes host-interface requests through
 	// unauthenticated (DSP0270); handlers guard host-owned writes with
 	// hostWritable instead.
-	api := r.Group("/redfish/v1").Use(CheckAuth())
+	api := r.Group("/redfish/v1").Use(HostTrace(), CheckAuth())
 	{
 		// Systems. PATCH carries both write directions: operators stage the
 		// boot override, the host firmware reports identity/boot progress.
@@ -103,6 +105,7 @@ func Register(r *gin.Engine, d *deps.Deps) {
 		api.GET("/Systems/1/EthernetInterfaces", service.GetEthernetInterfaceCollection)
 		api.GET("/Systems/1/EthernetInterfaces/:nic", service.GetEthernetInterface)
 		api.POST("/Systems/1/EthernetInterfaces", service.PostEthernetInterface)
+		api.DELETE("/Systems/1/EthernetInterfaces/:nic", service.DeleteEthernetInterface)
 		// Operator lane: stages IPv4 configuration onto the EthIp4* Bios
 		// attributes (Bios/Settings) for the host's next boot.
 		api.PATCH("/Systems/1/EthernetInterfaces/:nic", service.PatchEthernetInterface)

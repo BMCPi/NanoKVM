@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/auth"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
@@ -43,5 +44,24 @@ func CheckAuth() gin.HandlerFunc {
 			return
 		}
 		tokenCheck(c)
+	}
+}
+
+// HostTrace logs every request that arrives over the USB host interface.
+// The managed host's firmware is a Redfish client whose RELEASE builds
+// carry no diagnostics of their own, so this log is the only record of
+// what the firmware actually did during a boot — which resources its
+// feature drivers walked, whether the pending Bios settings were read
+// (GET /Systems/1/Bios/Settings) and consumed (DELETE of the same), and
+// where an exchange stopped. LAN traffic is untouched.
+func HostTrace() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !IsHostInterfaceRequest(c) {
+			c.Next()
+			return
+		}
+		c.Next()
+		log.Infof("redfish host: %s %s -> %d",
+			c.Request.Method, c.Request.URL.Path, c.Writer.Status())
 	}
 }

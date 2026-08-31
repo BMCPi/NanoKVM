@@ -341,3 +341,26 @@ func ethIPString(prop string, v any) (string, error) {
 	}
 	return s, nil
 }
+
+// DeleteEthernetInterface retires one host-reported NIC member. Host-lane
+// only, same stale-member contract as DeleteBootOption: the firmware
+// re-reports its NICs each boot and deletes ids it no longer reports
+// (index-keyed ids once accumulated ghosts when per-boot enumeration
+// varied; the collection persists, so only the host can retire them).
+func (s *Service) DeleteEthernetInterface(c *gin.Context) {
+	if !hostWritable(c) {
+		return
+	}
+	id := c.Param("nic")
+	current, ok := hostCollectionGet(ethernetOf, id)
+	if !ok {
+		redfishErrorResponse(c, http.StatusNotFound, "ethernet interface not found: "+id)
+		return
+	}
+	if !hostCheckIfMatch(c, renderHostMember(current, ethernetInterfacesPath+"/"+id, id,
+		odataTypeEthernetInterface, "EthernetInterface.EthernetInterface", id)) {
+		return
+	}
+	hostCollectionDelete(ethernetOf, id)
+	c.Status(http.StatusNoContent)
+}
