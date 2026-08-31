@@ -24,7 +24,7 @@ import (
 // Requests from the USB host interface pass without credentials: DSP0270
 // permits unauthenticated host-interface access, and the nftables isolation
 // in pkg/network makes the source address trustworthy.
-func CheckAuth(log *slog.Logger) gin.HandlerFunc {
+func CheckAuth(log *slog.Logger, svc *auth.Service) gin.HandlerFunc {
 	tokenCheck := middleware.CheckToken(log)
 	return func(c *gin.Context) {
 		if IsHostInterfaceRequest(c) {
@@ -36,7 +36,7 @@ func CheckAuth(log *slog.Logger) gin.HandlerFunc {
 			return
 		}
 		if user, pass, ok := c.Request.BasicAuth(); ok {
-			if auth.ComparePlainAccount(user, pass) {
+			if svc.ComparePlainAccount(user, pass) {
 				c.Next()
 				return
 			}

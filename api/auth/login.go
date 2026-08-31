@@ -4,7 +4,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/auth"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
 	"github.com/pi-bmc/nanokvm-app/pkg/proto"
@@ -26,7 +25,7 @@ func (h *handlers) Login(c *gin.Context) {
 	}
 
 	clientIP := requestIP(c)
-	if locked, code, msg := auth.CheckLoginAttempt(clientIP); locked {
+	if locked, code, msg := h.d.Auth.CheckLoginAttempt(clientIP); locked {
 		time.Sleep(3 * time.Second)
 		rsp.ErrRsp(c, code, msg)
 		return
@@ -38,10 +37,10 @@ func (h *handlers) Login(c *gin.Context) {
 		return
 	}
 
-	if ok := auth.CompareAccount(req.Username, req.Password); !ok {
+	if ok := h.d.Auth.CompareAccount(req.Username, req.Password); !ok {
 		time.Sleep(2 * time.Second)
 
-		if locked, code, msg := auth.RecordLoginFailure(clientIP); locked {
+		if locked, code, msg := h.d.Auth.RecordLoginFailure(clientIP); locked {
 			rsp.ErrRsp(c, code, msg)
 			return
 		}
@@ -50,7 +49,7 @@ func (h *handlers) Login(c *gin.Context) {
 		return
 	}
 
-	auth.ClearLoginAttempt(clientIP)
+	h.d.Auth.ClearLoginAttempt(clientIP)
 
 	token, err := middleware.GenerateJWT(req.Username)
 	if err != nil {
@@ -80,7 +79,7 @@ func (h *handlers) Logout(c *gin.Context) {
 func (h *handlers) GetAccount(c *gin.Context) {
 	var rsp proto.Response
 
-	account, err := auth.GetAccount()
+	account, err := h.d.Auth.GetAccount()
 	if err != nil {
 		rsp.ErrRsp(c, -1, "get account failed")
 		return

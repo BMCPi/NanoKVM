@@ -21,6 +21,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/auth"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 	"github.com/pi-bmc/nanokvm-app/pkg/hid"
@@ -59,6 +60,14 @@ type Deps struct {
 	Config   *config.Config
 	Power    *power.Controller
 	Firmware *firmware.Controller
+
+	// Auth is the credential store and brute-force guard shared by the web
+	// login form, the Redfish session/Basic-Auth paths, and (outside the
+	// request path) the SSH server — all of them must see the same instance
+	// so a lockout on one login surface applies to the others. auth is a
+	// library, not a component: main constructs it untagged and every caller
+	// applies its own component-tagged logger elsewhere in its own chain.
+	Auth *auth.Service
 
 	// Video is the WebRTC hub over the HDMI capture pipeline. It is nil on a
 	// board with no capture hardware, or when the pipeline failed to

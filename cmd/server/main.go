@@ -16,6 +16,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/api"
 	"github.com/pi-bmc/nanokvm-app/api/redfish"
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
+	"github.com/pi-bmc/nanokvm-app/pkg/auth"
 	"github.com/pi-bmc/nanokvm-app/pkg/autoupdate"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
@@ -57,6 +58,12 @@ var (
 	// in initialize() and shared by run() (via deps.Deps) and the IPMI server.
 	powerCtrl *power.Controller
 	fwCtrl    *firmware.Controller
+
+	// authSvc is the one credential store / brute-force guard for the process,
+	// built once in initialize() (before the SSH server starts, which needs it
+	// directly) and shared by run() via deps.Deps.Auth. auth is a library, not
+	// a component, so it is constructed with rootLog untagged.
+	authSvc *auth.Service
 
 	// rootLog is the process-wide logger returned by logger.Init, threaded
 	// into deps.Deps so handler packages can derive component loggers from
@@ -165,6 +172,10 @@ func initialize(ctx context.Context) {
 	cfg := config.GetInstance()
 	powerCtrl = power.NewController(cfg.Hardware, cfg.Power, rootLog.With("component", "power"))
 	fwCtrl = firmware.NewController(cfg, rootLog.With("component", "firmware"))
+	// Untagged: auth is a library, not a component (see deps.Deps.Auth and
+	// pkg/auth's package doc). Every caller applies its own component tag to
+	// the logger it already holds before reaching auth's methods.
+	authSvc = auth.NewService(rootLog)
 	videoHub = newVideoHub(cfg)
 
 	// Restore the persisted host state (staged boot override, host-reported
@@ -221,7 +232,7 @@ func initialize(ctx context.Context) {
 	// SSH listener, authenticating against the same account as the web UI plus
 	// the configured authorized_keys, and running sessions on the shared PTY
 	// plumbing the web terminal uses. No-op when ssh.enabled is false.
-	if err := sshd.Start(rootLog.With("component", "ssh")); err != nil {
+	if err := sshd.Start(rootLog.With("component", "ssh"), authSvc); err != nil {
 		slog.ErrorContext(ctx, "SSH server start failed", slog.Any("err", err))
 	}
 
@@ -321,6 +332,7 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 		Config:   conf,
 		Power:    powerCtrl,
 		Firmware: fwCtrl,
+		Auth:     authSvc,
 		Video:    videoHub,
 		HID:      hidCtrl,
 	}

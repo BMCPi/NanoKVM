@@ -66,12 +66,19 @@ type Server struct {
 	mu    sync.Mutex
 	conns map[net.Conn]struct{}
 
-	log *slog.Logger
+	log  *slog.Logger
+	auth *auth.Service
 }
 
 var (
 	mu      sync.Mutex
 	current *Server
+
+	// authSvc is the process's shared auth service, handed to Start by main
+	// and remembered here so Restart (which takes no arguments — it is called
+	// from a settings-change handler with no auth.Service of its own to pass)
+	// can hand the same instance to the server it brings back up.
+	authSvc *auth.Service
 )
 
 // pkgLogHolder is pkg/ssh's holder for the "ssh" component logger, needed by
@@ -92,13 +99,17 @@ func pkgLog() *slog.Logger {
 }
 
 // Start launches the SSH server unless it is disabled in the config or already
-// running. Safe to call repeatedly; only the first call binds.
-func Start(log *slog.Logger) error {
+// running. Safe to call repeatedly; only the first call binds. svc is the
+// process's shared auth.Service — password auth (authPassword) shares its
+// brute-force lockout state with the web login form, so this must be the
+// same instance main hands to deps.Deps.Auth, never a private one.
+func Start(log *slog.Logger, svc *auth.Service) error {
 	mu.Lock()
 	defer mu.Unlock()
 
 	log = logger.Or(log)
 	pkgLogHolder.Set(log)
+	authSvc = svc
 
 	if current != nil {
 		return nil
@@ -110,7 +121,7 @@ func Start(log *slog.Logger) error {
 		return nil
 	}
 
-	s, err := newServer(conf, log)
+	s, err := newServer(conf, log, svc)
 	if err != nil {
 		return err
 	}
@@ -151,15 +162,19 @@ func Addr() string {
 
 // Restart applies a configuration change (enable/disable, port) by tearing the
 // listener down and bringing it back per the current config. Reuses the
-// package's stored logger rather than falling back to a bare default — it
-// stuck the first time Start ran, whether or not SSH was enabled then.
+// package's stored logger and auth.Service rather than falling back to a bare
+// default — both stuck the first time Start ran, whether or not SSH was
+// enabled then.
 func Restart() error {
 	log := pkgLog()
+	mu.Lock()
+	svc := authSvc
+	mu.Unlock()
 	Stop()
-	return Start(log)
+	return Start(log, svc)
 }
 
-func newServer(conf config.SSH, log *slog.Logger) (*Server, error) {
+func newServer(conf config.SSH, log *slog.Logger, svc *auth.Service) (*Server, error) {
 	signer, err := loadOrCreateHostKey(conf.HostKeyPath, log)
 	if err != nil {
 		return nil, err
@@ -170,6 +185,7 @@ func newServer(conf config.SSH, log *slog.Logger) (*Server, error) {
 		handshakes: make(chan struct{}, maxPendingHandshakes),
 		conns:      make(map[net.Conn]struct{}),
 		log:        log,
+		auth:       svc,
 	}
 
 	s.cfg = &ssh.ServerConfig{
@@ -321,11 +337,11 @@ func (s *Server) track(c net.Conn, add bool) {
 // allowedUser reports whether an SSH login name may be used. There is a single
 // BMC account, so its username is accepted along with "root" — the session runs
 // as root regardless, and `ssh root@bmc` is what users type out of habit.
-func allowedUser(user string) bool {
+func (s *Server) allowedUser(user string) bool {
 	if strings.EqualFold(user, "root") {
 		return true
 	}
-	account, err := auth.GetAccount()
+	account, err := s.auth.GetAccount()
 	if err != nil {
 		return false
 	}
@@ -333,7 +349,7 @@ func allowedUser(user string) bool {
 }
 
 func (s *Server) authPublicKey(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
-	if !allowedUser(conn.User()) {
+	if !s.allowedUser(conn.User()) {
 		return nil, errors.New("unknown user")
 	}
 
@@ -355,21 +371,21 @@ func (s *Server) authPassword(conn ssh.ConnMetadata, password []byte) (*ssh.Perm
 
 	// Share the web login's lockout state so an attacker cannot sidestep it by
 	// switching from HTTP to SSH.
-	if locked, _, msg := auth.CheckLoginAttempt(clientIP); locked {
+	if locked, _, msg := s.auth.CheckLoginAttempt(clientIP); locked {
 		s.log.Warn("ssh: login rejected", slog.String("ip", clientIP), slog.String("reason", msg))
 		return nil, errors.New("too many failed attempts")
 	}
 
-	account, err := auth.GetAccount()
+	account, err := s.auth.GetAccount()
 	if err != nil {
 		return nil, errors.New("authentication unavailable")
 	}
-	if !allowedUser(conn.User()) || !auth.ComparePlainAccount(account.Username, string(password)) {
-		auth.RecordLoginFailure(clientIP)
+	if !s.allowedUser(conn.User()) || !s.auth.ComparePlainAccount(account.Username, string(password)) {
+		s.auth.RecordLoginFailure(clientIP)
 		return nil, errors.New("invalid credentials")
 	}
 
-	auth.ClearLoginAttempt(clientIP)
+	s.auth.ClearLoginAttempt(clientIP)
 	return &ssh.Permissions{}, nil
 }
 

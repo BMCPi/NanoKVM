@@ -5,7 +5,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/auth"
 	"github.com/pi-bmc/nanokvm-app/pkg/proto"
 	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 )
@@ -28,7 +27,7 @@ func (h *handlers) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	if err := auth.ChangePassword(req.Username, password); err != nil {
+	if err := h.d.Auth.ChangePassword(req.Username, password); err != nil {
 		rsp.ErrRsp(c, -5, "failed to change password")
 		return
 	}
@@ -41,7 +40,7 @@ func (h *handlers) ChangePassword(c *gin.Context) {
 func (h *handlers) IsPasswordUpdated(c *gin.Context) {
 	var rsp proto.Response
 
-	updated, err := auth.IsPasswordUpdated()
+	updated, err := h.d.Auth.IsPasswordUpdated()
 	if err != nil {
 		rsp.ErrRsp(c, -1, "failed to get password")
 		return

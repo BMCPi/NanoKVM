@@ -18,6 +18,7 @@ import (
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/auth"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/shell"
 )
@@ -43,7 +44,7 @@ func startTestServer(t *testing.T, passwordAuth bool) string {
 	})
 
 	Stop() // ensure a clean slate if a previous test left one running
-	if err := Start(slog.New(slog.DiscardHandler)); err != nil {
+	if err := Start(slog.New(slog.DiscardHandler), auth.NewService(slog.New(slog.DiscardHandler))); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	if !IsRunning() {

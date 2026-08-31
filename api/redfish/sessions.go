@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/auth"
 	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
 
 	"github.com/gin-gonic/gin"
@@ -36,7 +35,7 @@ func (h *handlers) CreateSession(c *gin.Context) {
 		return
 	}
 
-	if ok := auth.ComparePlainAccount(req.UserName, req.Password); !ok {
+	if ok := h.d.Auth.ComparePlainAccount(req.UserName, req.Password); !ok {
 		time.Sleep(2 * time.Second)
 		redfishErrorResponse(c, http.StatusUnauthorized, "invalid username or password")
 		return

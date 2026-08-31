@@ -16,29 +16,29 @@ import (
 // the web/SSH account file and the root shell password, which must not
 // diverge. On a root-password failure the account write is rolled back so
 // the two stay consistent.
-func ChangePassword(username, plainPassword string) error {
+func (s *Service) ChangePassword(username, plainPassword string) error {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(plainPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
 
-	if err := SetAccount(username, string(hashedPassword)); err != nil {
+	if err := s.SetAccount(username, string(hashedPassword)); err != nil {
 		return err
 	}
 
-	if err := changeRootPassword(plainPassword); err != nil {
-		_ = DelAccount()
+	if err := s.changeRootPassword(plainPassword); err != nil {
+		_ = s.DelAccount()
 		return err
 	}
 
-	slog.Debug("change password success", slog.String("username", username))
+	s.log.Debug("change password success", slog.String("username", username))
 	return nil
 }
 
 // IsPasswordUpdated reports whether the default admin password has been
 // changed: false while no account file exists or while the stored hash
 // still matches "admin".
-func IsPasswordUpdated() (bool, error) {
+func (s *Service) IsPasswordUpdated() (bool, error) {
 	if _, err := os.Stat(accountFile); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			// No account file at all: the device is still on the shipped
@@ -53,7 +53,7 @@ func IsPasswordUpdated() (bool, error) {
 		return false, err
 	}
 
-	account, err := GetAccount()
+	account, err := s.GetAccount()
 	if err != nil || account == nil {
 		return false, err
 	}
@@ -65,14 +65,14 @@ func IsPasswordUpdated() (bool, error) {
 	return errors.Is(err, bcrypt.ErrMismatchedHashAndPassword), nil
 }
 
-func changeRootPassword(password string) error {
+func (s *Service) changeRootPassword(password string) error {
 	err := passwd(password)
 	if err != nil {
-		slog.Error("failed to change root password", slog.Any("err", err))
+		s.log.Error("failed to change root password", slog.Any("err", err))
 		return err
 	}
 
-	slog.Debug("change root password successful")
+	s.log.Debug("change root password successful")
 	return nil
 }
 

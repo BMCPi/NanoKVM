@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"log/slog"
 	"os"
 	"testing"
 	"time"
@@ -96,20 +97,19 @@ func TestComparePlainAccountFastPath(t *testing.T) {
 	if _, err := os.Stat(accountFile); err == nil {
 		t.Skipf("%s exists; skipping default-account fast-path test", accountFile)
 	}
-	basicAuthCache.flush()
-	t.Cleanup(basicAuthCache.flush)
+	s := NewService(slog.New(slog.DiscardHandler))
 
 	// First (uncached) check runs bcrypt and, on success, populates the cache.
-	if !ComparePlainAccount("admin", "admin") {
+	if !s.ComparePlainAccount("admin", "admin") {
 		t.Fatal("default admin/admin should validate")
 	}
-	if !basicAuthCache.get("admin", "admin") {
+	if !s.cache.get("admin", "admin") {
 		t.Fatal("successful check was not cached")
 	}
 
 	// The cached hit is dramatically faster than a bcrypt compare.
 	start := time.Now()
-	ok := ComparePlainAccount("admin", "admin")
+	ok := s.ComparePlainAccount("admin", "admin")
 	elapsed := time.Since(start)
 	if !ok {
 		t.Fatal("cached check should still validate")
@@ -119,16 +119,16 @@ func TestComparePlainAccountFastPath(t *testing.T) {
 	}
 
 	// A wrong password must fail and must not be cached.
-	if ComparePlainAccount("admin", "wrong") {
+	if s.ComparePlainAccount("admin", "wrong") {
 		t.Fatal("wrong password should fail")
 	}
-	if basicAuthCache.get("admin", "wrong") {
+	if s.cache.get("admin", "wrong") {
 		t.Fatal("failed check must not be cached")
 	}
 
 	// Invalidation clears the memoized credential.
-	invalidateBasicAuthCache()
-	if basicAuthCache.get("admin", "admin") {
+	s.cache.flush()
+	if s.cache.get("admin", "admin") {
 		t.Fatal("invalidate did not clear the cache")
 	}
 }

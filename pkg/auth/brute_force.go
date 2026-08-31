@@ -2,7 +2,6 @@ package auth
 
 import (
 	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
@@ -19,14 +18,8 @@ const (
 	cleanupInterval         = 6 * time.Hour
 )
 
-var (
-	loginAttempts = make(map[string]*loginAttempt)
-	loginMutex    sync.Mutex
-	cleanupOnce   sync.Once
-)
-
 // startCleanupRoutine starts a background routine to clean up memory
-func startCleanupRoutine() {
+func (s *Service) startCleanupRoutine() {
 	conf := config.GetInstance()
 	if conf.Security.LoginLockoutDuration <= 0 {
 		return
@@ -35,38 +28,38 @@ func startCleanupRoutine() {
 	go func() {
 		ticker := time.NewTicker(cleanupInterval)
 		for range ticker.C {
-			loginMutex.Lock()
+			s.loginMu.Lock()
 			now := time.Now()
-			for ip, attempt := range loginAttempts {
+			for ip, attempt := range s.loginAttempts {
 				// Cleanup rules: if it has been locked and the lockout time has passed,
 				// or (although not locked) it has been 30 minutes since the last failure,
 				// remove this record
 				if (!attempt.lockoutEnd.IsZero() && now.After(attempt.lockoutEnd)) ||
 					(attempt.lockoutEnd.IsZero() && now.Sub(attempt.lastFailed) > 30*time.Minute) {
-					delete(loginAttempts, ip)
+					delete(s.loginAttempts, ip)
 				}
 			}
-			loginMutex.Unlock()
+			s.loginMu.Unlock()
 		}
 	}()
 }
 
 // CheckLoginAttempt checks if a login attempt is allowed based on brute-force protection rules.
 // Returning true means the IP/System is locked out, and an error string and error code are returned.
-func CheckLoginAttempt(clientIP string) (bool, int, string) {
+func (s *Service) CheckLoginAttempt(clientIP string) (bool, int, string) {
 	conf := config.GetInstance()
 	if conf.Security.LoginLockoutDuration <= 0 {
 		return false, 0, ""
 	}
 
-	cleanupOnce.Do(startCleanupRoutine)
+	s.cleanupOnce.Do(s.startCleanupRoutine)
 
-	loginMutex.Lock()
-	defer loginMutex.Unlock()
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
 
-	if attempt, exists := loginAttempts[clientIP]; exists {
+	if attempt, exists := s.loginAttempts[clientIP]; exists {
 		if time.Now().Before(attempt.lockoutEnd) {
-			slog.Debug("login blocked: account locked due to too many failed attempts", slog.String("ip", clientIP), slog.Time("until", attempt.lockoutEnd))
+			s.log.Debug("login blocked: account locked due to too many failed attempts", slog.String("ip", clientIP), slog.Time("until", attempt.lockoutEnd))
 			return true, -5, "Account locked due to too many failed attempts, please try again later"
 		}
 
@@ -81,26 +74,26 @@ func CheckLoginAttempt(clientIP string) (bool, int, string) {
 }
 
 // RecordLoginFailure records a failed login attempt for the given IP address.
-func RecordLoginFailure(clientIP string) (bool, int, string) {
+func (s *Service) RecordLoginFailure(clientIP string) (bool, int, string) {
 	conf := config.GetInstance()
 	if conf.Security.LoginLockoutDuration <= 0 {
 		return false, 0, ""
 	}
 
-	cleanupOnce.Do(startCleanupRoutine)
+	s.cleanupOnce.Do(s.startCleanupRoutine)
 
-	loginMutex.Lock()
-	defer loginMutex.Unlock()
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
 
-	attempt, exists := loginAttempts[clientIP]
+	attempt, exists := s.loginAttempts[clientIP]
 	if !exists {
 		// When the record pool is full, clear the records instead of global lockout to prevent DDoS
-		if len(loginAttempts) >= maxLoginAttemptsRecords {
-			slog.Warn("login attempt records reached maximum limit, clearing records to prevent memory overflow")
-			loginAttempts = make(map[string]*loginAttempt)
+		if len(s.loginAttempts) >= maxLoginAttemptsRecords {
+			s.log.Warn("login attempt records reached maximum limit, clearing records to prevent memory overflow")
+			s.loginAttempts = make(map[string]*loginAttempt)
 		}
 		attempt = &loginAttempt{}
-		loginAttempts[clientIP] = attempt
+		s.loginAttempts[clientIP] = attempt
 	}
 
 	now := time.Now()
@@ -116,21 +109,21 @@ func RecordLoginFailure(clientIP string) (bool, int, string) {
 	// Reach the failure limit, lock out
 	if attempt.failures >= conf.Security.LoginMaxFailures {
 		attempt.lockoutEnd = now.Add(time.Duration(conf.Security.LoginLockoutDuration) * time.Second)
-		slog.Debug("login failures reached threshold, locking out", slog.String("ip", clientIP), slog.Time("until", attempt.lockoutEnd))
+		s.log.Debug("login failures reached threshold, locking out", slog.String("ip", clientIP), slog.Time("until", attempt.lockoutEnd))
 	}
 
 	return false, 0, ""
 }
 
 // ClearLoginAttempt clears the failed login attempt record for an IP upon successful login.
-func ClearLoginAttempt(clientIP string) {
+func (s *Service) ClearLoginAttempt(clientIP string) {
 	conf := config.GetInstance()
 	if conf.Security.LoginLockoutDuration <= 0 {
 		return
 	}
 
-	loginMutex.Lock()
-	defer loginMutex.Unlock()
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
 
-	delete(loginAttempts, clientIP)
+	delete(s.loginAttempts, clientIP)
 }

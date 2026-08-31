@@ -32,8 +32,6 @@ type authCache struct {
 	entries map[string]time.Time // credential digest -> expiry
 }
 
-var basicAuthCache = newAuthCache()
-
 func newAuthCache() *authCache {
 	secret := make([]byte, 32)
 	// crypto/rand.Read never short-reads; on the vanishingly unlikely error the
@@ -84,15 +82,10 @@ func (a *authCache) put(username, password string) {
 	a.entries[k] = now.Add(basicAuthCacheTTL)
 }
 
+// flush drops all memoized credentials. Called whenever the stored account
+// changes so a rotated or removed password stops authenticating immediately.
 func (a *authCache) flush() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.entries = make(map[string]time.Time)
-}
-
-// invalidateBasicAuthCache drops all memoized credentials. Called whenever the
-// stored account changes so a rotated or removed password stops authenticating
-// immediately.
-func invalidateBasicAuthCache() {
-	basicAuthCache.flush()
 }
