@@ -50,6 +50,8 @@ type Session struct {
 	sig Signaler
 	pc  *webrtc.PeerConnection
 
+	log *slog.Logger
+
 	mu         sync.Mutex
 	pending    []webrtc.ICECandidateInit
 	haveRemote bool
@@ -69,7 +71,7 @@ func (s *Session) armNegotiation() {
 	defer s.mu.Unlock()
 
 	s.negotiate = time.AfterFunc(negotiationTimeout, func() {
-		slog.Warn("rtc: no offer, dropping session", slog.Duration("timeout", negotiationTimeout))
+		s.log.Warn("rtc: no offer, dropping session", slog.Duration("timeout", negotiationTimeout))
 		s.Close()
 	})
 }
@@ -96,7 +98,7 @@ func (s *Session) armDisconnect() {
 		return
 	}
 	s.disconnect = time.AfterFunc(disconnectGrace, func() {
-		slog.Info("rtc: still disconnected, dropping session", slog.Duration("grace", disconnectGrace))
+		s.log.Info("rtc: still disconnected, dropping session", slog.Duration("grace", disconnectGrace))
 		s.Close()
 	})
 }
@@ -124,7 +126,8 @@ func (h *Hub) NewSession(sig Signaler) (*Session, error) {
 		return nil, errors.New("rtc: nil signaler")
 	}
 
-	s := &Session{hub: h, sig: sig, done: make(chan struct{})}
+	id := h.nextSession.Add(1)
+	s := &Session{hub: h, sig: sig, done: make(chan struct{}), log: h.log.With("session", id)}
 
 	if err := h.attach(s); err != nil {
 		return nil, err
@@ -158,7 +161,7 @@ func (h *Hub) NewSession(sig Signaler) (*Session, error) {
 	})
 
 	pc.OnConnectionStateChange(func(st webrtc.PeerConnectionState) {
-		slog.Debug("rtc: connection state", slog.Any("state", st))
+		s.log.Debug("rtc: connection state", slog.Any("state", st))
 		switch st {
 		case webrtc.PeerConnectionStateConnected:
 			s.clearDisconnect()
@@ -178,7 +181,7 @@ func (h *Hub) NewSession(sig Signaler) (*Session, error) {
 			// otherwise see nothing until the next scheduled one.
 			if err := h.cap.RequestKeyframe(); err != nil &&
 				!errors.Is(err, video.ErrNotSupported) {
-				slog.Warn("rtc: keyframe on connect", slog.Any("err", err))
+				s.log.Warn("rtc: keyframe on connect", slog.Any("err", err))
 			}
 
 		case webrtc.PeerConnectionStateDisconnected:
@@ -251,7 +254,7 @@ func (s *Session) Close() {
 		s.hub.detach(s)
 		if s.pc != nil {
 			if err := s.pc.Close(); err != nil {
-				slog.Debug("rtc: close peer connection", slog.Any("err", err))
+				s.log.Debug("rtc: close peer connection", slog.Any("err", err))
 			}
 		}
 	})
@@ -305,7 +308,7 @@ func (s *Session) handleCandidate(c *webrtc.ICECandidateInit) error {
 	if !s.haveRemote {
 		if len(s.pending) >= maxPendingCandidates {
 			s.mu.Unlock()
-			slog.Warn("rtc: dropping ICE candidate, queue full with no offer",
+			s.log.Warn("rtc: dropping ICE candidate, queue full with no offer",
 				slog.Int("queued", maxPendingCandidates))
 			return nil
 		}
@@ -333,7 +336,7 @@ func (s *Session) flushCandidates() {
 
 	for _, c := range pending {
 		if err := s.pc.AddICECandidate(c); err != nil {
-			slog.Warn("rtc: queued ice candidate rejected", slog.Any("err", err))
+			s.log.Warn("rtc: queued ice candidate rejected", slog.Any("err", err))
 		}
 	}
 }

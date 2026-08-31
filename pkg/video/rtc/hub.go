@@ -39,6 +39,7 @@ import (
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 	"github.com/pi-bmc/nanokvm-app/pkg/video"
 )
 
@@ -97,6 +98,10 @@ type Options struct {
 	// connects. Its Codec field also fixes the track's codec for the life of
 	// the Hub -- see Hub.Codec.
 	Capture video.Config
+
+	// Log is the logger the Hub and every Session it creates write to.
+	// Defaults to slog.Default() (via logger.Or) when nil.
+	Log *slog.Logger
 }
 
 // Hub owns the encoder-to-WebRTC path: one capture pipeline, one track, and
@@ -111,6 +116,8 @@ type Hub struct {
 	api  *webrtc.API
 	cfg  webrtc.Configuration
 
+	log *slog.Logger
+
 	track *webrtc.TrackLocalStaticSample
 
 	mu       sync.Mutex
@@ -120,8 +127,9 @@ type Hub struct {
 	wg       sync.WaitGroup
 	closed   bool
 
-	written atomic.Uint64
-	state   atomic.Pointer[video.State]
+	written     atomic.Uint64
+	state       atomic.Pointer[video.State]
+	nextSession atomic.Uint64
 }
 
 // NewHub builds a Hub over capturer. It does not start the pipeline; the
@@ -163,6 +171,7 @@ func NewHub(capturer video.Capturer, opts Options) (*Hub, error) {
 		opts:     opts,
 		api:      webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithInterceptorRegistry(ir)),
 		cfg:      webrtc.Configuration{ICEServers: opts.ICEServers},
+		log:      logger.Or(opts.Log),
 		track:    track,
 		sessions: make(map[*Session]struct{}),
 	}
@@ -312,7 +321,7 @@ func (h *Hub) stopPipelineLocked() {
 	close(h.stop)
 	h.stop = nil
 	if err := h.cap.Stop(); err != nil && !errors.Is(err, video.ErrNotSupported) {
-		slog.Warn("rtc: stop capture", slog.Any("err", err))
+		h.log.Warn("rtc: stop capture", slog.Any("err", err))
 	}
 }
 
@@ -360,7 +369,7 @@ func (h *Hub) pump(stop <-chan struct{}) {
 			// pipeline and the browser completing negotiation are simply
 			// dropped rather than treated as failures.
 			if err := h.track.WriteSample(media.Sample{Data: f.Data, Duration: d}); err != nil {
-				slog.Warn("rtc: write sample", slog.Any("err", err))
+				h.log.Warn("rtc: write sample", slog.Any("err", err))
 				continue
 			}
 			h.written.Add(1)
@@ -420,7 +429,7 @@ func (h *Hub) readRTCP(sender *webrtc.RTPSender) {
 			switch p.(type) {
 			case *rtcp.PictureLossIndication, *rtcp.FullIntraRequest:
 				if err := h.cap.RequestKeyframe(); err != nil {
-					slog.Debug("rtc: keyframe request", slog.Any("err", err))
+					h.log.Debug("rtc: keyframe request", slog.Any("err", err))
 				}
 			}
 		}

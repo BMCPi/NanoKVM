@@ -437,6 +437,7 @@ func newVideoHub(cfg *config.Config) *rtc.Hub {
 		// H.264 is pinned because it is the one codec every browser
 		// decodes, and rtc.Hub fixes the track codec at construction.
 		Capture: video.Config{Codec: video.CodecH264},
+		Log:     rootLog.With("component", "rtc"),
 	})
 	if err != nil {
 		slog.Error("video: hub init failed", slog.Any("err", err))
