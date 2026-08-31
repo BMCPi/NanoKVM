@@ -17,6 +17,7 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 )
 
 // minInterval is the floor for how often we hit upstream version APIs.
@@ -33,15 +34,31 @@ var (
 	running bool
 )
 
+// pkgLogHolder is pkg/autoupdate's holder for the "autoupdate" component
+// logger, needed by Stop and Restart: neither is handed a logger of its own,
+// and both must reuse whatever logger the most recent Start call was given
+// rather than a bare default — see logger.Holder's doc comment for why a
+// sync.Once-guarded var would get this wrong.
+var pkgLogHolder logger.Holder
+
+// pkgLog returns the package's component logger, defaulting to the process
+// logger if Start has not run yet.
+func pkgLog() *slog.Logger {
+	return pkgLogHolder.Get()
+}
+
 // Start launches the background ticker if AutoUpdate.Enabled is true.
 // Safe to call multiple times — repeated calls cancel any existing ticker
 // and restart with the current config. Returns immediately.
 //
 // ctx is the process-lifetime context: the ticker, and any update running on
 // it, stop when the server shuts down. Callers restarting the ticker after a
-// config change (the settings UI, the autoupdate API) pass the same one, which
-// they reach through deps.
-func Start(ctx context.Context) {
+// config change (the settings UI, the autoupdate API) go through Restart,
+// which reuses this logger rather than deriving a new one.
+func Start(ctx context.Context, log *slog.Logger) {
+	log = logger.Or(log)
+	pkgLogHolder.Set(log)
+
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -54,7 +71,7 @@ func Start(ctx context.Context) {
 
 	cfg := config.GetInstance().AutoUpdate
 	if !cfg.Enabled {
-		slog.InfoContext(ctx, "autoupdate: disabled by config")
+		log.InfoContext(ctx, "autoupdate: disabled by config")
 		return
 	}
 
@@ -67,9 +84,17 @@ func Start(ctx context.Context) {
 		interval = minInterval
 	}
 
-	go loop(loopCtx, interval)
-	slog.InfoContext(ctx, "autoupdate: enabled",
+	go loop(loopCtx, interval, log)
+	log.InfoContext(ctx, "autoupdate: enabled",
 		slog.Duration("interval", interval), slog.Bool("application", cfg.Application))
+}
+
+// Restart re-applies the current config, reusing the logger Start was given.
+// For callers that re-read settings after a config change (the settings UI,
+// the autoupdate API) and have no component-tagged logger of their own to
+// pass.
+func Restart(ctx context.Context) {
+	Start(ctx, pkgLog())
 }
 
 // Stop cancels the background ticker. Safe to call when not running.
@@ -81,14 +106,14 @@ func Stop() {
 	}
 	cancel()
 	running = false
-	slog.Info("autoupdate: stopped")
+	pkgLog().Info("autoupdate: stopped")
 }
 
 // loop is the worker goroutine: an initial check after one interval (so the
 // process gets a chance to settle), then once per interval, until ctx is
 // cancelled. Each tick re-reads config so toggling Application/BIOS from
 // the UI takes effect without a restart.
-func loop(ctx context.Context, interval time.Duration) {
+func loop(ctx context.Context, interval time.Duration, log *slog.Logger) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
 
@@ -97,7 +122,7 @@ func loop(ctx context.Context, interval time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			runOnce(ctx)
+			runOnce(ctx, log)
 		}
 	}
 }
@@ -105,29 +130,29 @@ func loop(ctx context.Context, interval time.Duration) {
 // runOnce performs a single check + apply pass. Errors are logged but
 // don't abort the loop — a transient GitHub outage or network blip should
 // not silently disable the updater forever.
-func runOnce(ctx context.Context) {
+func runOnce(ctx context.Context, log *slog.Logger) {
 	cfg := config.GetInstance().AutoUpdate
 
 	if cfg.Application {
-		if err := applyAppUpdateIfNewer(ctx); err != nil {
-			slog.WarnContext(ctx, "autoupdate: application update failed", slog.Any("err", err))
+		if err := applyAppUpdateIfNewer(ctx, log); err != nil {
+			log.WarnContext(ctx, "autoupdate: application update failed", slog.Any("err", err))
 		}
 	}
 }
 
-func applyAppUpdateIfNewer(ctx context.Context) error {
+func applyAppUpdateIfNewer(ctx context.Context, log *slog.Logger) error {
 	current := normaliseVersion(application.CurrentVersion())
 	latest := normaliseVersion(application.LatestVersion(ctx))
 	if latest == "" || latest == current {
 		return nil
 	}
-	slog.InfoContext(ctx, "autoupdate: application update available",
+	log.InfoContext(ctx, "autoupdate: application update available",
 		slog.String("current", current), slog.String("latest", latest))
 
 	if err := application.RunUpdate(ctx); err != nil {
 		return err
 	}
-	slog.InfoContext(ctx, "autoupdate: application update applied; restarting service")
+	log.InfoContext(ctx, "autoupdate: application update applied; restarting service")
 	time.Sleep(preRestartDelay)
 	application.RestartService()
 	return nil

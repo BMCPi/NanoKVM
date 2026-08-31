@@ -215,7 +215,7 @@ func initialize(ctx context.Context) {
 	}
 
 	// Start the auto-update ticker (no-op when AutoUpdate.Enabled is false).
-	autoupdate.Start(ctx)
+	autoupdate.Start(ctx, rootLog.With("component", "autoupdate"))
 
 	// Start the SSH server. The image ships no sshd — this is the BMC's only
 	// SSH listener, authenticating against the same account as the web UI plus

@@ -44,7 +44,7 @@ func Register(api *gin.RouterGroup, d *deps.Deps) {
 		config.Save()
 		// The process context, not the request's: the ticker outlives this
 		// call and must only stop at shutdown.
-		autoupdate.Start(d.Ctx) // re-reads config; cancels existing ticker if running
+		autoupdate.Restart(d.Ctx) // re-reads config; cancels existing ticker if running
 
 		c.JSON(http.StatusOK, cfg)
 	})
