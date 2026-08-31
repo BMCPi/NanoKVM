@@ -340,3 +340,52 @@ func TestCRCMatchesThePTAAlgorithm(t *testing.T) {
 		t.Fatalf("crc32.IEEE = 0x%08x, pTA algorithm = 0x%08x", got, want)
 	}
 }
+
+// Only the live half of the throttle word becomes a condition. The latched
+// flags never clear, so a consumer listing conditions would keep reporting a
+// brownout that happened once, hours ago.
+func TestLiveConditionsIgnoreTheLatchedFlags(t *testing.T) {
+	latched := parse(t, setThrottle(buildRecord(1, 46000, 60, StatusTempValid),
+		ThrottleUnderVoltageEv|ThrottleThrottledEv))
+	if got := latched.LiveConditions(); len(got) != 0 {
+		t.Errorf("LiveConditions = %v for latched-only flags, want none", got)
+	}
+
+	live := parse(t, setThrottle(buildRecord(1, 46000, 60, StatusTempValid),
+		ThrottleUnderVoltage|ThrottleUnderVoltageEv))
+	got := live.LiveConditions()
+	if len(got) != 1 || got[0] != ConditionUnderVoltage {
+		t.Errorf("LiveConditions = %v, want [UnderVoltage]", got)
+	}
+}
+
+// A firmware too old to send the word must not read as an all-clear.
+func TestLiveConditionsAreNilWhenTheWordIsAbsent(t *testing.T) {
+	old := parse(t, buildRecordV2(1, 46000, 60, StatusTempValid))
+	if old.ThrottleValid() {
+		t.Fatal("a v2 record reports the throttle word as valid")
+	}
+	if got := old.LiveConditions(); got != nil {
+		t.Errorf("LiveConditions = %v with no word, want nil", got)
+	}
+}
+
+// A zero tachometer is "this host has no tach", not "the fan stopped".
+func TestFanRPMValidRejectsAnAbsentTachometer(t *testing.T) {
+	noTach := parse(t, buildRecord(1, 46000, 60, StatusTempValid))
+	if !noTach.FanValid() {
+		t.Fatal("the fixture's fan block should be valid")
+	}
+	if noTach.FanRPMValid() {
+		t.Error("a zero RPM was reported as a speed; it means no tach capture")
+	}
+}
+
+func parse(t *testing.T, b []byte) Record {
+	t.Helper()
+	r, err := ParseRecord(b)
+	if err != nil {
+		t.Fatalf("ParseRecord: %v", err)
+	}
+	return r
+}

@@ -19,6 +19,7 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/api/redfish"
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
+	"github.com/pi-bmc/nanokvm-app/pkg/bmcsensor"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/sysinfo"
 	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
@@ -47,6 +48,11 @@ func overviewFragmentRoutes(g *gin.RouterGroup, h *handlers) {
 	// would show whatever was true when the tab was opened.
 	o.GET("/resources", func(c *gin.Context) {
 		renderFragment(c, components.OverviewResourcesBody(overviewResourcesModel()))
+	})
+
+	// The managed host's own sensors, on the same lazy-plus-poll trigger.
+	o.GET("/host-sensors", func(c *gin.Context) {
+		renderFragment(c, components.OverviewHostSensorsBody(overviewHostSensorsModel()))
 	})
 
 	o.GET("/firmware", func(c *gin.Context) {
@@ -267,4 +273,112 @@ func resourceDetail(usedMB, totalMB uint64) string {
 	}
 	const mbPerGB = 1024.0
 	return fmt.Sprintf("%.1f / %.1f GB", float64(usedMB)/mbPerGB, float64(totalMB)/mbPerGB)
+}
+
+// overviewHostSensorsModel turns the host's pushed record into the two traces
+// and the power-health badges the Host Sensors card draws.
+//
+// The readings come from the shared sampler rather than a Reader of this
+// fragment's own — staleness is measured from when a sequence number was first
+// observed, so a reader that only wakes when the drawer opens would call a
+// long-dead host's last sample fresh (see pkg/bmcsensor/sampler.go).
+func overviewHostSensorsModel() components.OverviewHostSensors {
+	sampler := bmcsensor.Default()
+	m := components.OverviewHostSensors{Available: sampler.Available()}
+	if !m.Available {
+		return m
+	}
+
+	reading, err := sampler.Read()
+	if err != nil {
+		// No record yet is the ordinary case before the host boots past its
+		// firmware, so it is the waiting state rather than an error.
+		return m
+	}
+	m.Reporting = !reading.Stale
+
+	history := sampler.History()
+	if len(history) == 0 {
+		return m
+	}
+	m.Sampling = true
+
+	temps := make([]float64, 0, len(history))
+	fans := make([]float64, 0, len(history))
+	fanEver := false
+	for _, p := range history {
+		temps = append(temps, p.TempC)
+		fans = append(fans, p.FanDutyPct)
+		fanEver = fanEver || p.FanValid
+	}
+
+	m.Temperature = components.SparkSeries{
+		Label: "SoC temperature",
+		// The latest reading rather than the last plotted point: while the
+		// host is quiet the trace is frozen but the record still says what it
+		// last measured, and the card labels that as not current.
+		Value:  reading.Celsius(),
+		Unit:   "°C",
+		Points: temps,
+		Valid:  reading.TempValid(),
+		Max:    components.HostTempCeiling(),
+		// Coloured at the throttle point, not at an arbitrary fraction of the
+		// ceiling: "is it capping itself" is the question, and the dashed
+		// marker puts the same threshold on the trace.
+		WarnAt: components.HostTempThrottle(),
+		Marker: components.HostTempThrottle(),
+	}
+
+	m.Fan = components.SparkSeries{
+		Label:  "Active cooler",
+		Value:  float64(reading.FanDutyPct),
+		Unit:   "%",
+		Detail: fanDetail(reading),
+		Points: fans,
+		Valid:  fanEver && reading.FanValid(),
+	}
+
+	m.ThrottleKnown = reading.ThrottleValid()
+	m.Throttles = throttleLabels(reading.LiveConditions())
+	return m
+}
+
+// fanDetail is the figure beside the duty percentage: the commanded level out
+// of its maximum, and the tachometer where the host has one.
+func fanDetail(r bmcsensor.Reading) string {
+	if !r.FanValid() {
+		return ""
+	}
+	detail := fmt.Sprintf("level %d/%d", r.FanLevel, r.FanMaxLevel)
+	// FanRPMValid, not FanRPM > 0: a zero there is the host saying it has no
+	// tachometer, and the record is where that rule lives.
+	if r.FanRPMValid() {
+		detail += fmt.Sprintf(" · %d rpm", r.FanRPM)
+	}
+	return detail
+}
+
+// throttleLabels turns the record's condition names into the drawer's copy.
+// The record owns which conditions are live; this owns how they read.
+func throttleLabels(conditions []bmcsensor.Condition) []string {
+	if len(conditions) == 0 {
+		return nil
+	}
+	labels := map[bmcsensor.Condition]string{
+		bmcsensor.ConditionUnderVoltage:  "Under-voltage",
+		bmcsensor.ConditionThrottled:     "Throttled",
+		bmcsensor.ConditionFreqCapped:    "Frequency capped",
+		bmcsensor.ConditionSoftTempLimit: "Soft temperature limit",
+	}
+	out := make([]string, 0, len(conditions))
+	for _, c := range conditions {
+		if label, ok := labels[c]; ok {
+			out = append(out, label)
+		} else {
+			// A condition the record grew and this map has not: show the
+			// name rather than dropping a live fault on the floor.
+			out = append(out, string(c))
+		}
+	}
+	return out
 }

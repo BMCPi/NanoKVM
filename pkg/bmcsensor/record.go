@@ -294,3 +294,55 @@ func allZero(b []byte) bool {
 	}
 	return true
 }
+
+// Condition is one power-health state the host firmware reports in its
+// GET_THROTTLED word. The names are the Redfish Oem property names, so the two
+// surfaces cannot drift apart.
+type Condition string
+
+const (
+	ConditionUnderVoltage  Condition = "UnderVoltage"
+	ConditionThrottled     Condition = "Throttled"
+	ConditionFreqCapped    Condition = "FrequencyCapped"
+	ConditionSoftTempLimit Condition = "SoftTempLimit"
+)
+
+// LiveConditions names the power-health states active in this sample, nil when
+// the firmware did not report the word at all.
+//
+// Only the live flags. The latched-since-boot halves are still readable
+// individually (UnderVoltageEver and friends), but they never clear, so a
+// consumer that renders conditions as a list wants the ones that are true now —
+// a list that gains an entry at the first brownout and keeps it until the host
+// reboots stops describing the present.
+//
+// nil for both "not reported" and "nothing active", which callers separate with
+// ThrottleValid: a firmware too old to send the word must not read as an
+// all-clear.
+func (r Record) LiveConditions() []Condition {
+	if !r.ThrottleValid() {
+		return nil
+	}
+	var out []Condition
+	for _, c := range []struct {
+		active bool
+		name   Condition
+	}{
+		{r.UnderVoltage(), ConditionUnderVoltage},
+		{r.Throttled(), ConditionThrottled},
+		{r.FrequencyCapped(), ConditionFreqCapped},
+		{r.SoftTempLimited(), ConditionSoftTempLimit},
+	} {
+		if c.active {
+			out = append(out, c.name)
+		}
+	}
+	return out
+}
+
+// FanRPMValid reports whether the tachometer reading means anything.
+//
+// A zero RPM in a valid fan block is the host telling us it has no tach
+// capture, not a fan that has stopped. Reporting it as a speed would show a
+// stalled cooler on a machine whose fan is running perfectly well.
+func (r Record) FanRPMValid() bool { return r.FanValid() && r.FanRPM > 0 }

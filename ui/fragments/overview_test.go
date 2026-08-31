@@ -10,6 +10,7 @@ package fragments
 import (
 	"testing"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/bmcsensor"
 	"github.com/pi-bmc/nanokvm-app/pkg/sysinfo"
 )
 
@@ -50,5 +51,41 @@ func TestResourcesModelIsNotSamplingBeforeAnyHistory(t *testing.T) {
 	}
 	if m := overviewResourcesModel(); m.Sampling {
 		t.Error("the model claims to be sampling with no history behind it")
+	}
+}
+
+// The drawer's copy for the host's power-health conditions. The record decides
+// which are live (pkg/bmcsensor); this decides how they read.
+func TestThrottleLabelsRenderEveryKnownCondition(t *testing.T) {
+	all := []bmcsensor.Condition{
+		bmcsensor.ConditionUnderVoltage,
+		bmcsensor.ConditionThrottled,
+		bmcsensor.ConditionFreqCapped,
+		bmcsensor.ConditionSoftTempLimit,
+	}
+	got := throttleLabels(all)
+	want := []string{"Under-voltage", "Throttled", "Frequency capped", "Soft temperature limit"}
+	if len(got) != len(want) {
+		t.Fatalf("throttleLabels = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("label %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// A condition the record grows and this map has not must still surface. A live
+// fault dropped on the floor is the worst available outcome.
+func TestAnUnmappedConditionStillShows(t *testing.T) {
+	got := throttleLabels([]bmcsensor.Condition{"SomethingNew"})
+	if len(got) != 1 || got[0] != "SomethingNew" {
+		t.Errorf("throttleLabels = %v; an unknown condition must not vanish", got)
+	}
+}
+
+func TestNoConditionsIsNoLabels(t *testing.T) {
+	if got := throttleLabels(nil); got != nil {
+		t.Errorf("throttleLabels(nil) = %v, want nil", got)
 	}
 }
