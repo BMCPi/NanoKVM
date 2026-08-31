@@ -26,9 +26,9 @@ import (
 // reported EthIp4Mode but not published a registry.
 func TestBiosCatalogDescribesUnregisteredEnum(t *testing.T) {
 	resetHostState(t)
-	mergeHostBiosAttributes(map[string]any{"EthIp4Mode": "Dhcp"})
+	mergeHostBiosAttributes(map[string]any{attrEthIP4Mode: "Dhcp"})
 
-	a := attrByName(t, BiosSnapshot(), "EthIp4Mode")
+	a := attrByName(t, BiosSnapshot(), attrEthIP4Mode)
 
 	if a.Type != BiosTypeEnumeration {
 		t.Errorf("type = %q, want %q — a String renders a text box, not a dropdown",
@@ -56,21 +56,23 @@ func TestBiosCatalogDescribesUnregisteredEnum(t *testing.T) {
 // A checkbox question and a bounded numeric are the two the guessed type gets
 // wrong in a way the host can act on.
 func TestBiosCatalogTypesBooleansAndBoundedIntegers(t *testing.T) {
+	const checkbox, numeric = "Pcie1Enabled", "FanTrip1C"
+
 	resetHostState(t)
 	mergeHostBiosAttributes(map[string]any{
 		// Reported as strings, which is exactly what a host that has not yet
 		// published its registry looks like on the wire.
-		"Pcie1Enabled": "false",
-		"FanTrip1C":    "50",
+		checkbox: "false",
+		numeric:  "50",
 	})
 
 	v := BiosSnapshot()
 
-	if got := attrByName(t, v, "Pcie1Enabled").Type; got != BiosTypeBoolean {
+	if got := attrByName(t, v, checkbox).Type; got != BiosTypeBoolean {
 		t.Errorf("Pcie1Enabled type = %q, want Boolean (HII checkbox)", got)
 	}
 
-	trip := attrByName(t, v, "FanTrip1C")
+	trip := attrByName(t, v, numeric)
 	if trip.Type != BiosTypeInteger {
 		t.Errorf("FanTrip1C type = %q, want Integer", trip.Type)
 	}
@@ -93,52 +95,56 @@ func TestBiosCatalogTypesBooleansAndBoundedIntegers(t *testing.T) {
 // stages the operator's raw text where the firmware reads a JSON boolean, a
 // JSON number, and a value from a fixed list.
 func TestBiosCatalogTypesTheStagedObject(t *testing.T) {
+	const checkbox, numeric, enum = "Pcie1Enabled", "FanTrip1C", "FanMode"
+
 	resetHostState(t)
 	mergeHostBiosAttributes(map[string]any{
-		"Pcie1Enabled": "Disabled",
-		"FanTrip1C":    "50",
-		"FanMode":      "Automatic",
+		checkbox: "Disabled",
+		numeric:  "50",
+		enum:     "Automatic",
 	})
 
 	v := BiosSnapshot()
-	if got := attrByName(t, v, "Pcie1Enabled").Type; got != BiosTypeBoolean {
+	if got := attrByName(t, v, checkbox).Type; got != BiosTypeBoolean {
 		t.Fatalf("Pcie1Enabled type = %q, want Boolean", got)
 	}
-	if got := attrByName(t, v, "FanTrip1C").Type; got != BiosTypeInteger {
+	if got := attrByName(t, v, numeric).Type; got != BiosTypeInteger {
 		t.Fatalf("FanTrip1C type = %q, want Integer", got)
 	}
 
 	res := StageBiosAttributes(
-		[]string{"Pcie1Enabled", "FanTrip1C", "FanMode"},
-		map[string]string{"Pcie1Enabled": "on", "FanTrip1C": "70", "FanMode": "FixedSpeed"},
+		[]string{checkbox, numeric, enum},
+		map[string]string{checkbox: "on", numeric: "70", enum: "FixedSpeed"},
 	)
 	if len(res.Errors) != 0 {
 		t.Fatalf("unexpected errors: %v", res.Errors)
 	}
 
 	pending := hostBiosPending()
-	if got, ok := pending["Pcie1Enabled"].(bool); !ok || !got {
+	if got, ok := pending[checkbox].(bool); !ok || !got {
 		t.Errorf("staged Pcie1Enabled = %#v, want bool true — a switch submits "+
-			"\"on\", and the host's Bios client reads a JSON boolean", pending["Pcie1Enabled"])
+			"\"on\", and the host's Bios client reads a JSON boolean", pending[checkbox])
 	}
-	if got, ok := pending["FanTrip1C"].(int64); !ok || got != 70 {
-		t.Errorf("staged FanTrip1C = %#v, want int64 70", pending["FanTrip1C"])
+	if got, ok := pending[numeric].(int64); !ok || got != 70 {
+		t.Errorf("staged FanTrip1C = %#v, want int64 70", pending[numeric])
 	}
-	if got, ok := pending["FanMode"].(string); !ok || got != "FixedSpeed" {
-		t.Errorf("staged FanMode = %#v, want the enum value FixedSpeed", pending["FanMode"])
+	if got, ok := pending[enum].(string); !ok || got != "FixedSpeed" {
+		t.Errorf("staged FanMode = %#v, want the enum value FixedSpeed", pending[enum])
 	}
 }
 
 // Length bounds are the third thing a registry-less host gives the BMC no way
 // to know, and the one an operator hits by pasting.
 func TestBiosCatalogEnforcesStringLength(t *testing.T) {
+	const addr = attrEthIP4Address
+
 	resetHostState(t)
-	mergeHostBiosAttributes(map[string]any{"EthIp4Address": "10.0.0.2"})
+	mergeHostBiosAttributes(map[string]any{addr: "10.0.0.2"})
 
-	res := StageBiosAttributes([]string{"EthIp4Address"},
-		map[string]string{"EthIp4Address": "10.0.0.2 (was 10.0.0.1)"})
+	res := StageBiosAttributes([]string{addr},
+		map[string]string{addr: "10.0.0.2 (was 10.0.0.1)"})
 
-	if res.Errors["EthIp4Address"] == "" {
+	if res.Errors[addr] == "" {
 		t.Error("a 24-character value was accepted; the question's maxsize is 15")
 	}
 }
@@ -146,22 +152,24 @@ func TestBiosCatalogEnforcesStringLength(t *testing.T) {
 // Enforcement is the other half of describing an attribute: a value the
 // firmware would reject should be rejected here, next to the field.
 func TestBiosCatalogRejectsValuesTheFirmwareWouldNot(t *testing.T) {
+	const mode, numeric = attrEthIP4Mode, "FanTrip1C"
+
 	resetHostState(t)
 	mergeHostBiosAttributes(map[string]any{
-		"EthIp4Mode": "Unmanaged",
-		"FanTrip1C":  float64(50),
+		mode:    "Unmanaged",
+		numeric: float64(50),
 	})
 
 	res := StageBiosAttributes(
-		[]string{"EthIp4Mode", "FanTrip1C"},
+		[]string{mode, numeric},
 		// Lowercase "dhcp" is not the vocabulary; 200C is past the 90 maximum.
-		map[string]string{"EthIp4Mode": "dhcp", "FanTrip1C": "200"},
+		map[string]string{mode: "dhcp", numeric: "200"},
 	)
 
-	if res.Errors["EthIp4Mode"] == "" {
+	if res.Errors[mode] == "" {
 		t.Error(`"dhcp" was accepted; EthConfigDxe only reads Unmanaged/Dhcp/Static`)
 	}
-	if res.Errors["FanTrip1C"] == "" {
+	if res.Errors[numeric] == "" {
 		t.Error("200 was accepted; the trip point maximum is 90")
 	}
 	if len(res.Staged) != 0 {
@@ -184,9 +192,11 @@ func TestBiosRegistryBeatsTheCatalog(t *testing.T) {
     ]
   }
 }`)
-	mergeHostBiosAttributes(map[string]any{"Pcie1MaxLinkSpeed": "Gen4"})
+	const speed = "Pcie1MaxLinkSpeed"
 
-	a := attrByName(t, BiosSnapshot(), "Pcie1MaxLinkSpeed")
+	mergeHostBiosAttributes(map[string]any{speed: "Gen4"})
+
+	a := attrByName(t, BiosSnapshot(), speed)
 
 	if !a.Registered {
 		t.Fatal("Registered = false for an attribute the registry described")
@@ -202,9 +212,9 @@ func TestBiosRegistryBeatsTheCatalog(t *testing.T) {
 	}
 
 	// And a value the stale table does not know must still stage.
-	if res := StageBiosAttributes([]string{"Pcie1MaxLinkSpeed"},
-		map[string]string{"Pcie1MaxLinkSpeed": "Gen1"}); res.Errors["Pcie1MaxLinkSpeed"] != "" {
-		t.Errorf("registry-allowed value rejected: %s", res.Errors["Pcie1MaxLinkSpeed"])
+	if res := StageBiosAttributes([]string{speed},
+		map[string]string{speed: "Gen1"}); res.Errors[speed] != "" {
+		t.Errorf("registry-allowed value rejected: %s", res.Errors[speed])
 	}
 }
 
@@ -221,9 +231,9 @@ func TestBiosCatalogFillsGapsTheRegistryLeft(t *testing.T) {
     ]
   }
 }`)
-	mergeHostBiosAttributes(map[string]any{"EthIp4Mode": "Static"})
+	mergeHostBiosAttributes(map[string]any{attrEthIP4Mode: "Static"})
 
-	a := attrByName(t, BiosSnapshot(), "EthIp4Mode")
+	a := attrByName(t, BiosSnapshot(), attrEthIP4Mode)
 
 	if len(a.Options) == 0 {
 		t.Fatal("no options: an Enumeration with an empty value list falls back to " +
@@ -241,7 +251,7 @@ func TestBiosCatalogFillsGapsTheRegistryLeft(t *testing.T) {
 // host said, the same way the NIC collection stays empty until a report lands.
 func TestBiosCatalogInventsNoRows(t *testing.T) {
 	resetHostState(t)
-	mergeHostBiosAttributes(map[string]any{"EthIp4Mode": "Dhcp"})
+	mergeHostBiosAttributes(map[string]any{attrEthIP4Mode: "Dhcp"})
 
 	v := BiosSnapshot()
 	if len(v.Attributes) != 1 {
@@ -325,6 +335,14 @@ func TestBiosCatalogEntriesAreWellFormed(t *testing.T) {
 // a formset added there without a matching entry here shows up as a failure
 // rather than as one more text box on the page.
 func TestBiosCatalogCoversEveryPlatformFormset(t *testing.T) {
+	// These stay string literals on purpose, and must not be routed through
+	// the same constants the catalog uses. This roster is a second,
+	// independent hand-transcription of the firmware's attribute names, and
+	// that is the whole test: a typo in a catalog key fails here. Share one
+	// constant between the two and the typo becomes self-consistent — both
+	// sides agree, the test passes, and the attribute silently renders as a
+	// text box because the host reports it under the correct spelling.
+	//
 	// rpi5-uefi-build: Platform/RaspberryPi{,/RPi5}/Drivers/*/(*Map.uni)
 	want := []string{
 		// EthConfigDxe
@@ -397,7 +415,7 @@ func equalStrings(a, b []string) bool {
 func TestBiosCatalogMenusReachTheRail(t *testing.T) {
 	resetHostState(t)
 	mergeHostBiosAttributes(map[string]any{
-		"EthIp4Mode":      "Dhcp",
+		attrEthIP4Mode:    "Dhcp",
 		"SystemTableMode": "Acpi",
 		"AcpiSdLimitUhs":  true,
 	})

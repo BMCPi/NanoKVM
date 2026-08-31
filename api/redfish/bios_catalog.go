@@ -90,6 +90,20 @@ const (
 // is the maxsize every EthIp4* string question declares.
 const ipv4TextLen = 15
 
+// goconst counts these literals across the whole package and reports them
+// here, at the only non-test file they appear in — the repo's lint config
+// already forgives the same duplication in the tests that supply most of the
+// occurrences. Extracting them would be wrong twice over. The literals are
+// this file's product: it earns its keep by being readable side by side with
+// *Map.uni and *Hii.vfr, and `{Value: ethModeDhcp}` cannot be checked against
+// the firmware without jumping somewhere else. And goconst's "such constant
+// already exists" hints are traps here — schemaNameSecureBoot is a Redfish
+// schema name, redfishDisabled is a Status.State member, and this package
+// carries two vocabularies that happen to share spellings. Binding them would
+// let a future Redfish rename silently change which firmware question the BMC
+// describes.
+//
+//nolint:goconst // firmware vocabulary, kept literal to stay diffable against the .uni/.vfr sources
 var biosCatalog = map[string]biosCatalogEntry{
 	// ── EthConfigDxe ────────────────────────────────────────────────────
 	// Applied to the onboard NIC's Ip4Config2 on the next boot. Unmanaged
@@ -269,6 +283,12 @@ func fanTrip(label string, order int) biosCatalogEntry {
 // blToggle builds one of the three Disabled/Enabled bootloader questions.
 // They are oneofs in the VFR rather than checkboxes, so they stay
 // Enumerations here: the firmware reads the strings, not a JSON boolean.
+//
+// The literals below are the bootloader's own vocabulary and must not be
+// folded into redfishDisabled, which is the DMTF Status.State member — see the
+// note on biosCatalog.
+//
+//nolint:goconst // bootloader enum values, distinct from the identically spelled Redfish ones
 func blToggle(label string, order int) biosCatalogEntry {
 	return biosCatalogEntry{
 		DisplayName: label, Type: BiosTypeEnumeration,
