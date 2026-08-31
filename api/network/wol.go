@@ -38,6 +38,12 @@ func (s *Service) WakeOnLAN(c *gin.Context) {
 	// context.Background(), not c.Request.Context(): the magic packet send
 	// must complete even if the client disconnects right after issuing the
 	// request, so the command's lifetime is intentionally not tied to it.
+	// This repo's idiom for a detached side effect is deps.ActionContext
+	// (see api/vm/service.go's Deps field doc and api/vm/gpio.go's power
+	// handlers), deliberately not adopted here: this package's Service
+	// carries no *deps.Deps today, and wiring one in just to get a
+	// shutdown-cancellable context would be a behaviour change out of scope
+	// for a lint-only pass.
 	cmd := exec.CommandContext(context.Background(), "sh", "-c", command)
 
 	output, err := cmd.CombinedOutput()
@@ -186,13 +192,19 @@ func saveMac(mac string) {
 		return
 	}
 
-	err := os.MkdirAll(filepath.Dir(WolMacFile), 0o644)
+	// 0o700/0o600: this is the one path that actually creates WolMacFile.
+	// os.WriteFile's mode argument elsewhere in this file only applies at
+	// creation time, and every other write path here reads the file first
+	// and bails on error, so this OpenFile is the sole creator -- narrowing
+	// only the WriteFile calls without narrowing this would leave the file
+	// permanently at 0o644 regardless of what those calls ask for.
+	err := os.MkdirAll(filepath.Dir(WolMacFile), 0o700)
 	if err != nil {
 		log.Errorf("failed to create dir: %s", err)
 		return
 	}
 
-	file, err := os.OpenFile(WolMacFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	file, err := os.OpenFile(WolMacFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		log.Errorf("failed to open %s: %s", WolMacFile, err)
 		return
