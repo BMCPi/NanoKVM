@@ -152,7 +152,7 @@ func initialize(ctx context.Context) {
 	utils.InitGoMemLimit()
 
 	// Initialize OpenTelemetry + Prometheus (no-op when disabled in config).
-	if err := telemetry.Init(ctx); err != nil {
+	if err := telemetry.Init(ctx, rootLog.With("component", "telemetry")); err != nil {
 		slog.ErrorContext(ctx, "telemetry init failed", slog.Any("err", err))
 	}
 	// Record a rolling hour of counter samples for the metrics panel's trend

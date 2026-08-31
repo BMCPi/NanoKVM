@@ -68,7 +68,7 @@ func Gather() Snapshot {
 	if err != nil {
 		// Gather returns partial results alongside an error, so this is worth
 		// noting but not worth discarding what it did collect.
-		slog.Debug("telemetry: gathering metrics for the dashboard", slog.Any("err", err))
+		pkgLog.Debug("telemetry: gathering metrics for the dashboard", slog.Any("err", err))
 	}
 	if len(families) == 0 {
 		return snap

@@ -100,7 +100,7 @@ func initMetrics() {
 		"Bytes written to the serial port", "By")
 
 	if err != nil {
-		slog.Warn("telemetry: instrument creation", slog.Any("err", err))
+		pkgLog.Warn("telemetry: instrument creation", slog.Any("err", err))
 	}
 }
 

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
@@ -66,6 +67,15 @@ var (
 	enabled        bool
 	tracerProvider *sdktrace.TracerProvider
 	meterProvider  *sdkmetric.MeterProvider
+
+	// pkgLog is the "telemetry" component logger, set by Init before the
+	// once-guarded body below runs. Every other logging entry point in this
+	// package (StartSampler, Middleware, Routes, Gather, Shutdown) only
+	// touches it from behind Enabled() or a provider pointer that becomes
+	// non-nil solely inside a successful Init, so nothing can reach pkgLog
+	// before Init sets it — a plain package var is safe here without
+	// logger.Holder.
+	pkgLog *slog.Logger
 )
 
 // Enabled reports whether telemetry was initialized successfully.
@@ -74,7 +84,9 @@ func Enabled() bool { return enabled }
 // Init configures the global OTel tracer + meter providers and the Prometheus
 // exporter. Safe to call once; subsequent calls are no-ops. When telemetry
 // is disabled in config this leaves the no-op global providers in place.
-func Init(ctx context.Context) error {
+func Init(ctx context.Context, log *slog.Logger) error {
+	pkgLog = logger.Or(log)
+
 	var initErr error
 	initOnce.Do(func() {
 		cfg := config.GetInstance().Telemetry
@@ -105,7 +117,7 @@ func Init(ctx context.Context) error {
 			if err := PromRegistry.Register(collectors.NewProcessCollector(
 				collectors.ProcessCollectorOpts{ReportErrors: true},
 			)); err != nil {
-				slog.WarnContext(ctx, "telemetry: process collector", slog.Any("err", err))
+				pkgLog.WarnContext(ctx, "telemetry: process collector", slog.Any("err", err))
 			}
 
 			// Bridges OTel metric instruments → the Prometheus registry,
@@ -170,7 +182,7 @@ func Init(ctx context.Context) error {
 
 		enabled = true
 		initMetrics() // create the application metric instruments
-		slog.InfoContext(ctx, "telemetry: enabled",
+		pkgLog.InfoContext(ctx, "telemetry: enabled",
 			slog.String("service", cfg.ServiceName),
 			slog.Bool("prometheus", cfg.Prometheus.Enabled),
 			slog.String("otlp", cfg.OTLP.Endpoint))
@@ -183,12 +195,12 @@ func Init(ctx context.Context) error {
 func Shutdown(ctx context.Context) {
 	if tracerProvider != nil {
 		if err := tracerProvider.Shutdown(ctx); err != nil {
-			slog.WarnContext(ctx, "telemetry: tracer shutdown", slog.Any("err", err))
+			pkgLog.WarnContext(ctx, "telemetry: tracer shutdown", slog.Any("err", err))
 		}
 	}
 	if meterProvider != nil {
 		if err := meterProvider.Shutdown(ctx); err != nil {
-			slog.WarnContext(ctx, "telemetry: meter shutdown", slog.Any("err", err))
+			pkgLog.WarnContext(ctx, "telemetry: meter shutdown", slog.Any("err", err))
 		}
 	}
 }

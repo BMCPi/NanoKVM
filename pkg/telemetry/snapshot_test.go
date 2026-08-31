@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -27,7 +28,7 @@ func TestSnapshotReadsRealExporterNames(t *testing.T) {
 		conf.Telemetry = saved
 	})
 
-	if err := Init(context.Background()); err != nil {
+	if err := Init(context.Background(), slog.New(slog.DiscardHandler)); err != nil {
 		t.Skipf("telemetry init unavailable in this environment: %v", err)
 	}
 	if !Enabled() {
