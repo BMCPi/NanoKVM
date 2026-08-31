@@ -43,7 +43,9 @@ func initHostSensorMetrics() {
 		"Managed host SoC die temperature, as reported by OP-TEE over I2C", "Cel")
 	fanDuty := gauge("nanokvm_host_fan_duty",
 		"Managed host active-cooler PWM duty", "%")
-	fanRPM := gauge("nanokvm_host_fan_speed",
+	// "{rpm}" is a UCUM annotation, which the exporter drops rather than
+	// turning into a suffix, so the unit is spelled in the name here.
+	fanRPM := gauge("nanokvm_host_fan_speed_rpm",
 		"Managed host active-cooler tachometer reading; absent where the host has no tach capture", "{rpm}")
 
 	// The throttle word as four 0/1 gauges. Booleans rather than a bitmask
@@ -52,19 +54,24 @@ func initHostSensorMetrics() {
 	// capping itself. The latched-since-boot halves are deliberately not
 	// exported — a gauge that goes to 1 and stays there forever is a worse
 	// version of what a scraper already does with the live one.
+	//
+	// No unit on any of them. The obvious "1" is UCUM's dimensionless unit and
+	// the exporter renders it as _ratio, which is exactly the wrong word for a
+	// boolean: nanokvm_host_throttled_ratio reads as a fraction of time spent
+	// throttled rather than a state.
 	throttle := gauge("nanokvm_host_throttled",
-		"1 while the managed host's SoC is being throttled", "1")
+		"1 while the managed host's SoC is being throttled", "")
 	underVoltage := gauge("nanokvm_host_under_voltage",
-		"1 while the managed host's PMIC reports under-voltage", "1")
+		"1 while the managed host's PMIC reports under-voltage", "")
 	freqCapped := gauge("nanokvm_host_frequency_capped",
-		"1 while the managed host's clock is capped", "1")
+		"1 while the managed host's clock is capped", "")
 	softTempLimit := gauge("nanokvm_host_soft_temp_limited",
-		"1 while the managed host is at its soft temperature limit", "1")
+		"1 while the managed host is at its soft temperature limit", "")
 
 	// Reported for every sample, live or not, so a scraper can tell "the host
 	// is quiet" from "the BMC stopped scraping". This one is not gated.
 	reporting := gauge("nanokvm_host_sensor_reporting",
-		"1 while the managed host is pushing sensor records, 0 when it has gone quiet", "1")
+		"1 while the managed host is pushing sensor records, 0 when it has gone quiet", "")
 
 	if err != nil {
 		pkgLog.Warn("telemetry: host sensor instrument creation", slog.Any("err", err))

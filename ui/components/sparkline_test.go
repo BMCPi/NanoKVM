@@ -182,3 +182,17 @@ func TestValueLabelCarriesTheUnit(t *testing.T) {
 		}
 	}
 }
+
+// A high reading is not always a problem. A cooler at 92% duty is the system
+// working; colouring it as a fault trains the operator to ignore the colour on
+// the temperature row above it, where it does mean something.
+func TestNoWarnSeriesNeverColours(t *testing.T) {
+	fan := SparkSeries{Value: 100, Unit: "%", WarnAt: NoWarn}
+	if fan.Elevated() {
+		t.Error("a NoWarn series was coloured at 100")
+	}
+	// And the default still applies where no threshold is given.
+	if !(SparkSeries{Value: 100}).Elevated() {
+		t.Error("NoWarn leaked into the default threshold")
+	}
+}

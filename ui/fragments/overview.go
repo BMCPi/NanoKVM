@@ -336,6 +336,10 @@ func overviewHostSensorsModel() components.OverviewHostSensors {
 		Detail: fanDetail(reading),
 		Points: fans,
 		Valid:  fanEver && reading.FanValid(),
+		// Never coloured. A cooler at 92%% is the system responding to the
+		// temperature above it, not a fault, and the row that should go red
+		// when the host is in trouble is that one.
+		WarnAt: components.NoWarn,
 	}
 
 	m.ThrottleKnown = reading.ThrottleValid()

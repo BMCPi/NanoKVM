@@ -44,12 +44,19 @@ type SparkSeries struct {
 	// percentage and a die temperature in Celsius.
 	Max float64
 	// WarnAt is the reading at or above which the trace is coloured. Zero
-	// means three quarters of the ceiling.
+	// means three quarters of the ceiling; NoWarn means never, for a series
+	// where a high reading is not a problem.
 	WarnAt float64
 	// Marker draws a reference hairline at this reading — the point at which
 	// a host starts capping itself, say. Zero draws none.
 	Marker float64
 }
+
+// NoWarn disables the colour threshold, for a series where a high reading is
+// the system working rather than failing — a cooling fan at 92% duty is doing
+// its job, and painting it as a fault trains the operator to ignore the colour
+// on the row above it, where it means something.
+const NoWarn = -1
 
 // Ceiling is the top of the fixed domain.
 func (s SparkSeries) Ceiling() float64 {
@@ -61,6 +68,9 @@ func (s SparkSeries) Ceiling() float64 {
 
 // Elevated reports whether the reading is high enough to colour.
 func (s SparkSeries) Elevated() bool {
+	if s.WarnAt == NoWarn {
+		return false
+	}
 	warn := s.WarnAt
 	if warn <= 0 {
 		warn = s.Ceiling() * 0.75
