@@ -16,6 +16,7 @@ package deps
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -49,6 +50,11 @@ type Deps struct {
 	//
 	// Nil in tests that construct Deps directly; ActionContext handles that.
 	Ctx context.Context
+
+	// Log is the root injected logger, set once by main from logger.Init's
+	// return. Handler packages derive their component logger from it inside
+	// Register (never at package init — see the slog-DI spec's invariant).
+	Log *slog.Logger
 
 	Config   *config.Config
 	Power    *power.Controller

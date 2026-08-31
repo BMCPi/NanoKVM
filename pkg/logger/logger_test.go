@@ -363,6 +363,16 @@ func TestTraceHandlerPreservesWithAttrs(t *testing.T) {
 // SetReportCaller both resolve the shared PC to logrus/exported.go and point
 // the reader at the wrong file. The bridge walks the stack and reports the
 // site as a plain attr, which is why this passes.
+func TestOr(t *testing.T) {
+	own := slog.New(slog.DiscardHandler)
+	if got := Or(own); got != own {
+		t.Errorf("Or(non-nil) = %p, want the logger itself", got)
+	}
+	if got := Or(nil); got != slog.Default() {
+		t.Errorf("Or(nil) = %p, want slog.Default()", got)
+	}
+}
+
 func TestLogrusBridgeAttributesRealCaller(t *testing.T) {
 	var buf bytes.Buffer
 	lv := new(slog.LevelVar)

@@ -154,6 +154,17 @@ func SetLevel(name string) error {
 	}
 }
 
+// Or returns l, or the process default logger when l is nil. It is the
+// standard nil-guard for injected loggers: constructors accept a logger and
+// call Or once, so hand-built test fixtures that leave the field nil keep
+// working instead of panicking.
+func Or(l *slog.Logger) *slog.Logger {
+	if l == nil {
+		return slog.Default()
+	}
+	return l
+}
+
 // parseLevel maps the configured level name onto a slog level. It accepts the
 // logrus names the config file has always used (including "warning" and
 // "fatal", which slog has no direct equivalent for) so an existing

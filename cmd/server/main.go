@@ -58,6 +58,11 @@ var (
 	powerCtrl *power.Controller
 	fwCtrl    *firmware.Controller
 
+	// rootLog is the process-wide logger returned by logger.Init, threaded
+	// into deps.Deps so handler packages can derive component loggers from
+	// it instead of reaching for slog's package-level default.
+	rootLog *slog.Logger
+
 	// videoHub is the WebRTC hub over the HDMI capture pipeline, or nil on a
 	// device with no capture hardware.
 	videoHub *rtc.Hub
@@ -131,7 +136,7 @@ func initialize(ctx context.Context) {
 	// handler writes unleveled text to stderr, which on this device goes
 	// nowhere useful. Config is read as part of this (Init needs the level and
 	// file), so config's own messages are the only ones that predate it.
-	logger.Init()
+	rootLog = logger.Init()
 
 	slog.InfoContext(ctx, "NanoKVM BMC starting",
 		slog.String("version", version),
@@ -302,6 +307,7 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 
 	d := &deps.Deps{
 		Ctx:      ctx,
+		Log:      rootLog,
 		Config:   conf,
 		Power:    powerCtrl,
 		Firmware: fwCtrl,
