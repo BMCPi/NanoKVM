@@ -207,6 +207,84 @@ func TestBiosSnapshotShowsUnregisteredAttributes(t *testing.T) {
 	}
 }
 
+// The BMC no longer carries a compiled-in per-platform vocabulary (the
+// deleted bios_catalog.go): an attribute the host reports pre-sync — before
+// it has published any AttributeRegistry — gets no special treatment just
+// because its name happens to match one a previous platform table used to
+// describe. It renders exactly like any other unregistered attribute:
+// guessed type, the leftovers menu, no display name, no options.
+func TestBiosSnapshotHasNoCompiledCatalogFallback(t *testing.T) {
+	resetHostState(t)
+	// FanMode used to be a fully-described entry in the deleted compiled-in
+	// catalog (an Enumeration with three options, under "./Active Cooler").
+	// With no registry published, it must now be indistinguishable from any
+	// other attribute the host has never described.
+	mergeHostBiosAttributes(map[string]any{"FanMode": "Automatic"})
+
+	v := BiosSnapshot()
+	if v.HasRegistry {
+		t.Fatal("HasRegistry = true with nothing published")
+	}
+	a := attrByName(t, v, "FanMode")
+
+	if a.Type != BiosTypeString {
+		t.Errorf("type = %q, want the guessed String — no compiled table may claim it is an Enumeration",
+			a.Type)
+	}
+	if a.Registered {
+		t.Error("Registered = true; nothing described this attribute")
+	}
+	if a.MenuPath != unregisteredMenuPath {
+		t.Errorf("menu = %q, want %q — no compiled table may place it on a real menu",
+			a.MenuPath, unregisteredMenuPath)
+	}
+	if a.DisplayName != "" {
+		t.Errorf("DisplayName = %q, want empty — no compiled table may name it", a.DisplayName)
+	}
+	if len(a.Options) != 0 {
+		t.Errorf("options = %v, want none — no compiled table may supply a value list", a.Options)
+	}
+}
+
+// The host's registry is the only source of typed vocabulary now: its
+// declared values render verbatim, even for an attribute name a deleted
+// compiled-in table used to describe differently (the old catalog listed
+// Gen1/Gen2/Gen3 under "./PCI Express"; this registry disagrees on both).
+func TestBiosSnapshotRegistryValuesAreNeverOverridden(t *testing.T) {
+	resetHostState(t)
+	seedRegistry(t, `{
+  "Id": "BiosAttributeRegistry.v2_0_0",
+  "RegistryEntries": {
+    "Attributes": [
+      {"AttributeName": "Pcie1MaxLinkSpeed", "DisplayName": "PCIe Link Speed",
+       "Type": "Enumeration", "MenuPath": "./PCIe Configuration",
+       "Value": [{"ValueName": "Gen1"}, {"ValueName": "Gen4"}]}
+    ]
+  }
+}`)
+	mergeHostBiosAttributes(map[string]any{"Pcie1MaxLinkSpeed": "Gen4"})
+
+	a := attrByName(t, BiosSnapshot(), "Pcie1MaxLinkSpeed")
+	if !a.Registered {
+		t.Fatal("Registered = false for an attribute the registry described")
+	}
+	if got, want := optionValues(a), []string{"Gen1", "Gen4"}; !equalStrings(got, want) {
+		t.Errorf("options = %v, want exactly the registry's %v", got, want)
+	}
+	if a.MenuPath != "./PCIe Configuration" {
+		t.Errorf("menu = %q, want the registry's ./PCIe Configuration", a.MenuPath)
+	}
+	if a.DisplayName != "PCIe Link Speed" {
+		t.Errorf("display name = %q, want the registry's", a.DisplayName)
+	}
+
+	// A value the deleted catalog never knew about must still stage cleanly.
+	if res := StageBiosAttributes([]string{"Pcie1MaxLinkSpeed"},
+		map[string]string{"Pcie1MaxLinkSpeed": "Gen1"}); res.Errors["Pcie1MaxLinkSpeed"] != "" {
+		t.Errorf("registry-allowed value rejected: %s", res.Errors["Pcie1MaxLinkSpeed"])
+	}
+}
+
 // The core of the write path: a form submits strings, and the staged object
 // must carry the JSON types the host declared.
 func TestStageBiosAttributesCoercesTypes(t *testing.T) {
@@ -662,4 +740,40 @@ func keysOf(m map[string]BiosMenu) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// ── shared test helpers ─────────────────────────────────────────────────
+//
+// Formerly in bios_catalog_test.go (deleted with the compiled-in catalog);
+// still needed by the registry-precedence tests above.
+
+func attrByName(t *testing.T, v BiosView, name string) BiosAttribute {
+	t.Helper()
+	for _, a := range v.Attributes {
+		if a.Name == name {
+			return a
+		}
+	}
+	t.Fatalf("%s missing from the view", name)
+	return BiosAttribute{}
+}
+
+func optionValues(a BiosAttribute) []string {
+	out := make([]string, 0, len(a.Options))
+	for _, o := range a.Options {
+		out = append(out, o.Value)
+	}
+	return out
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

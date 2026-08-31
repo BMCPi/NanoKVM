@@ -223,13 +223,11 @@ func biosAttr(a redfish.BiosAttribute, errMsg string) components.BiosAttr {
 		Bool:    a.BoolValue(),
 		Current: a.CurrentString(),
 		Staged:  a.HasPending,
-		// Cataloged wins: an attribute the BMC's platform table describes is
-		// not an undescribed one, and rendering both badges would have the
-		// row contradict itself. A registry entry the table merely topped up
-		// is Registered and Cataloged at once — still worth marking, because
-		// some of what the operator sees is not what the host asserted.
-		Unregistered: !a.Registered && !a.Cataloged,
-		Cataloged:    a.Cataloged,
+		// Unregistered marks an attribute the host reported without
+		// describing in its AttributeRegistry. There is no compiled-in
+		// platform table to fall back on, so this is the only distinction
+		// left: registered (typed by the host) or not (guessed).
+		Unregistered: !a.Registered,
 		Min:          biosBound(a.LowerBound),
 		Max:          biosBound(a.UpperBound),
 		MinLength:    biosBound(a.MinLength),

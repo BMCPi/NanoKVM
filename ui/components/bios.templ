@@ -157,7 +157,7 @@ templ biosIdentity(m BiosModel) {
 			{ strconv.Itoa(m.TotalCount) } attributes
 		</p>
 		if !m.HasRegistry && m.TotalCount > 0 {
-			<p class="mt-1 truncate text-[11px] text-amber-500" title="The host has not published an AttributeRegistry; types and value lists come from the BMC's platform table.">
+			<p class="mt-1 truncate text-[11px] text-amber-500" title="The host has not published an AttributeRegistry; types and value lists are guessed from the reported values.">
 				no attribute registry published
 			</p>
 		}
@@ -381,15 +381,6 @@ templ biosAttrRow(a BiosAttr) {
 					if a.Unregistered {
 						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "ml-2 h-4 px-1 text-[10px]"}) {
 							unregistered
-						}
-					}
-					// The host did not describe this one; the BMC's compiled-in
-					// table of the platform's firmware questions did. Said out
-					// loud because the operator is being offered a value list
-					// the running firmware never asserted.
-					if a.Cataloged {
-						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "ml-2 h-4 px-1 text-[10px]"}) {
-							platform default
 						}
 					}
 					if a.Control == BiosControlReadOnly {

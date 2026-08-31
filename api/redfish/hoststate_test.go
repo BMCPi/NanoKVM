@@ -736,6 +736,18 @@ func TestBiosAttributeRegistryEDK2Flow(t *testing.T) {
 	if _, ok := base["RegistryEntries"]; !ok {
 		t.Errorf("base registry lacks RegistryEntries: %s", w.Body.String())
 	}
+	// Host-authoritative means honest-empty before sync, never a fabricated
+	// vocabulary: the base skeleton must be a valid AttributeRegistry (the
+	// exact schema version EDK2's client is built against) describing zero
+	// attributes, not the deleted compiled-in catalog's roster.
+	if base["@odata.type"] != odataTypeAttributeRegistry {
+		t.Errorf("base registry @odata.type = %v, want %q", base["@odata.type"], odataTypeAttributeRegistry)
+	}
+	entries, _ := base["RegistryEntries"].(map[string]any)
+	attrs, _ := entries["Attributes"].([]any)
+	if len(attrs) != 0 {
+		t.Errorf("base registry Attributes = %v, want none — nothing is fabricated before the host publishes", attrs)
+	}
 	if w = do(r, http.MethodPut, "/redfish/v1/Systems/1/Bios/NotARegistry", from, `{}`, nil); w.Code != http.StatusNotFound {
 		t.Errorf("PUT bogus name = %d, want 404", w.Code)
 	}

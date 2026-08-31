@@ -181,23 +181,6 @@ func setHostBiosPending(attrs map[string]any) {
 	hostStateFlush()
 }
 
-// mergeHostBiosPending merges attributes into the staged set and persists
-// immediately. The EthernetInterface facade stages through here: wholesale
-// replacement (setHostBiosPending) belongs to the operator's own PATCH of
-// the settings object, and a facade write must not clobber unrelated
-// attributes already staged there.
-func mergeHostBiosPending(attrs map[string]any) {
-	host.mu.Lock()
-	if host.BiosPending == nil {
-		host.BiosPending = map[string]any{}
-	}
-	for k, v := range attrs {
-		host.BiosPending[k] = v
-	}
-	host.mu.Unlock()
-	hostStateFlush()
-}
-
 func hostBiosRegistry() map[string]any {
 	host.mu.RLock()
 	defer host.mu.RUnlock()
