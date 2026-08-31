@@ -309,17 +309,6 @@ func leaseTimes(lease *nclient4.Lease) (t1, t2, expiry time.Time) {
 	return base.Add(d1), base.Add(d2), base.Add(life)
 }
 
-// ctxOrBackground defaults to context.Background() for a runner built
-// without one (a test constructing a bare dhcpRunner literal); every
-// production construction (see superviseEth0) sets ctx to the owning
-// manager's.
-func (d *dhcpRunner) ctxOrBackground() context.Context {
-	if d.ctx != nil {
-		return d.ctx
-	}
-	return context.Background()
-}
-
 func (d *dhcpRunner) signalAttempt() {
 	if d.onAttempt != nil {
 		d.onAttempt() // sync.Once on the manager side; safe to call repeatedly
@@ -470,7 +459,7 @@ func (d *dhcpRunner) exchange(timeout time.Duration) (context.Context, *nclient4
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("dhcp client: %w", err)
 	}
-	ctx, cancel := exchangeContext(d.ctxOrBackground(), timeout)
+	ctx, cancel := exchangeContext(ctxOr(d.ctx), timeout)
 	return ctx, c, cancel, nil
 }
 

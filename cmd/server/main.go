@@ -574,15 +574,7 @@ const disposeStopTimeout = 2 * time.Second
 // ctx to cancel with -- so this is only sound because disposeAll is itself
 // called from a process that is about to exit either way.
 func stopBounded(name string, fn func()) {
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		fn()
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(disposeStopTimeout):
+	if !runBounded(disposeStopTimeout, fn) {
 		slog.Warn("shutdown: subsystem stop timed out, continuing",
 			slog.String("subsystem", name), slog.Duration("timeout", disposeStopTimeout))
 	}

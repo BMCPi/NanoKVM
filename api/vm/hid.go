@@ -294,18 +294,10 @@ func (h *handlers) readHIDEvents(ws *websocket.Conn, ctrl *hid.Controller) {
 	applier := newHIDApplier(h.log, func(ev hidEvent) error { return applyHIDEvent(ctrl, ev) })
 	defer applier.stop()
 
-	// Unblock the read loop below at shutdown: ws.ReadMessage() blocks with no
-	// watcher on h.d.Ctx, so the deferred applier.stop() above would never
-	// run and the keyboard/pointer lanes would leak past SIGTERM. The watcher
-	// runs on a ctx derived from h.d.Ctx, not h.d.Ctx directly, so it also
-	// exits promptly on normal handler return instead of leaking for the life
-	// of the process.
-	shutdownCtx, cancelShutdownWatch := context.WithCancel(h.d.Ctx)
-	defer cancelShutdownWatch()
-	go func() {
-		<-shutdownCtx.Done()
-		_ = ws.Close()
-	}()
+	// Unblocks the read loop below at shutdown so the deferred applier.stop()
+	// above runs instead of leaking the keyboard/pointer lanes past SIGTERM.
+	releaseShutdownWatch := closeOnShutdown(h.d.Ctx, ws)
+	defer releaseShutdownWatch()
 
 	for {
 		_, data, err := ws.ReadMessage()

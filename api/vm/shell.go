@@ -1,7 +1,6 @@
 package vm
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -44,19 +43,10 @@ func (h *handlers) Shell(c *gin.Context) {
 
 	h.log.InfoContext(c.Request.Context(), "bmc shell session started", slog.Int("pid", session.Pid()))
 
-	// Unblock the read loop below at shutdown: ws.ReadMessage() has no read
-	// deadline (see below) and would otherwise block forever, so the hijacked
-	// connection would never close, the deferred session.Close() above would
-	// never run, and the Setsid'd root shell would be orphaned to init. The
-	// watcher runs on a ctx derived from h.d.Ctx, not h.d.Ctx directly, so it
-	// also exits promptly on normal handler return instead of leaking for the
-	// life of the process.
-	shutdownCtx, cancelShutdownWatch := context.WithCancel(h.d.Ctx)
-	defer cancelShutdownWatch()
-	go func() {
-		<-shutdownCtx.Done()
-		_ = ws.Close()
-	}()
+	// Unblocks the read loop below at shutdown so the deferred session.Close()
+	// above runs instead of leaving the Setsid'd root shell orphaned to init.
+	releaseShutdownWatch := closeOnShutdown(h.d.Ctx, ws)
+	defer releaseShutdownWatch()
 
 	// Shell → WebSocket. Closing the socket here unblocks the read loop below
 	// when the shell exits on its own (e.g. the user typed `exit`).

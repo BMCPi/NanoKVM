@@ -41,21 +41,34 @@ import (
 // the declared Content-Length or from the bytes actually received.
 var ErrRemoteTooLarge = errors.New("remote file exceeds maximum allowed size")
 
+// NewBoundedClient returns an *http.Client whose transport bounds connection
+// setup and the wait for response headers -- http.DefaultClient has none of
+// this, which on a BMC means one unreachable host can pin a caller
+// indefinitely. overallTimeout caps the whole request, including reading the
+// body; pass 0 to leave that uncapped, which is what a caller wants when the
+// body itself is meant to be bounded some other way (a byte cap, the
+// caller's own ctx) rather than by a stopwatch -- see FetchURL's doc comment
+// above for why that matters for a large download.
+func NewBoundedClient(overallTimeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: overallTimeout,
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout:   15 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			TLSHandshakeTimeout:   15 * time.Second,
+			ResponseHeaderTimeout: 60 * time.Second,
+			IdleConnTimeout:       90 * time.Second,
+			ExpectContinueTimeout: 5 * time.Second,
+		},
+	}
+}
+
 // fetchClient bounds connection setup and the wait for response headers but
 // not the transfer itself. http.DefaultClient has no timeouts at all, which on
 // a BMC means one unreachable host can hold a fetch slot indefinitely.
-var fetchClient = &http.Client{
-	Transport: &http.Transport{
-		DialContext: (&net.Dialer{
-			Timeout:   15 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		TLSHandshakeTimeout:   15 * time.Second,
-		ResponseHeaderTimeout: 60 * time.Second,
-		IdleConnTimeout:       90 * time.Second,
-		ExpectContinueTimeout: 5 * time.Second,
-	},
-}
+var fetchClient = NewBoundedClient(0)
 
 // RemoteFile is an in-progress download. It reads as the remote body, capped
 // at the requested limit, and must be closed by the caller.

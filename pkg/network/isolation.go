@@ -89,7 +89,7 @@ table inet nanokvm_usb0 {
 	// Rooted in the manager's own lifecycle (not context.Background()) so
 	// Manager.stop() can interrupt a hung nft via m.cancel(), on top of the
 	// timeout bounding an nft that is merely slow rather than wedged.
-	ctx, cancel := context.WithTimeout(m.ctxOrBackground(), nftGuardTimeout)
+	ctx, cancel := context.WithTimeout(ctxOr(m.ctx), nftGuardTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, nft, "-f", "-")
 	cmd.Stdin = strings.NewReader(script)

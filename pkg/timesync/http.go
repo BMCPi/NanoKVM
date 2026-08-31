@@ -20,12 +20,12 @@ var fallbackHTTPURLs = []string{
 }
 
 // queryClient bounds connection setup and the wait for response headers for
-// the HTTP time-fallback probes -- http.DefaultClient has no timeouts at all,
-// which would let one unreachable captive-portal endpoint pin a query
-// goroutine indefinitely. Same shape as pkg/utils/fetch.go's fetchClient,
-// scaled to queryTimeout since these are tiny, latency-sensitive probes
-// rather than downloads: the overall Timeout is a backstop behind the
-// per-request ctx deadline queryHTTPTime already applies.
+// the HTTP time-fallback probes -- see utils.NewBoundedClient's doc comment
+// for why that matters generally. It keeps its own literal instead of calling
+// NewBoundedClient because these are tiny, latency-sensitive probes rather
+// than downloads: every per-phase timeout here is scaled to queryTimeout
+// rather than NewBoundedClient's fixed 15s/60s, and the overall Timeout is a
+// backstop behind the per-request ctx deadline queryHTTPTime already applies.
 var queryClient = &http.Client{
 	Timeout: queryTimeout + time.Second,
 	Transport: &http.Transport{

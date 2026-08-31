@@ -56,15 +56,14 @@ const (
 var rhiEth0Wait = 30 * time.Second
 
 // Manager owns the lifecycle of the interface-configuration goroutines. Stop
-// closes the shared done channel, unwinding the DHCP loop, the supervisors and
-// the link monitor, and waits for them to exit so a Restart never races a
+// cancels the shared ctx, unwinding the DHCP loop, the supervisors and the
+// link monitor, and waits for them to exit so a Restart never races a
 // previous incarnation.
 type Manager struct {
 	cfg config.Network
 
-	mu   sync.Mutex
-	done chan struct{}
-	wg   sync.WaitGroup
+	mu sync.Mutex
+	wg sync.WaitGroup
 
 	// eth0Ready/rhiReady close once the first configuration attempt for that
 	// link has completed — successfully or not. WaitReady gates server startup
@@ -99,14 +98,14 @@ type Manager struct {
 	// mu.
 	rhiDHCP *rhiDHCPServer
 
-	// ctx is cancelled by stop(), independent of and in addition to closing
-	// done: done is a plain shutdown signal several supervisors already
-	// select on, while ctx exists so blocking calls with no channel-based
-	// escape of their own -- ensureNFTGuard's exec.CommandContext, a
-	// dhcpRunner's DHCP exchanges -- can be bounded by and cancelled with the
-	// manager's lifecycle instead of context.Background(). Set once at
-	// construction (startLocked) and never reassigned, so reading it needs no
-	// lock, like cfg and log below.
+	// ctx is cancelled by stop() and is the one shutdown signal every
+	// supervisor selects on via ctx.Done() (superviseEth0, superviseRHI,
+	// monitorLinks, the dhcpRunner). It also lets blocking calls with no
+	// channel-based escape of their own -- ensureNFTGuard's
+	// exec.CommandContext, a dhcpRunner's DHCP exchanges -- be bounded by and
+	// cancelled with the manager's lifecycle instead of context.Background().
+	// Set once at construction (startLocked) and never reassigned, so reading
+	// it needs no lock, like cfg and log below.
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -201,7 +200,6 @@ func startLocked(log *slog.Logger) {
 		log:           log,
 		ctx:           ctx,
 		cancel:        cancel,
-		done:          make(chan struct{}),
 		eth0Ready:     make(chan struct{}),
 		rhiReady:      make(chan struct{}),
 		dhcpKick:      make(chan struct{}, 1),
@@ -210,37 +208,31 @@ func startLocked(log *slog.Logger) {
 
 	if cfg.Eth0.Name != "" {
 		m.wg.Add(1)
-		go m.superviseEth0(m.done)
+		go m.superviseEth0(m.ctx.Done())
 	} else {
 		m.signalEth0Ready()
 	}
 	if cfg.RHI.Interface != "" && cfg.RHI.Address != "" {
 		m.wg.Add(1)
 		go func() {
-			m.awaitEth0(m.done)
-			m.superviseRHI(m.done)
+			m.awaitEth0(m.ctx.Done())
+			m.superviseRHI(m.ctx.Done())
 		}()
 	} else {
 		m.signalRHIReady()
 	}
 	m.wg.Add(1)
-	go m.monitorLinks(m.done)
+	go m.monitorLinks(m.ctx.Done())
 
 	active = m
 }
 
 func (m *Manager) stop() {
-	m.mu.Lock()
-	if m.done != nil {
-		close(m.done)
-		m.done = nil
-	}
-	m.mu.Unlock()
-	// Unblocks anything using ctx instead of done -- notably a hung nft call
-	// in ensureNFTGuard -- so a goroutine parked in it can still observe done
-	// (or simply return) and let wg.Wait() below complete. Guarded like done
-	// above: a Manager built directly by a test literal (bypassing
-	// startLocked) has no cancel to call.
+	// cancel is every supervisor's shutdown signal (they select on
+	// ctx.Done()) and also unblocks anything with no channel-based escape of
+	// its own -- notably a hung nft call in ensureNFTGuard -- so wg.Wait()
+	// below can complete. Guarded: a Manager built directly by a test literal
+	// (bypassing startLocked) has no cancel to call.
 	if m.cancel != nil {
 		m.cancel()
 	}
@@ -280,11 +272,13 @@ func (m *Manager) awaitEth0(done <-chan struct{}) {
 	}
 }
 
-// ctxOrBackground defaults to context.Background() for a Manager built
-// directly by a test literal (bypassing startLocked, which always sets ctx).
-func (m *Manager) ctxOrBackground() context.Context {
-	if m.ctx != nil {
-		return m.ctx
+// ctxOr defaults to context.Background() when ctx is nil -- both Manager and
+// dhcpRunner leave ctx unset when built directly by a test literal (bypassing
+// startLocked, which always sets Manager.ctx, and superviseEth0, which always
+// sets dhcpRunner.ctx to the owning manager's).
+func ctxOr(ctx context.Context) context.Context {
+	if ctx != nil {
+		return ctx
 	}
 	return context.Background()
 }
