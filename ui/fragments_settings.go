@@ -187,7 +187,11 @@ func patchAutoUpdate(c *gin.Context) {
 
 func networkModel() components.SettingsNetwork {
 	n := config.GetInstance().Network
-	md := config.GetInstance().MDNS
+	// Discovery.MDNS, not the top-level MDNS field: the latter is a
+	// migration landing spot only (see migrateDiscovery in pkg/config) and
+	// pkg/discovery never reads it, so rendering from it would show settings
+	// that are not actually in effect.
+	md := config.GetInstance().Discovery.MDNS
 	return components.SettingsNetwork{
 		Enabled:       n.Enabled,
 		Mode:          strings.ToLower(n.Eth0.Mode),
@@ -209,8 +213,15 @@ func networkModel() components.SettingsNetwork {
 // patchMDNS restarts only the responder, leaving addressing alone — which is
 // why it is a separate form from the batched eth0 config whose Save warns it
 // may drop the session.
+//
+// It writes Discovery.MDNS, the block pkg/discovery actually starts from —
+// not the legacy top-level MDNS field. Writing the legacy field here would
+// make the form a silent no-op: discovery.Restart() below would restart from
+// the unchanged Discovery.MDNS, and a subsequent config.Save() would write a
+// discovery: key that makes migrateDiscovery skip the legacy block on the
+// next load, permanently discarding whatever the form "saved".
 func patchMDNS(c *gin.Context) {
-	md := &config.GetInstance().MDNS
+	md := &config.GetInstance().Discovery.MDNS
 	md.Enabled = checked(c, "enabled")
 	md.Hostname = strings.TrimSpace(c.PostForm("hostname"))
 	md.Interface = strings.TrimSpace(c.PostForm("interface"))
