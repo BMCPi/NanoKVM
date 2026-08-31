@@ -36,7 +36,17 @@ func (h *handlers) CreateSession(c *gin.Context) {
 	}
 
 	if ok := h.d.Auth.ComparePlainAccount(req.UserName, req.Password); !ok {
-		time.Sleep(2 * time.Second)
+		// ComparePlainAccount (pkg/auth/account.go) returns false uniformly
+		// for "no such user" and "wrong password" — this single branch
+		// already handles both identically, so waiting on ctx-cancellation
+		// here does not reopen a username-enumeration timing gap. Ctx-aware
+		// so a client disconnect or server shutdown unblocks this goroutine
+		// instead of pinning it for the full duration.
+		select {
+		case <-time.After(2 * time.Second):
+		case <-c.Request.Context().Done():
+			return
+		}
 		redfishErrorResponse(c, http.StatusUnauthorized, "invalid username or password")
 		return
 	}

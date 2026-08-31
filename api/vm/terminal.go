@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -79,6 +80,19 @@ func (h *handlers) Terminal(c *gin.Context) {
 		return
 	}
 	defer broker.Disconnect(sessionID)
+
+	// Unblock the read loop below at shutdown: ws.ReadMessage() has no read
+	// deadline (see below) and would otherwise block forever, so the deferred
+	// broker.Disconnect above would never run and the serial port would stay
+	// held open through process teardown. The watcher runs on a ctx derived
+	// from h.d.Ctx, not h.d.Ctx directly, so it also exits promptly on normal
+	// handler return instead of leaking for the life of the process.
+	shutdownCtx, cancelShutdownWatch := context.WithCancel(h.d.Ctx)
+	defer cancelShutdownWatch()
+	go func() {
+		<-shutdownCtx.Done()
+		_ = ws.Close()
+	}()
 
 	// Read loop: forward WebSocket messages to the serial port.
 	var zeroTime time.Time

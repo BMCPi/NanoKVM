@@ -1,7 +1,6 @@
 package network
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -9,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -35,16 +35,18 @@ func (h *handlers) WakeOnLAN(c *gin.Context) {
 	}
 
 	command := fmt.Sprintf("ether-wake -b %s", mac)
-	// context.Background(), not c.Request.Context(): the magic packet send
-	// must complete even if the client disconnects right after issuing the
-	// request, so the command's lifetime is intentionally not tied to it.
-	// This repo's idiom for a detached side effect is deps.ActionContext
-	// (see api/vm/service.go's Deps field doc and api/vm/gpio.go's power
-	// handlers), deliberately not adopted here: this package's Service
-	// carries no *deps.Deps today, and wiring one in just to get a
-	// shutdown-cancellable context would be a behaviour change out of scope
-	// for a lint-only pass.
-	cmd := exec.CommandContext(context.Background(), "sh", "-c", command)
+	// h.d.ActionContext, not c.Request.Context(): the magic packet send must
+	// complete even if the client disconnects right after issuing the
+	// request, so the command's lifetime is intentionally not tied to it —
+	// this repo's idiom for a detached side effect (see deps.ActionContext's
+	// doc and api/vm/gpio.go's power handlers for the same pattern). Bounded
+	// rather than h.d.Ctx directly: a wedged ether-wake (missing binary, a
+	// shell that never returns) must not pin this goroutine open indefinitely,
+	// and the timeout still derives from the process-lifetime context so it
+	// is cancelled at shutdown rather than outliving it.
+	ctx, cancel := h.d.ActionContext(5 * time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

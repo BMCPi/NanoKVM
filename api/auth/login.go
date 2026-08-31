@@ -26,19 +26,39 @@ func (h *handlers) Login(c *gin.Context) {
 
 	clientIP := requestIP(c)
 	if locked, code, msg := h.d.Auth.CheckLoginAttempt(clientIP); locked {
-		time.Sleep(3 * time.Second)
+		// Anti-brute-force delay, ctx-aware so a client disconnect or server
+		// shutdown unblocks this goroutine instead of pinning it for the
+		// full duration.
+		select {
+		case <-time.After(3 * time.Second):
+		case <-c.Request.Context().Done():
+			return
+		}
 		rsp.ErrRsp(c, code, msg)
 		return
 	}
 
 	if err := proto.ParseFormRequest(c, h.log, &req); err != nil {
-		time.Sleep(3 * time.Second)
+		select {
+		case <-time.After(3 * time.Second):
+		case <-c.Request.Context().Done():
+			return
+		}
 		rsp.ErrRsp(c, -1, "invalid parameters")
 		return
 	}
 
 	if ok := h.d.Auth.CompareAccount(req.Username, req.Password); !ok {
-		time.Sleep(2 * time.Second)
+		// CompareAccount (pkg/auth/account.go) returns false uniformly for
+		// "no such user" and "wrong password" — this single branch already
+		// handles both identically, so waiting on ctx-cancellation here the
+		// same way for every caller does not reopen a username-enumeration
+		// timing gap.
+		select {
+		case <-time.After(2 * time.Second):
+		case <-c.Request.Context().Done():
+			return
+		}
 
 		if locked, code, msg := h.d.Auth.RecordLoginFailure(clientIP); locked {
 			rsp.ErrRsp(c, code, msg)
@@ -53,7 +73,11 @@ func (h *handlers) Login(c *gin.Context) {
 
 	token, err := middleware.GenerateJWT(req.Username)
 	if err != nil {
-		time.Sleep(1 * time.Second)
+		select {
+		case <-time.After(1 * time.Second):
+		case <-c.Request.Context().Done():
+			return
+		}
 		rsp.ErrRsp(c, -3, "generate token failed")
 		return
 	}

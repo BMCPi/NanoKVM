@@ -8,10 +8,12 @@ package redfish
 // unauthenticated even though the credentials were accepted.
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stmcginnis/gofish"
@@ -100,6 +102,60 @@ func TestGofishSessionAuth(t *testing.T) {
 	}
 	if len(systems) != 1 {
 		t.Fatalf("discovered %d systems, want 1", len(systems))
+	}
+}
+
+// TestCreateSessionUnblocksOnClientDisconnect covers the anti-brute-force
+// delay on the failed-credentials branch (see the context/cancellation
+// audit's I8 finding): it must wait on c.Request.Context() alongside the
+// timer, not call time.Sleep unconditionally, or a client that has already
+// gone away still pins the handler goroutine for the full 2s and extends
+// shutdown drain.
+//
+// The comparison is relative rather than against a fixed budget:
+// ComparePlainAccount's bcrypt cost is itself highly variable (tens of ms
+// unraced, observed 2s+ under -race in a loaded sandbox), so a hardcoded
+// "must finish within Nms" threshold would be flaky. Both runs below pay
+// that same bcrypt cost; only the cancelled run should skip the extra fixed
+// 2s wait, so its duration should land comfortably below the live-context
+// baseline regardless of how slow bcrypt is on the machine running the test.
+func TestCreateSessionUnblocksOnClientDisconnect(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := testHandlers()
+	r := gin.New()
+	r.POST(sessionsPath, h.CreateSession)
+
+	run := func(ctx context.Context) (time.Duration, *httptest.ResponseRecorder) {
+		req := httptest.NewRequest(http.MethodPost, sessionsPath,
+			strings.NewReader(`{"UserName":"admin","Password":"wrong"}`)).WithContext(ctx)
+		w := httptest.NewRecorder()
+		start := time.Now()
+		r.ServeHTTP(w, req)
+		return time.Since(start), w
+	}
+
+	// Baseline: a live request context, so the handler runs the full path —
+	// bcrypt compare, then the full 2s anti-brute-force wait.
+	baseline, _ := run(context.Background())
+
+	// The client is already gone before the handler even starts.
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cancelled, w := run(cancelCtx)
+
+	t.Logf("baseline=%v cancelled=%v", baseline, cancelled)
+	if want := baseline - time.Second; cancelled >= want {
+		t.Fatalf("client-context cancellation did not skip the anti-brute-force delay: "+
+			"cancelled=%v, want comfortably below baseline-1s=%v (baseline=%v)", cancelled, want, baseline)
+	}
+
+	// On this early-return path the handler must respond nothing extra: no
+	// body written, since the client that would have received it is already
+	// gone. (ResponseRecorder.Code defaults to 200 whether or not a handler
+	// ever calls WriteHeader, so an empty body — not the status — is the
+	// signal that nothing was written.)
+	if w.Body.Len() != 0 {
+		t.Errorf("handler wrote a response body after client-context cancellation: %q", w.Body.String())
 	}
 }
 
