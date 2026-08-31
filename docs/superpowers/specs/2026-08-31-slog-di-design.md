@@ -67,6 +67,7 @@ prefixes where one exists:
 | `ui` | ui root + ui/fragments |
 | `power`, `ipmi`, `serial`, `ssh`, `hid`, `usbgadget`, `firmware`, `network`, `discovery`, `telemetry`, `timesync`, `autoupdate`, `video`, `rtc` | the pkg subsystems |
 | `http` | pkg/middleware request logging |
+| `sysinfo` | pkg/sysinfo resource sampling (added post-plan by the overview-graphs feature) |
 
 A record's component is set exactly once (no nesting of `With("component")`
 down a call chain). Where a subsystem constructs a sub-object with its own

@@ -26,7 +26,7 @@ import (
 // the few public endpoints (login, token check, the Redfish tree with its
 // own session auth) take the engine explicitly.
 func Register(r *gin.Engine, d *deps.Deps) {
-	authed := r.Group("/api", middleware.CheckToken(logger.Or(d.Log)))
+	authed := r.Group("/api", middleware.CheckToken(logger.Or(d.Log).With("component", "http")))
 
 	auth.Register(r, authed, d)
 	application.Register(authed, d)
