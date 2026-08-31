@@ -1,8 +1,8 @@
 package firmware
 
 // decompress_media_test.go pins the interaction between
-// utils.DecompressingReader/LimitDecompressedReader and SaveMediaFile itself
-// (deliberately left unmodified — see pkg/utils/decompress.go): SaveMediaFile
+// streamio.DecompressingReader/LimitDecompressedReader and SaveMediaFile itself
+// (deliberately left unmodified — see pkg/streamio/decompress.go): SaveMediaFile
 // already stages to a sibling ".tmp" file and only renames it into place on a
 // fully successful copy, so a decompression error or a tripped output cap
 // must discard the partial write the same way a plain I/O error already
@@ -17,7 +17,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
+	"github.com/pi-bmc/nanokvm-app/pkg/streamio"
 )
 
 func gzipOf(t *testing.T, payload []byte) []byte {
@@ -39,7 +39,7 @@ func TestSaveMediaFileLeavesNoStagedFileOnCorruptStream(t *testing.T) {
 	full := gzipOf(t, bytes.Repeat([]byte("this would have been an image "), 4096))
 	truncated := full[:len(full)/2] // cut mid-body: header parses, body doesn't finish
 
-	dr, format, err := utils.DecompressingReader(bytes.NewReader(truncated))
+	dr, format, err := streamio.DecompressingReader(bytes.NewReader(truncated))
 	if err != nil {
 		t.Fatalf("DecompressingReader: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestSaveMediaFileRejectsDecompressionBombAndCleansUp(t *testing.T) {
 	const capBytes = 64 * 1024 // 64 KiB — far below the 16 MiB this bomb inflates to
 	bomb := gzipOf(t, make([]byte, 16*1024*1024))
 
-	dr, format, err := utils.DecompressingReader(bytes.NewReader(bomb))
+	dr, format, err := streamio.DecompressingReader(bytes.NewReader(bomb))
 	if err != nil {
 		t.Fatalf("DecompressingReader: %v", err)
 	}
@@ -75,8 +75,8 @@ func TestSaveMediaFileRejectsDecompressionBombAndCleansUp(t *testing.T) {
 		t.Fatalf("format = %q, want gzip", format)
 	}
 
-	_, err = c.SaveMediaFile("bomb.img", utils.LimitDecompressedReader(dr, capBytes))
-	if !errors.Is(err, utils.ErrDecompressedTooLarge) {
+	_, err = c.SaveMediaFile("bomb.img", streamio.LimitDecompressedReader(dr, capBytes))
+	if !errors.Is(err, streamio.ErrDecompressedTooLarge) {
 		t.Fatalf("err = %v, want ErrDecompressedTooLarge", err)
 	}
 

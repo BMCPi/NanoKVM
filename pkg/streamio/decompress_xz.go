@@ -1,4 +1,4 @@
-package utils
+package streamio
 
 // decompress_xz.go exists because xz.ReaderConfig.DictCap, despite its name,
 // is not an upper bound in github.com/ulikunitz/xz (checked against v0.5.15

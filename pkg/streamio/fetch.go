@@ -1,4 +1,4 @@
-package utils
+package streamio
 
 // fetch.go centralises BMC-initiated downloads: the operator hands the BMC a
 // URL (a virtual media ISO, a firmware capsule) and the BMC pulls the bytes

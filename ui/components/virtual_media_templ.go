@@ -14,7 +14,7 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
-	pkgutils "github.com/pi-bmc/nanokvm-app/pkg/utils"
+	"github.com/pi-bmc/nanokvm-app/pkg/streamio"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/buttongroup"
 	"github.com/pi-bmc/nanokvm-app/ui/components/dropdownmenu"
@@ -44,7 +44,7 @@ func formatBytes(n int64) string {
 }
 
 // TransferSummary composes what a completed transfer's toast should say
-// about size. format is what utils.DecompressingReader detected server-side
+// about size. format is what streamio.DecompressingReader detected server-side
 // ("" for a passthrough transfer — always the case for firmware capsules,
 // which are never decompressed) so this never speaks about extraction unless
 // extraction genuinely happened. wireBytes is ignored when format == "".
@@ -68,7 +68,7 @@ func fetchPhaseLabel(format string) string {
 }
 
 // mediaUploadAccept builds the upload picker's filter. Derived from
-// pkg/utils rather than written out, because the two have already drifted
+// pkg/streamio rather than written out, because the two have already drifted
 // once: DecompressingReader made compressed images work end to end while the
 // picker still offered ".iso,.img", so the OS dialog greyed out exactly the
 // files the feature was added for.
@@ -80,7 +80,7 @@ func fetchPhaseLabel(format string) string {
 // server sniffs magic bytes and rejects what it cannot read, and a stream it
 // does not recognise is staged byte-for-byte exactly as before.
 func mediaUploadAccept() string {
-	return strings.Join(append([]string{".iso", ".img"}, pkgutils.CompressionExtensions()...), ",")
+	return strings.Join(append([]string{".iso", ".img"}, streamio.CompressionExtensions()...), ",")
 }
 
 // mediaActionAttrs wires one action of the Existing tab's split button.

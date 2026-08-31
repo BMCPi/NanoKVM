@@ -1,4 +1,4 @@
-package utils
+package streamio
 
 // multipart_stream.go exists because this BMC cannot afford the standard
 // library's default answer to "give me the uploaded file".

@@ -2,16 +2,16 @@ package components
 
 // virtual_media_test.go guards the upload file picker's accept filter.
 //
-// The server has accepted compressed images since utils.DecompressingReader
+// The server has accepted compressed images since streamio.DecompressingReader
 // landed: an upload is sniffed by magic bytes and inflated in place, so
 // "ubuntu-24.04.img.xz" stages as "ubuntu-24.04.img". The picker never
 // learned. accept=".iso,.img" greys the file out in the OS dialog, so the
 // capability existed and could not be reached — the same two-halves-in-two-
 // files drift that left the firmware Upload button permanently disabled.
 //
-// So the filter is derived from utils.CompressionExtensions() rather than
+// So the filter is derived from streamio.CompressionExtensions() rather than
 // spelled out here, and these tests hold the derivation to the decoder: add a
-// codec to pkg/utils and the picker follows, or these fail.
+// codec to pkg/streamio and the picker follows, or these fail.
 //
 // Capsules are the deliberate exception. StageCapsule io.Copy's the body onto
 // the FAT volume with no decoder in the path, so a .cap.gz would be staged
@@ -24,7 +24,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
+	"github.com/pi-bmc/nanokvm-app/pkg/streamio"
 )
 
 var acceptAttrRe = regexp.MustCompile(`accept="([^"]*)"`)
@@ -74,7 +74,7 @@ func TestMediaUploadAcceptsCompressedImages(t *testing.T) {
 	}
 
 	// And every codec the server can actually inflate.
-	for _, ext := range utils.CompressionExtensions() {
+	for _, ext := range streamio.CompressionExtensions() {
 		if !hasToken(accept, ext) {
 			t.Errorf("accept omits %q, so the OS dialog greys out an image the "+
 				"server would have decompressed happily: %v", ext, accept)
@@ -112,7 +112,7 @@ func TestCapsuleUploadDoesNotOfferCompressedExtensions(t *testing.T) {
 	if !hasToken(accept, ".cap") {
 		t.Errorf("accept lost .cap: %v", accept)
 	}
-	for _, ext := range utils.CompressionExtensions() {
+	for _, ext := range streamio.CompressionExtensions() {
 		if hasToken(accept, ext) {
 			t.Errorf("accept offers %q, but StageCapsule copies the body verbatim — "+
 				"a compressed capsule would be staged still compressed: %v", ext, accept)
@@ -137,7 +137,7 @@ func TestUploadPhaseLabelKnowsEveryCompressionExtension(t *testing.T) {
 	}
 	pattern := string(m[1])
 
-	for _, ext := range utils.CompressionExtensions() {
+	for _, ext := range streamio.CompressionExtensions() {
 		if !strings.Contains(pattern, strings.TrimPrefix(ext, ".")) {
 			t.Errorf("the phase label's pattern %q does not match %q, so an upload "+
 				"the picker now allows reports no extraction phase", pattern, ext)

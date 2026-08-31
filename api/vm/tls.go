@@ -8,8 +8,8 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
 	"github.com/pi-bmc/nanokvm-app/pkg/proto"
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 )
 
 func (h *handlers) SetTLS(c *gin.Context) {
@@ -45,7 +45,7 @@ func (h *handlers) SetTLS(c *gin.Context) {
 // proto to https. Exported so the UI's settings fragment applies TLS through
 // the same path as the JSON API rather than duplicating the config writes.
 func EnableTLS(log *slog.Logger) error {
-	if err := utils.GenerateCert(log); err != nil {
+	if err := middleware.GenerateCert(log); err != nil {
 		return err
 	}
 

@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
+	"github.com/pi-bmc/nanokvm-app/pkg/streamio"
 )
 
 // latestCacheTTL controls how long a successful GitHub release lookup is
@@ -21,9 +21,9 @@ import (
 const latestCacheTTL = 1 * time.Hour
 
 // releaseClient bounds connection setup and the wait for response headers for
-// the GitHub release lookup -- see utils.NewBoundedClient's doc comment for
+// the GitHub release lookup -- see streamio.NewBoundedClient's doc comment for
 // why and what it bounds.
-var releaseClient = utils.NewBoundedClient(0)
+var releaseClient = streamio.NewBoundedClient(0)
 
 var (
 	latestCacheMu     sync.Mutex

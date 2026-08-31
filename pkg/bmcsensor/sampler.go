@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
+	"github.com/pi-bmc/nanokvm-app/pkg/ring"
 )
 
 const (
@@ -58,7 +58,7 @@ type Sampler struct {
 	now    func() time.Time
 
 	mu      sync.Mutex
-	points  utils.Ring[SensorPoint]
+	points  ring.Ring[SensorPoint]
 	last    Reading
 	lastErr error
 	haveAny bool
@@ -67,7 +67,7 @@ type Sampler struct {
 
 // NewSampler wraps a Reader. It does not start polling; call Start.
 func NewSampler(r *Reader) *Sampler {
-	return &Sampler{reader: r, now: time.Now, points: utils.NewRing[SensorPoint](sensorDepth)}
+	return &Sampler{reader: r, now: time.Now, points: ring.NewRing[SensorPoint](sensorDepth)}
 }
 
 var (

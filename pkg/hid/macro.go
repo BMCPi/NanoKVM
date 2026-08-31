@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
+	"github.com/pi-bmc/nanokvm-app/pkg/ctxutil"
 )
 
 // Macro execution. A macro is a list of steps; each step asserts a report
@@ -101,14 +101,14 @@ func (c *Controller) RunMacro(ctx context.Context, steps []Step) error {
 		if err := c.KeyReport(step.Modifier, step.Keys); err != nil {
 			return fmt.Errorf("macro step %d: %w", i+1, err)
 		}
-		if err := utils.SleepCtx(ctx, stepHold); err != nil {
+		if err := ctxutil.SleepCtx(ctx, stepHold); err != nil {
 			return err
 		}
 
 		if err := c.KeyReport(0, nil); err != nil {
 			return fmt.Errorf("macro step %d release: %w", i+1, err)
 		}
-		if err := utils.SleepCtx(ctx, step.Delay); err != nil {
+		if err := ctxutil.SleepCtx(ctx, step.Delay); err != nil {
 			return err
 		}
 	}

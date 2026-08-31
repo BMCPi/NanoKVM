@@ -5,8 +5,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	pkgauth "github.com/pi-bmc/nanokvm-app/pkg/auth"
 	"github.com/pi-bmc/nanokvm-app/pkg/proto"
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 )
 
 // ChangePassword decrypts the submitted password and delegates the
@@ -21,7 +21,7 @@ func (h *handlers) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	password, err := utils.DecodeDecrypt(req.Password, h.log)
+	password, err := pkgauth.DecodeDecrypt(req.Password, h.log)
 	if err != nil || password == "" {
 		rsp.ErrRsp(c, -2, "invalid password")
 		return

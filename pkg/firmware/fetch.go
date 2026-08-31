@@ -12,7 +12,7 @@ package firmware
 // it in os.TempDir(), which on this device is the tmpfs overlay over the
 // squashfs root — a few tens of megabytes of RAM. Downloading a capsule there
 // filled the overlay and took the server down partway through the transfer,
-// the same failure mode multipart uploads used to have (pkg/utils/fetch.go).
+// the same failure mode multipart uploads used to have (pkg/streamio/fetch.go).
 
 import (
 	"context"
@@ -25,8 +25,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/streamio"
 	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 )
 
 // maxCapsuleFetchBytes bounds a capsule download. It matches the caps on the
@@ -124,10 +124,10 @@ func (c *Controller) stagingDir() (string, error) {
 }
 
 // downloadTo copies the body at rawURL into w, refusing anything larger than
-// maxBytes. utils.FetchURL owns the scheme check, the transport timeouts and
+// maxBytes. streamio.FetchURL owns the scheme check, the transport timeouts and
 // the cap; everything here is a straight stream to disk.
 func (c *Controller) downloadTo(ctx context.Context, rawURL string, w io.Writer, maxBytes int64) error {
-	remote, err := utils.FetchURL(ctx, rawURL, maxBytes)
+	remote, err := streamio.FetchURL(ctx, rawURL, maxBytes)
 	if err != nil {
 		return err
 	}

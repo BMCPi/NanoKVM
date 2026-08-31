@@ -7,14 +7,14 @@ import (
 	"time"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
+	"github.com/pi-bmc/nanokvm-app/pkg/ring"
 )
 
 // newTestHistory builds a history ring from readings, oldest first — the
 // shape history.samples now needs (see history.go), in place of the raw
 // slice literal these tests used before.
-func newTestHistory(readings ...counterReading) utils.Ring[counterReading] {
-	r := utils.NewRing[counterReading](historyDepth)
+func newTestHistory(readings ...counterReading) ring.Ring[counterReading] {
+	r := ring.NewRing[counterReading](historyDepth)
 	for _, c := range readings {
 		r.Append(c)
 	}

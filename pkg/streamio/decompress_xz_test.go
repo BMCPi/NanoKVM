@@ -1,4 +1,4 @@
-package utils
+package streamio
 
 // decompress_xz_test.go pins xzDeclaredDictCap against real xz streams: it
 // must read exactly the dictionary size xz.WriterConfig encoded, and

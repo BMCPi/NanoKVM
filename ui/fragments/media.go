@@ -18,7 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
+	"github.com/pi-bmc/nanokvm-app/pkg/streamio"
 	"github.com/pi-bmc/nanokvm-app/ui/components"
 )
 
@@ -55,7 +55,7 @@ type mediaFetchStatus struct {
 	Name   string
 	Loaded int64
 	Total  int64 // 0 until the remote sends a Content-Length.
-	// Format is what utils.DecompressingReader sniffed from the stream's
+	// Format is what streamio.DecompressingReader sniffed from the stream's
 	// magic bytes ("" until it has seen them, and permanently "" for an
 	// uncompressed source). Unlike the upload form's client-side guess from
 	// the filename, this is authoritative — the poller can show and the
@@ -237,13 +237,13 @@ func (h *handlers) postMediaDelete(c *gin.Context) {
 
 // postMediaUpload streams the uploaded ISO straight into the media directory.
 //
-// It uses utils.StreamMultipartFile rather than c.Request.FormFile on
+// It uses streamio.StreamMultipartFile rather than c.Request.FormFile on
 // purpose: FormFile spools the whole upload into os.TempDir() first, which on
 // this device is the RAM-backed tmpfs overlay, so an ISO larger than the
 // overlay killed the server partway through the upload. See
-// pkg/utils/multipart_stream.go.
+// pkg/streamio/multipart_stream.go.
 func (h *handlers) postMediaUpload(c *gin.Context) {
-	upload, err := utils.StreamMultipartFile(c.Request, maxMediaUploadBytes, "file")
+	upload, err := streamio.StreamMultipartFile(c.Request, maxMediaUploadBytes, "file")
 	if err != nil {
 		hxToast(c, "error", "Upload failed", "no file selected")
 		mediaRenderAdd(c, h.d)
@@ -270,16 +270,16 @@ func (h *handlers) postMediaUpload(c *gin.Context) {
 	// wire via StreamMultipartFile above — LimitDecompressedReader
 	// re-bounds the same budget on the inflated side, since a
 	// compressed part can expand far past it.
-	dr, format, err := utils.DecompressingReader(counted)
+	dr, format, err := streamio.DecompressingReader(counted)
 	if err != nil {
 		hxToast(c, "error", "Upload failed", "decompress failed: "+err.Error())
 		mediaRenderAdd(c, h.d)
 		return
 	}
 	defer dr.Close()
-	name = utils.StripCompressionSuffix(name, format)
+	name = streamio.StripCompressionSuffix(name, format)
 
-	written, err := h.d.Firmware.SaveMediaFile(name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes))
+	written, err := h.d.Firmware.SaveMediaFile(name, streamio.LimitDecompressedReader(dr, maxMediaUploadBytes))
 	if err != nil {
 		h.log.ErrorContext(c.Request.Context(), "ui: save media file failed", slog.String("name", name), slog.Any("err", err))
 		hxToast(c, "error", "Upload failed", err.Error())
@@ -324,7 +324,7 @@ func (h *handlers) postMediaFetch(c *gin.Context) {
 	// DELIBERATELY DETACHED: the download runs past the request; the
 	// poller at GET /media/fetch/progress reports on it until done.
 	//
-	// utils.FetchURL bounds it. The cap matters because the remote, not
+	// streamio.FetchURL bounds it. The cap matters because the remote, not
 	// the operator, decides how many bytes arrive; the transport timeouts
 	// matter more, because mediaFetchBusy latches on this goroutine —
 	// a peer that connects and then goes silent would otherwise wedge the
@@ -334,7 +334,7 @@ func (h *handlers) postMediaFetch(c *gin.Context) {
 	ctx, cancel := h.d.ActionContext(mediaFetchTimeout)
 	go func() {
 		defer cancel()
-		remote, err := utils.FetchURL(ctx, rawURL, maxMediaUploadBytes)
+		remote, err := streamio.FetchURL(ctx, rawURL, maxMediaUploadBytes)
 		if err != nil {
 			mediaFetchFinish(err)
 			return
@@ -353,17 +353,17 @@ func (h *handlers) postMediaFetch(c *gin.Context) {
 		// bounds the wire via FetchURL above — LimitDecompressedReader
 		// re-bounds the same budget on the inflated side, since a
 		// compressed body can expand far past it.
-		dr, format, err := utils.DecompressingReader(counted)
+		dr, format, err := streamio.DecompressingReader(counted)
 		if err != nil {
 			mediaFetchFinish(err)
 			return
 		}
 		defer dr.Close()
-		name = utils.StripCompressionSuffix(name, format)
+		name = streamio.StripCompressionSuffix(name, format)
 		mediaFetchSetName(name)
 		mediaFetchSetFormat(format)
 
-		written, err := h.d.Firmware.SaveMediaFile(name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes))
+		written, err := h.d.Firmware.SaveMediaFile(name, streamio.LimitDecompressedReader(dr, maxMediaUploadBytes))
 		if err != nil {
 			h.log.ErrorContext(ctx, "ui: save fetched media failed", slog.String("name", name), slog.Any("err", err))
 			mediaFetchFinish(err)

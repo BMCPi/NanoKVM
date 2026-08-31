@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
+	"github.com/pi-bmc/nanokvm-app/pkg/streamio"
 )
 
 var (
@@ -38,7 +38,7 @@ func installPackage(log *slog.Logger, source string) error {
 	extractDir := filepath.Join(CacheDir, "extracted")
 	_ = os.RemoveAll(extractDir)
 
-	dir, err := utils.UnTarGz(source, extractDir)
+	dir, err := streamio.UnTarGz(source, extractDir)
 	if err != nil {
 		return fmt.Errorf("failed to decompress app: %w", err)
 	}
@@ -51,7 +51,7 @@ func installPackage(log *slog.Logger, source string) error {
 		return err
 	}
 
-	if err := utils.ChmodRecursively(AppDir, 0o755); err != nil {
+	if err := ChmodRecursively(AppDir, 0o755); err != nil {
 		return fmt.Errorf("failed to chmod: %w", err)
 	}
 
@@ -63,7 +63,7 @@ func backupCurrentApp() error {
 		return fmt.Errorf("failed to remove backup: %w", err)
 	}
 
-	if err := utils.MoveFilesRecursively(AppDir, BackupDir); err != nil {
+	if err := MoveFilesRecursively(AppDir, BackupDir); err != nil {
 		return fmt.Errorf("failed to backup app: %w", err)
 	}
 
@@ -71,9 +71,9 @@ func backupCurrentApp() error {
 }
 
 func applyUpdate(log *slog.Logger, sourceDir string) error {
-	if err := utils.MoveFilesRecursively(sourceDir, AppDir); err != nil {
+	if err := MoveFilesRecursively(sourceDir, AppDir); err != nil {
 		// Try to restore backup on failure
-		if restoreErr := utils.MoveFilesRecursively(BackupDir, AppDir); restoreErr != nil {
+		if restoreErr := MoveFilesRecursively(BackupDir, AppDir); restoreErr != nil {
 			log.Error("failed to restore backup after update failure", slog.Any("err", restoreErr))
 		}
 		return fmt.Errorf("failed to move update in place: %w", err)

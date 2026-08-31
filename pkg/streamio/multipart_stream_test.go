@@ -1,4 +1,4 @@
-package utils
+package streamio
 
 // multipart_stream_test.go pins the property the whole helper exists for: the
 // file part is consumed straight off the wire, so nothing is ever spooled into

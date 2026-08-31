@@ -33,7 +33,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
+	"github.com/pi-bmc/nanokvm-app/pkg/memlimit"
 )
 
 const (
@@ -281,7 +281,7 @@ func parseProcStat(r io.Reader) (procStat, error) {
 
 // readMemInfo reads MemTotal and MemAvailable from /proc/meminfo, in kB. The
 // parser itself (MemAvailable-over-MemFree, error rather than a fallback
-// when it's absent — see its doc comment) lives in pkg/utils, shared with
+// when it's absent — see its doc comment) lives in pkg/memlimit, shared with
 // InitGoMemLimit's total-only reading.
 func readMemInfo() (totalKB, availKB uint64, err error) {
 	f, err := os.Open(procMemInfoPath)
@@ -289,7 +289,7 @@ func readMemInfo() (totalKB, availKB uint64, err error) {
 		return 0, 0, err
 	}
 	defer f.Close()
-	return utils.ParseMemInfo(f)
+	return memlimit.ParseMemInfo(f)
 }
 
 // diskUsage is the statfs result in the shape Usage wants. Sizes are unsigned

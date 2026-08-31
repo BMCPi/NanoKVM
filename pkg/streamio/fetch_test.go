@@ -1,4 +1,4 @@
-package utils
+package streamio
 
 // fetch_test.go covers the bounds FetchURL puts on a BMC-initiated download.
 // The remote decides how many bytes arrive, so the cap has to hold whether or

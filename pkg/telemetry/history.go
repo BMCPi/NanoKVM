@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
+	"github.com/pi-bmc/nanokvm-app/pkg/ring"
 )
 
 // A short rolling history, so the dashboard can show movement rather than only
@@ -56,9 +56,9 @@ type Point struct {
 
 var history = struct {
 	mu      sync.Mutex
-	samples utils.Ring[counterReading]
+	samples ring.Ring[counterReading]
 	started bool
-}{samples: utils.NewRing[counterReading](historyDepth)}
+}{samples: ring.NewRing[counterReading](historyDepth)}
 
 // StartSampler begins recording history until ctx is cancelled. Safe to call
 // more than once; only the first call starts a sampler. A no-op when telemetry

@@ -25,7 +25,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stmcginnis/gofish/schemas"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
+	"github.com/pi-bmc/nanokvm-app/pkg/streamio"
 )
 
 // capsuleStageTimeout bounds a BMC-initiated capsule download started by
@@ -215,8 +215,8 @@ func (h *handlers) PushCapsule(c *gin.Context) {
 		// Streamed part-by-part: c.FormFile spools the whole body into
 		// os.TempDir() before returning, and on this device that is the
 		// RAM-backed root overlay — far smaller than a capsule is allowed to
-		// be, so the server died mid-push. See pkg/utils/multipart_stream.go.
-		upload, err := utils.StreamMultipartFile(c.Request, maxCapsulePushBytes, "UpdateFile", "file")
+		// be, so the server died mid-push. See pkg/streamio/multipart_stream.go.
+		upload, err := streamio.StreamMultipartFile(c.Request, maxCapsulePushBytes, "UpdateFile", "file")
 		if err != nil {
 			redfishErrorResponse(c, http.StatusBadRequest, "multipart field 'UpdateFile' required")
 			return

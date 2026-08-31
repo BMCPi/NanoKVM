@@ -6,7 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
+	"github.com/pi-bmc/nanokvm-app/pkg/memlimit"
+	"github.com/pi-bmc/nanokvm-app/pkg/ring"
 )
 
 // resources_test.go pins the arithmetic, because every one of these numbers is
@@ -79,7 +80,7 @@ Buffers:            4567 kB
 `
 
 func TestMemoryUsesAvailableNotFree(t *testing.T) {
-	total, avail, err := utils.ParseMemInfo(strings.NewReader(procMemSample))
+	total, avail, err := memlimit.ParseMemInfo(strings.NewReader(procMemSample))
 	if err != nil {
 		t.Fatalf("ParseMemInfo: %v", err)
 	}
@@ -97,7 +98,7 @@ func TestMemoryUsesAvailableNotFree(t *testing.T) {
 // an error, not a percentage derived from MemFree that reads far too high.
 func TestMemoryRefusesWithoutMemAvailable(t *testing.T) {
 	old := "MemTotal:  246789 kB\nMemFree:    12345 kB\n"
-	if _, _, err := utils.ParseMemInfo(strings.NewReader(old)); err == nil {
+	if _, _, err := memlimit.ParseMemInfo(strings.NewReader(old)); err == nil {
 		t.Error("ParseMemInfo accepted a meminfo with no MemAvailable")
 	}
 }
@@ -284,7 +285,7 @@ func resetResourceHistory(t *testing.T) {
 	reset := func() {
 		resources.mu.Lock()
 		defer resources.mu.Unlock()
-		resources.points = utils.NewRing[ResourcePoint](resourceDepth)
+		resources.points = ring.NewRing[ResourcePoint](resourceDepth)
 		resources.latest = Usage{}
 	}
 	reset()
@@ -398,7 +399,7 @@ func TestParsersDoNotAllocateOversizedBuffers(t *testing.T) {
 		run  func(r *strings.Reader)
 	}{
 		{"procStat", procStatBlockedSample, func(r *strings.Reader) { _, _ = parseProcStat(r) }},
-		{"memInfo", procMemSample, func(r *strings.Reader) { _, _, _ = utils.ParseMemInfo(r) }},
+		{"memInfo", procMemSample, func(r *strings.Reader) { _, _, _ = memlimit.ParseMemInfo(r) }},
 	} {
 		r := strings.NewReader(tc.in)
 		got := allocBytesPerOp(func() {

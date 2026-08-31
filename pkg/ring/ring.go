@@ -1,4 +1,4 @@
-package utils
+package ring
 
 // ring.go is the bounded history the metric samplers store through.
 //

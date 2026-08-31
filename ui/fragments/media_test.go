@@ -277,7 +277,7 @@ func gzipPayload(t *testing.T, payload []byte) []byte {
 }
 
 // The progress bar advancing during a slow xz decode already tells the truth
-// about elapsed time (see pkg/utils/decompress.go); this test is about
+// about elapsed time (see pkg/streamio/decompress.go); this test is about
 // whether the operator learns WHY afterward — the completion toast must name
 // both the codec and how much bigger the staged file is than what crossed
 // the wire.

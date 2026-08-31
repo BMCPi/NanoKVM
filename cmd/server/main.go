@@ -26,6 +26,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/hid"
 	"github.com/pi-bmc/nanokvm-app/pkg/ipmi"
 	"github.com/pi-bmc/nanokvm-app/pkg/logger"
+	"github.com/pi-bmc/nanokvm-app/pkg/memlimit"
 	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
 	"github.com/pi-bmc/nanokvm-app/pkg/network"
 	"github.com/pi-bmc/nanokvm-app/pkg/power"
@@ -35,7 +36,6 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
 	"github.com/pi-bmc/nanokvm-app/pkg/timesync"
 	"github.com/pi-bmc/nanokvm-app/pkg/usbgadget"
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 	"github.com/pi-bmc/nanokvm-app/pkg/video"
 	"github.com/pi-bmc/nanokvm-app/pkg/video/rtc"
 	"github.com/pi-bmc/nanokvm-app/pkg/video/v4l2"
@@ -158,7 +158,7 @@ func initialize(ctx context.Context) {
 
 	// Apply a soft heap limit so the GC pushes back before the process exhausts
 	// memory on this constrained device (no-op if GOMEMLIMIT is set in the env).
-	utils.InitGoMemLimit(rootLog)
+	memlimit.InitGoMemLimit(rootLog)
 
 	// Initialize OpenTelemetry + Prometheus (no-op when disabled in config).
 	if err := telemetry.Init(ctx, rootLog.With("component", "telemetry")); err != nil {
@@ -642,7 +642,7 @@ func ensureServerCert(conf *config.Config) bool {
 
 	slog.Info("https configured but no certificate present; generating a self-signed pair",
 		slog.String("path", crt))
-	if err := utils.GenerateCert(rootLog); err != nil {
+	if err := middleware.GenerateCert(rootLog); err != nil {
 		slog.Error("could not generate a server certificate; falling back to http", slog.Any("err", err))
 		return false
 	}

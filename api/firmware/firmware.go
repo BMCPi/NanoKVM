@@ -24,7 +24,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 	"github.com/pi-bmc/nanokvm-app/pkg/logger"
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
+	"github.com/pi-bmc/nanokvm-app/pkg/streamio"
 )
 
 // maxCapsuleUploadBytes caps a capsule upload. Capsules are firmware-sized;
@@ -97,8 +97,8 @@ func registerCapsules(fw *gin.RouterGroup, h *handlers, ctrl *firmware.Controlle
 		if strings.HasPrefix(c.ContentType(), "multipart/") {
 			// Streamed part-by-part; c.FormFile would spool the whole body
 			// into the RAM-backed os.TempDir() first. See
-			// pkg/utils/multipart_stream.go.
-			upload, err := utils.StreamMultipartFile(c.Request, maxCapsuleUploadBytes, "file")
+			// pkg/streamio/multipart_stream.go.
+			upload, err := streamio.StreamMultipartFile(c.Request, maxCapsuleUploadBytes, "file")
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{errorKey: "multipart field 'file' required"})
 				return
@@ -200,9 +200,9 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 	//
 	// Streamed part-by-part rather than via c.FormFile: FormFile spools the
 	// whole body into os.TempDir(), which is the RAM-backed overlay on this
-	// device. See pkg/utils/multipart_stream.go.
+	// device. See pkg/streamio/multipart_stream.go.
 	fw.POST("/media/upload", func(c *gin.Context) {
-		upload, err := utils.StreamMultipartFile(c.Request, maxMediaUploadBytes, "file")
+		upload, err := streamio.StreamMultipartFile(c.Request, maxMediaUploadBytes, "file")
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{errorKey: "multipart field 'file' required"})
 			return
@@ -216,15 +216,15 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 		// wire via StreamMultipartFile above — LimitDecompressedReader
 		// re-bounds the same budget on the inflated side, since a compressed
 		// part can expand far past it.
-		dr, format, err := utils.DecompressingReader(upload)
+		dr, format, err := streamio.DecompressingReader(upload)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{errorKey: "decompress failed: " + err.Error()})
 			return
 		}
 		defer dr.Close()
-		name = utils.StripCompressionSuffix(name, format)
+		name = streamio.StripCompressionSuffix(name, format)
 
-		n, err := ctrl.SaveMediaFile(name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes))
+		n, err := ctrl.SaveMediaFile(name, streamio.LimitDecompressedReader(dr, maxMediaUploadBytes))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 			return
@@ -259,7 +259,7 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 		}
 		// Bounded and timeout-guarded; the body streams straight to the media
 		// directory on the data partition.
-		remote, err := utils.FetchURL(c.Request.Context(), req.URL, maxMediaUploadBytes)
+		remote, err := streamio.FetchURL(c.Request.Context(), req.URL, maxMediaUploadBytes)
 		if err != nil {
 			c.JSON(http.StatusBadGateway, gin.H{errorKey: "fetch failed: " + err.Error()})
 			return
@@ -271,15 +271,15 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 		// wire via FetchURL above — LimitDecompressedReader re-bounds the
 		// same budget on the inflated side, since a compressed body can
 		// expand far past it.
-		dr, format, err := utils.DecompressingReader(remote)
+		dr, format, err := streamio.DecompressingReader(remote)
 		if err != nil {
 			c.JSON(http.StatusBadGateway, gin.H{errorKey: "decompress failed: " + err.Error()})
 			return
 		}
 		defer dr.Close()
-		name = utils.StripCompressionSuffix(name, format)
+		name = streamio.StripCompressionSuffix(name, format)
 
-		n, err := ctrl.SaveMediaFile(name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes))
+		n, err := ctrl.SaveMediaFile(name, streamio.LimitDecompressedReader(dr, maxMediaUploadBytes))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 			return

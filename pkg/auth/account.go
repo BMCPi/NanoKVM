@@ -7,8 +7,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
-
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -86,7 +84,7 @@ func (s *Service) CompareAccount(username string, plainPassword string) bool {
 		return false
 	}
 
-	hashedPassword, err := utils.DecodeDecrypt(plainPassword, s.log)
+	hashedPassword, err := DecodeDecrypt(plainPassword, s.log)
 	if err != nil || hashedPassword == "" {
 		return false
 	}
@@ -94,7 +92,7 @@ func (s *Service) CompareAccount(username string, plainPassword string) bool {
 	err = bcrypt.CompareHashAndPassword([]byte(account.Password), []byte(hashedPassword))
 	if err != nil {
 		// Compatible with old versions
-		accountHashedPassword, _ := utils.DecodeDecrypt(account.Password, s.log)
+		accountHashedPassword, _ := DecodeDecrypt(account.Password, s.log)
 
 		return accountHashedPassword == hashedPassword
 	}
@@ -128,7 +126,7 @@ func (s *Service) ComparePlainAccount(username string, plainPassword string) boo
 	}
 	// Legacy: older installs stored the password as an encrypted blob
 	// rather than a bcrypt hash. Decrypt and compare directly.
-	if stored, err := utils.DecodeDecrypt(account.Password, s.log); err == nil && stored == plainPassword {
+	if stored, err := DecodeDecrypt(account.Password, s.log); err == nil && stored == plainPassword {
 		s.cache.put(username, plainPassword)
 		return true
 	}

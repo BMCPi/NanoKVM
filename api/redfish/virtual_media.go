@@ -17,7 +17,7 @@ import (
 	"github.com/stmcginnis/gofish/schemas"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
+	"github.com/pi-bmc/nanokvm-app/pkg/streamio"
 )
 
 // maxMediaUploadBytes caps a multipart image push. The image is streamed
@@ -127,10 +127,10 @@ func (h *handlers) insertMediaStream(c *gin.Context) {
 		name = "vm.iso"
 	}
 
-	// Download the ISO into the media staging directory. utils.FetchURL caps
+	// Download the ISO into the media staging directory. streamio.FetchURL caps
 	// the transfer and bounds the connection: the remote, not the operator,
 	// decides how many bytes this BMC is asked to store.
-	remote, err := utils.FetchURL(c.Request.Context(), req.Image, maxMediaUploadBytes)
+	remote, err := streamio.FetchURL(c.Request.Context(), req.Image, maxMediaUploadBytes)
 	if err != nil {
 		redfishErrorResponse(c, http.StatusBadGateway, "fetch failed: "+err.Error())
 		return
@@ -141,15 +141,15 @@ func (h *handlers) insertMediaStream(c *gin.Context) {
 	// passes through unchanged. The wire cap above bounds what the remote can
 	// send; LimitDecompressedReader re-bounds the same budget on the
 	// inflated side, since a compressed body can expand far past it.
-	dr, format, err := utils.DecompressingReader(remote)
+	dr, format, err := streamio.DecompressingReader(remote)
 	if err != nil {
 		redfishErrorResponse(c, http.StatusBadRequest, "decompress failed: "+err.Error())
 		return
 	}
 	defer dr.Close()
-	name = utils.StripCompressionSuffix(name, format)
+	name = streamio.StripCompressionSuffix(name, format)
 
-	if err := stageAndInsert(h.d.Firmware, name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes)); err != nil {
+	if err := stageAndInsert(h.d.Firmware, name, streamio.LimitDecompressedReader(dr, maxMediaUploadBytes)); err != nil {
 		redfishErrorResponse(c, err.status, err.msg)
 		return
 	}
@@ -169,12 +169,12 @@ func (h *handlers) insertMediaStream(c *gin.Context) {
 // media directory. ParseMultipartForm/FormFile would spool the whole image
 // into os.TempDir() first, which on this device is the RAM-backed overlay —
 // a large ISO took the server down mid-upload. See
-// pkg/utils/multipart_stream.go.
+// pkg/streamio/multipart_stream.go.
 func (h *handlers) insertMediaUpload(c *gin.Context) {
 	// Accept the file under any of the conventional Redfish part names:
 	// Image is the spec'd name, redfishtool uses "file", and some tools use
 	// the resource name VirtualMediaImage.
-	upload, err := utils.StreamMultipartFile(c.Request, maxMediaUploadBytes,
+	upload, err := streamio.StreamMultipartFile(c.Request, maxMediaUploadBytes,
 		"Image", "file", "VirtualMediaImage")
 	if err != nil {
 		redfishErrorResponse(c, http.StatusBadRequest, err.Error())
@@ -199,15 +199,15 @@ func (h *handlers) insertMediaUpload(c *gin.Context) {
 	// already bounds the wire via StreamMultipartFile above —
 	// LimitDecompressedReader re-bounds the same budget on the inflated
 	// side, since a compressed part can expand far past it.
-	dr, format, err := utils.DecompressingReader(upload)
+	dr, format, err := streamio.DecompressingReader(upload)
 	if err != nil {
 		redfishErrorResponse(c, http.StatusBadRequest, "decompress failed: "+err.Error())
 		return
 	}
 	defer dr.Close()
-	name = utils.StripCompressionSuffix(name, format)
+	name = streamio.StripCompressionSuffix(name, format)
 
-	n, err := h.d.Firmware.SaveMediaFile(name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes))
+	n, err := h.d.Firmware.SaveMediaFile(name, streamio.LimitDecompressedReader(dr, maxMediaUploadBytes))
 	if err != nil {
 		redfishErrorResponse(c, http.StatusInternalServerError, "save media failed: "+err.Error())
 		return

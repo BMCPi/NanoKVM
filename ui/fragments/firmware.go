@@ -28,7 +28,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
+	"github.com/pi-bmc/nanokvm-app/pkg/streamio"
 	"github.com/pi-bmc/nanokvm-app/ui/components"
 )
 
@@ -159,13 +159,13 @@ func (h *handlers) getFirmwareStatus(c *gin.Context) {
 // postFirmwareCapsuleUpload streams the uploaded capsule straight onto the
 // capsule volume.
 //
-// It uses utils.StreamMultipartFile rather than c.Request.FormFile /
+// It uses streamio.StreamMultipartFile rather than c.Request.FormFile /
 // ParseMultipartForm on purpose: those spool the whole upload into
 // os.TempDir() first, which on this device is the RAM-backed tmpfs overlay.
-// See pkg/utils/multipart_stream.go and api/firmware/firmware.go's identical
+// See pkg/streamio/multipart_stream.go and api/firmware/firmware.go's identical
 // handler for the JSON API.
 func (h *handlers) postFirmwareCapsuleUpload(c *gin.Context) {
-	upload, err := utils.StreamMultipartFile(c.Request, maxCapsuleUploadBytes, "file")
+	upload, err := streamio.StreamMultipartFile(c.Request, maxCapsuleUploadBytes, "file")
 	if err != nil {
 		hxToast(c, "error", "Upload failed", "no file selected")
 		renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(h.d)))

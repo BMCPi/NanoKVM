@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/ctxutil"
 	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -49,7 +49,7 @@ func (h *handlers) CreateSession(c *gin.Context) {
 		// here does not reopen a username-enumeration timing gap. Ctx-aware
 		// so a client disconnect or server shutdown unblocks this goroutine
 		// instead of pinning it for the full duration.
-		if err := utils.SleepCtx(c.Request.Context(), authFailureDelay); err != nil {
+		if err := ctxutil.SleepCtx(c.Request.Context(), authFailureDelay); err != nil {
 			return
 		}
 		redfishErrorResponse(c, http.StatusUnauthorized, "invalid username or password")

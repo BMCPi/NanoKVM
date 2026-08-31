@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
+	"github.com/pi-bmc/nanokvm-app/pkg/ring"
 )
 
 const (
@@ -48,10 +48,10 @@ type ResourcePoint struct {
 var resources = struct {
 	mu      sync.Mutex
 	sampler ResourceSampler
-	points  utils.Ring[ResourcePoint]
+	points  ring.Ring[ResourcePoint]
 	latest  Usage
 	started bool
-}{points: utils.NewRing[ResourcePoint](resourceDepth)}
+}{points: ring.NewRing[ResourcePoint](resourceDepth)}
 
 // StartResourceSampler records resource usage until ctx is cancelled. Safe to
 // call more than once; only the first call starts a goroutine.

@@ -5,9 +5,9 @@ import (
 	"time"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/ctxutil"
 	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
 	"github.com/pi-bmc/nanokvm-app/pkg/proto"
-	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -30,7 +30,7 @@ func (h *handlers) Login(c *gin.Context) {
 		// Anti-brute-force delay, ctx-aware so a client disconnect or server
 		// shutdown unblocks this goroutine instead of pinning it for the
 		// full duration.
-		if err := utils.SleepCtx(c.Request.Context(), 3*time.Second); err != nil {
+		if err := ctxutil.SleepCtx(c.Request.Context(), 3*time.Second); err != nil {
 			return
 		}
 		rsp.ErrRsp(c, code, msg)
@@ -38,7 +38,7 @@ func (h *handlers) Login(c *gin.Context) {
 	}
 
 	if err := proto.ParseFormRequest(c, h.log, &req); err != nil {
-		if err := utils.SleepCtx(c.Request.Context(), 3*time.Second); err != nil {
+		if err := ctxutil.SleepCtx(c.Request.Context(), 3*time.Second); err != nil {
 			return
 		}
 		rsp.ErrRsp(c, -1, "invalid parameters")
@@ -57,7 +57,7 @@ func (h *handlers) Login(c *gin.Context) {
 		// handles both identically, so waiting on ctx-cancellation here the
 		// same way for every caller does not reopen a username-enumeration
 		// timing gap.
-		if err := utils.SleepCtx(c.Request.Context(), 2*time.Second); err != nil {
+		if err := ctxutil.SleepCtx(c.Request.Context(), 2*time.Second); err != nil {
 			return
 		}
 
@@ -74,7 +74,7 @@ func (h *handlers) Login(c *gin.Context) {
 
 	token, err := middleware.GenerateJWT(req.Username)
 	if err != nil {
-		if err := utils.SleepCtx(c.Request.Context(), 1*time.Second); err != nil {
+		if err := ctxutil.SleepCtx(c.Request.Context(), 1*time.Second); err != nil {
 			return
 		}
 		rsp.ErrRsp(c, -3, "generate token failed")

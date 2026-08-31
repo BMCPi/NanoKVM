@@ -1,4 +1,4 @@
-package utils
+package streamio
 
 // decompress_test.go pins the properties that make DecompressingReader safe
 // to drop into three existing upload/fetch call sites without re-auditing

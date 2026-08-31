@@ -1,4 +1,4 @@
-package utils
+package streamio
 
 // decompress.go lets virtual-media uploads and fetches accept a compressed
 // image and stage the decompressed bytes, without ever writing the
