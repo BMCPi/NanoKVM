@@ -22,13 +22,32 @@ func TestResetOpForDistinguishesForceOffFromGracefulShutdown(t *testing.T) {
 		{schemas.OnResetType, resetOpOn},
 		{schemas.GracefulShutdownResetType, resetOpGracefulOff},
 		{schemas.ForceOffResetType, resetOpForceOff},
-		{schemas.ForceRestartResetType, resetOpCycle},
+		{schemas.ForceRestartResetType, resetOpRestart},
 		{schemas.PowerCycleResetType, resetOpCycle},
 		{schemas.NmiResetType, resetOpUnsupported},
 	} {
 		if got := resetOpFor(tc.reset); got != tc.want {
 			t.Errorf("resetOpFor(%s) = %d, want %d", tc.reset, got, tc.want)
 		}
+	}
+}
+
+// TestResetOpForRoutesForceRestartThroughRestart pins the board-agnostic
+// design's split: ForceRestart now dispatches to power.Controller.Restart
+// (reset-line pulse where wired, per the operator's power.reset policy),
+// while PowerCycle keeps meaning force-off+repower unconditionally. Before
+// this, both ResetTypes shared resetOpCycle and were indistinguishable at
+// this layer — the same shape of gap TestResetOpForDistinguishesForceOffFromGracefulShutdown
+// closed for ForceOff/GracefulShutdown.
+func TestResetOpForRoutesForceRestartThroughRestart(t *testing.T) {
+	if got := resetOpFor(schemas.ForceRestartResetType); got != resetOpRestart {
+		t.Errorf("resetOpFor(ForceRestartResetType) = %d, want resetOpRestart (%d)", got, resetOpRestart)
+	}
+	if got := resetOpFor(schemas.PowerCycleResetType); got != resetOpCycle {
+		t.Errorf("resetOpFor(PowerCycleResetType) = %d, want resetOpCycle (%d)", got, resetOpCycle)
+	}
+	if resetOpRestart == resetOpCycle {
+		t.Fatal("resetOpRestart and resetOpCycle must be distinct ops")
 	}
 }
 

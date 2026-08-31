@@ -52,6 +52,12 @@ const (
 	resetOpGracefulOff
 	resetOpForceOff
 	resetOpCycle
+	// resetOpRestart is ForceRestart's op: power.Controller.Restart, which
+	// dispatches per the operator's power.reset policy (reset-line pulse when
+	// wired and not policy "cycle", else the same force-off+repower resetOpCycle
+	// uses). PowerCycle stays on resetOpCycle unconditionally — it always
+	// means force-off+repower, never the reset line. See board-agnostic-design.md §1.
+	resetOpRestart
 )
 
 // resetOpFor maps a Redfish ResetType to the operation that services it.
@@ -63,7 +69,9 @@ func resetOpFor(t schemas.ResetType) resetOp {
 		return resetOpGracefulOff
 	case schemas.ForceOffResetType:
 		return resetOpForceOff
-	case schemas.ForceRestartResetType, schemas.PowerCycleResetType:
+	case schemas.ForceRestartResetType:
+		return resetOpRestart
+	case schemas.PowerCycleResetType:
 		return resetOpCycle
 	default:
 		return resetOpUnsupported

@@ -3,6 +3,7 @@ package components
 import (
 	"context"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/power"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
@@ -33,6 +34,27 @@ func initialPowerState(ctx context.Context, ctrl *power.Controller) (on bool, kn
 	return s, err == nil
 }
 
+// resetIsLine reports whether the reset control's action will pulse the
+// dedicated GPIO reset line rather than force-off+repower — i.e. whether
+// (*power.Controller).Restart will dispatch to the reset line for the
+// board's wiring and the operator's power.reset policy. Mirrors Restart's
+// own dispatch (see its doc comment): "line" and "auto" use the line when
+// wired, "cycle" never does.
+func resetIsLine(ctrl *power.Controller, policy string) bool {
+	return ctrl.CanResetLine() && policy != config.PowerResetCycle
+}
+
+// resetActionLabel is the reset control's word choice: "Reset" when pressing
+// it will pulse the dedicated line, "Power cycle" when it will force-off and
+// repower instead — so the button always says what it will actually do
+// rather than a fixed word that is sometimes destructive to a running host.
+func resetActionLabel(line bool) string {
+	if line {
+		return "Reset"
+	}
+	return "Power cycle"
+}
+
 // PowerMenu is the navbar power-state pill and the dropdown holding power
 // actions + boot-device override. Actions are htmx posts to /ui/power/…;
 // the pill and the toggle are both fed by GET /ui/power/events (see
@@ -49,6 +71,11 @@ templ PowerMenu() {
 	// Read once at the top: the pill and the power toggle must agree, and
 	// both are painted from this single answer.
 	{{ pwrOn, pwrKnown := initialPowerState(ctx, deps.FromContext(ctx).Power) }}
+	// Also read once: the reset control's label depends on wiring and the
+	// operator's power.reset policy, neither of which changes over the
+	// dropdown's lifetime, so there is no SSE fragment for it (contrast
+	// PowerPill/PowerToggleBtn, which do change on every transition).
+	{{ resetLine := resetIsLine(deps.FromContext(ctx).Power, deps.FromContext(ctx).Config.Power.Reset) }}
 	@dropdownmenu.DropdownMenu() {
 		@button.Button(button.Props{
 			ID:      powerMenuTriggerID,
@@ -84,7 +111,7 @@ templ PowerMenu() {
 			<div class="p-3 space-y-3">
 				<div>
 					<p class={ SectionLabelClass, "mb-2" }>Power</p>
-					@powerActionGroup(pwrOn && pwrKnown)
+					@powerActionGroup(pwrOn && pwrKnown, resetLine)
 				</div>
 				<div class="h-px bg-border"></div>
 				// The staged override is BMC state that can change from the
@@ -168,7 +195,7 @@ func powerLabel(on, known bool) string {
 // at any moment, and the other would either be a no-op or a mistake. Which
 // one it is comes from the same source as the navbar pill — the GPIO power
 // LED — so the button and the pill can never disagree.
-templ powerActionGroup(on bool) {
+templ powerActionGroup(on bool, resetLine bool) {
 	// hx-ext/sse-connect live on the group itself, not on PowerMenu: this
 	// whole fragment is portaled to <body> in one piece (see PowerMenu's
 	// doc comment), so the connection has to originate from inside the
@@ -195,9 +222,10 @@ templ powerActionGroup(on bool) {
 		// Welding drops the left border of every button after the first, so
 		// without these three destructive-adjacent targets share one unbroken
 		// outline. On this row that is worth more than tidiness: Force Off
-		// sits next to Reset.
+		// sits next to the reset control (labelled "Reset" or "Power cycle" —
+		// see resetActionLabel — depending on wiring and policy).
 		@buttongroup.Separator()
-		@powerActionBtn("reset", "Reset", "", nil) {
+		@powerActionBtn("reset", resetActionLabel(resetLine), "", nil) {
 			@icon.RefreshCw()
 		}
 		@buttongroup.Separator()

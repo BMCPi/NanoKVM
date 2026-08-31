@@ -30,9 +30,10 @@ import (
 // --- fakes -------------------------------------------------------------------
 
 type fakePower struct {
-	mu    sync.Mutex
-	on    bool
-	calls chan string
+	mu           sync.Mutex
+	on           bool
+	canResetLine bool
+	calls        chan string
 }
 
 func newFakePower(on bool) *fakePower {
@@ -71,6 +72,17 @@ func (f *fakePower) PowerOff(_ context.Context) error {
 func (f *fakePower) Reset(_ context.Context) error {
 	f.record("reset")
 	return nil
+}
+
+func (f *fakePower) Restart(_ context.Context) error {
+	f.record("restart")
+	return nil
+}
+
+func (f *fakePower) CanResetLine() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.canResetLine
 }
 
 func (f *fakePower) waitCall(t *testing.T, want string) {
@@ -210,6 +222,16 @@ func TestEndToEnd(t *testing.T) {
 			t.Fatalf("power cycle: %v", err)
 		}
 		fp.waitCall(t, "reset")
+
+		// Hard reset now dispatches through Restart, not Reset — ForceRestart's
+		// counterpart on the IPMI side of the board-agnostic reset split (design
+		// doc §1). fp.canResetLine defaults false; ColdReset only special-cases
+		// the reset line for policy "line" (see fp's resetPolicy, unset/"" here),
+		// so this exercises the ordinary detached dispatch to Restart.
+		if _, err := cl.ChassisControl(ctx, chassis.ChassisControlHardReset); err != nil {
+			t.Fatalf("hard reset: %v", err)
+		}
+		fp.waitCall(t, "restart")
 	})
 
 	t.Run("boot options bridge to redfish", func(t *testing.T) {
