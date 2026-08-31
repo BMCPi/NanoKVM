@@ -172,6 +172,16 @@ func initialize(ctx context.Context) {
 	// the Redfish routes both read it.
 	redfish.LoadHostState()
 
+	// Begin the always-on capture of the host's serial console to a bounded
+	// file on the data partition, so its boot/crash logs are retained even
+	// when no terminal or SOL session is watching. Holds the port open for
+	// the server's lifetime; no-op when serial.capture.enabled is false.
+	//
+	// Must run before ipmi.Start: both reach the same pkg/serial broker
+	// singleton, and only the first caller's logger sticks — this call is
+	// what gives it the "serial" component tag.
+	serial.StartCapture(rootLog.With("component", "serial"))
+
 	if cfg.IPMI.Enabled {
 		srv, err := ipmi.Start(ctx, cfg, powerCtrl, fwCtrl, rootLog.With("component", "ipmi"))
 		if err != nil {
@@ -203,12 +213,6 @@ func initialize(ctx context.Context) {
 	if err := fwCtrl.Init(); err != nil {
 		slog.ErrorContext(ctx, "firmware controller init failed", slog.Any("err", err))
 	}
-
-	// Begin the always-on capture of the host's serial console to a bounded
-	// file on the data partition, so its boot/crash logs are retained even
-	// when no terminal or SOL session is watching. Holds the port open for
-	// the server's lifetime; no-op when serial.capture.enabled is false.
-	serial.StartCapture()
 
 	// Start the auto-update ticker (no-op when AutoUpdate.Enabled is false).
 	autoupdate.Start(ctx)

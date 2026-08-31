@@ -1,6 +1,7 @@
 package serial
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,7 +9,7 @@ import (
 
 func TestCaptureWriterAppendsAndRotates(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "log", "console.log")
-	w := newCaptureWriter(path, 32)
+	w := newCaptureWriter(path, 32, slog.New(slog.DiscardHandler))
 
 	if _, err := w.Write([]byte("0123456789")); err != nil {
 		t.Fatalf("write: %v", err)
@@ -46,7 +47,7 @@ func TestCaptureWriterAppendsAndRotates(t *testing.T) {
 func TestCaptureWriterSurvivesUnwritablePath(t *testing.T) {
 	// A capture failure must never disturb the broker fan-out: Write reports
 	// full success even when the file cannot be opened.
-	w := newCaptureWriter("/proc/nonexistent/console.log", 1024)
+	w := newCaptureWriter("/proc/nonexistent/console.log", 1024, slog.New(slog.DiscardHandler))
 	n, err := w.Write([]byte("data"))
 	if err != nil || n != 4 {
 		t.Fatalf("Write = (%d, %v), want (4, nil)", n, err)

@@ -16,6 +16,7 @@ import (
 	goserial "go.bug.st/serial"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 	"github.com/pi-bmc/nanokvm-app/pkg/serial/circular"
 	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
 )
@@ -31,6 +32,7 @@ type Session struct {
 	output io.Writer // receives serial port output
 	reader *circular.Reader
 	done   chan struct{} // closed when the pump goroutine exits
+	log    *slog.Logger  // inherited from the broker that created it
 }
 
 const (
@@ -98,6 +100,10 @@ type Broker struct {
 
 	// sessionCount is an atomic counter for fast len checks and unique ID generation.
 	sessionCount atomic.Int32
+
+	// log is set once, when the singleton is first constructed (see
+	// ensureBroker), and never reassigned.
+	log *slog.Logger
 }
 
 // newScrollback allocates the shared history buffer.
@@ -120,9 +126,19 @@ var (
 
 // GetBroker returns the singleton Broker instance.
 func GetBroker() *Broker {
+	return ensureBroker(nil)
+}
+
+// ensureBroker returns the singleton, constructing it on first call. Only the
+// first caller's logger is kept — StartCapture runs before anything else in
+// this package can reach the broker (see cmd/server/main.go's initialize),
+// so it is the one that sticks; every other caller passes nil via GetBroker
+// and just gets the already-built singleton back.
+func ensureBroker(log *slog.Logger) *Broker {
 	brokerOnce.Do(func() {
 		broker = &Broker{
 			buf: newScrollback(),
+			log: logger.Or(log),
 		}
 	})
 	return broker
@@ -152,6 +168,7 @@ func (b *Broker) Connect(id string, output io.Writer) (*Session, error) {
 		output: output,
 		reader: b.buf.NewReader(),
 		done:   make(chan struct{}),
+		log:    b.log,
 	}
 	b.sessions.Store(id, sess)
 	b.sessionCount.Add(1)
@@ -164,7 +181,7 @@ func (b *Broker) Connect(id string, output io.Writer) (*Session, error) {
 	go sess.pump()
 
 	telemetry.SerialSessionOpened(context.Background())
-	slog.Info("serial: session connected", slog.String("session", id), slog.Int("total", int(b.sessionCount.Load())))
+	b.log.Info("serial: session connected", slog.String("session", id), slog.Int("total", int(b.sessionCount.Load())))
 	return sess, nil
 }
 
@@ -195,7 +212,7 @@ func (b *Broker) Disconnect(id string) {
 	sess.wait()
 
 	telemetry.SerialSessionClosed(context.Background())
-	slog.Info("serial: session disconnected", slog.String("session", id), slog.Int("remaining", int(remaining)))
+	b.log.Info("serial: session disconnected", slog.String("session", id), slog.Int("remaining", int(remaining)))
 }
 
 // Write sends data to the serial port. Safe to call from any goroutine.
@@ -302,7 +319,7 @@ func (b *Broker) startLocked() error {
 
 	go b.readLoop()
 
-	slog.Info("serial: opened port (native)", slog.String("device", device), slog.Int("baud", cfg.Serial.BaudRate))
+	b.log.Info("serial: opened port (native)", slog.String("device", device), slog.Int("baud", cfg.Serial.BaudRate))
 	return nil
 }
 
@@ -322,7 +339,7 @@ func (b *Broker) stopLocked() {
 	b.port = nil
 	b.stdin = nil
 
-	slog.Info("serial: closed")
+	b.log.Info("serial: closed")
 }
 
 // readLoop reads from the serial port and publishes to the shared scrollback,
@@ -347,7 +364,7 @@ func (b *Broker) readLoop() {
 				// consumers remain — with the always-on capture session
 				// registered, a one-off read error must not silently end
 				// capture for the rest of the server's lifetime.
-				slog.Warn("serial: read error; reopening", slog.Any("err", err))
+				b.log.Warn("serial: read error; reopening", slog.Any("err", err))
 				go b.reopen()
 			}
 			return
@@ -385,7 +402,7 @@ func (b *Broker) reopen() {
 		err := b.startLocked()
 		b.mu.Unlock()
 		if err == nil {
-			slog.Info("serial: reopened after read error")
+			b.log.Info("serial: reopened after read error")
 			return
 		}
 		time.Sleep(captureRetryInterval)
@@ -449,7 +466,7 @@ func (s *Session) wait() {
 	select {
 	case <-s.done:
 	case <-time.After(sessionDrainTimeout):
-		slog.Warn("serial: session did not drain; abandoning its pump", slog.String("session", s.ID), slog.Duration("timeout", sessionDrainTimeout))
+		s.log.Warn("serial: session did not drain; abandoning its pump", slog.String("session", s.ID), slog.Duration("timeout", sessionDrainTimeout))
 	}
 }
 

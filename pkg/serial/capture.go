@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 )
 
 // captureSessionID is the broker session the always-on capture registers as.
@@ -30,7 +31,13 @@ var (
 // bounded file configured in serial.capture. It connects to the shared broker
 // as a permanent session (retrying until the device opens) so the port runs
 // for the whole server lifetime. No-op when disabled.
-func StartCapture() {
+//
+// This is also what seeds the pkg/serial broker singleton's logger (see
+// ensureBroker) — it must run before anything else in the process can reach
+// GetBroker(), which is why cmd/server/main.go calls it ahead of ipmi.Start.
+func StartCapture(log *slog.Logger) {
+	b := ensureBroker(log)
+
 	cfg := config.GetInstance().Serial.Capture
 	if !cfg.Enabled {
 		return
@@ -41,18 +48,18 @@ func StartCapture() {
 	if captureCancel != nil {
 		return // already running
 	}
-	captureFile = newCaptureWriter(cfg.File, int64(cfg.MaxSizeKB)*1024)
+	captureFile = newCaptureWriter(cfg.File, int64(cfg.MaxSizeKB)*1024, b.log)
 	cancel := make(chan struct{})
 	captureCancel = cancel
 
 	go func() {
 		for {
-			_, err := GetBroker().Connect(captureSessionID, captureFile)
+			_, err := b.Connect(captureSessionID, captureFile)
 			if err == nil {
-				slog.Info("serial: capture started", slog.String("file", cfg.File), slog.Int("maxKB", cfg.MaxSizeKB))
+				b.log.Info("serial: capture started", slog.String("file", cfg.File), slog.Int("maxKB", cfg.MaxSizeKB))
 				return
 			}
-			slog.Warn("serial: capture connect failed", slog.Any("err", err), slog.Duration("retryIn", captureRetryInterval))
+			b.log.Warn("serial: capture connect failed", slog.Any("err", err), slog.Duration("retryIn", captureRetryInterval))
 			select {
 			case <-cancel:
 				return
@@ -105,10 +112,11 @@ type captureWriter struct {
 	max  int64
 	size int64
 	f    *os.File
+	log  *slog.Logger
 }
 
-func newCaptureWriter(path string, maxBytes int64) *captureWriter {
-	return &captureWriter{path: path, max: maxBytes}
+func newCaptureWriter(path string, maxBytes int64, log *slog.Logger) *captureWriter {
+	return &captureWriter{path: path, max: maxBytes, log: logger.Or(log)}
 }
 
 // Write implements io.Writer for the capture session's pump. Errors are
@@ -120,14 +128,14 @@ func (w *captureWriter) Write(p []byte) (int, error) {
 
 	if w.f == nil {
 		if err := w.openLocked(); err != nil {
-			slog.Debug("serial: capture open", slog.Any("err", err))
+			w.log.Debug("serial: capture open", slog.Any("err", err))
 			return len(p), nil
 		}
 	}
 	n, err := w.f.Write(p)
 	w.size += int64(n)
 	if err != nil {
-		slog.Debug("serial: capture write", slog.Any("err", err))
+		w.log.Debug("serial: capture write", slog.Any("err", err))
 		_ = w.f.Close()
 		w.f = nil
 		return len(p), nil
@@ -161,7 +169,7 @@ func (w *captureWriter) rotateLocked() {
 	w.f = nil
 	w.size = 0
 	if err := os.Rename(w.path, w.path+".1"); err != nil {
-		slog.Debug("serial: capture rotate", slog.Any("err", err))
+		w.log.Debug("serial: capture rotate", slog.Any("err", err))
 	}
 }
 
@@ -187,7 +195,11 @@ func (w *captureWriter) Close() {
 // is about to go away, which would re-open it with the old settings still
 // snapshotted.
 func Restart() {
+	// The singleton already carries the "serial" component logger StartCapture
+	// gave it at startup; reuse it rather than falling back to a bare default.
+	log := GetBroker().log
+
 	StopCapture()
 	GetBroker().Close()
-	StartCapture()
+	StartCapture(log)
 }
