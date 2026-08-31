@@ -14,9 +14,9 @@ import "github.com/pi-bmc/nanokvm-app/ui/components/card"
 // the figures move, so rendering them with the page would show an hour-old
 // reading to whoever finally opens the drawer.
 templ overviewResourcesCard() {
-	@card.Card() {
-		@card.Header() {
-			@card.Title(card.TitleProps{Class: "text-sm"}) {
+	@card.Card(card.Props{Class: overviewCardClass}) {
+		@card.Header(card.HeaderProps{Class: "gap-1"}) {
+			@card.Title(card.TitleProps{Class: SectionLabelClass}) {
 				Resources
 			}
 			@card.Description(card.DescriptionProps{Class: "text-xs"}) {
@@ -31,7 +31,7 @@ templ overviewResourcesCard() {
 
 // OverviewResourcesBody renders the three graphs, or says why there are none.
 templ OverviewResourcesBody(m OverviewResources) {
-	@card.Content(card.ContentProps{Class: "py-0 pb-2"}) {
+	@card.Content() {
 		if !m.Sampling {
 			<p class="text-xs text-muted-foreground">
 				Collecting. The first readings appear within a minute of boot.
@@ -44,7 +44,7 @@ templ OverviewResourcesBody(m OverviewResources) {
 			</div>
 		}
 	}
-	@card.Footer(card.FooterProps{Class: "pt-2 text-xs text-muted-foreground"}) {
+	@card.Footer(card.FooterProps{Class: "text-xs text-muted-foreground"}) {
 		Sampled every 10s · last 30 minutes.
 	}
 }

@@ -17,6 +17,16 @@ import (
 // overviewSidebarID is the ID of the slide-in panel.
 const overviewSidebarID = "overview-sidebar"
 
+// overviewCardClass retunes card.Card for a drawer.
+//
+// The component's own scale is built for a page: 32px of padding and 32px
+// between header, content and footer. In a 28rem panel that spends a quarter
+// of the width on gutters and pushes a four-row readout to the height of a
+// screenful. Sixteen inside a card, sixteen between cards (the list's
+// space-y-4) and eight between a card's own parts is one scale with one
+// ratio, and it buys back 32px of line length per row.
+const overviewCardClass = "gap-2 [--card-spacing:--spacing(4)]"
+
 // OverviewSidebar is a push-style sidebar contained within the dashboard's
 // flex row (next to the console pane, below the navbar). Width animates
 // from 0 (closed) to 24rem (open) via data-state, so opening it shrinks
@@ -38,7 +48,7 @@ templ OverviewSidebar(log *slog.Logger) {
 		aria-label="Server Overview"
 	>
 		<div class="ov-sidebar-inner">
-			@item.Item(item.Props{Class: "rounded-none border-0 border-b border-border px-4 py-3"}) {
+			@item.Item(item.Props{Class: "rounded-none border-0 border-b border-border px-4 py-4"}) {
 				@item.Content(item.ContentProps{Class: "gap-0"}) {
 					@item.Title(item.TitleProps{Class: "font-semibold"}) {
 						Server Overview
@@ -85,12 +95,16 @@ templ overviewSidebarStyles() {
 		   between 0 and 24rem, which would now fight the drag handle. What is
 		   left here is the surface — fill the panel, draw the edge, stack the
 		   cards. */
+		/* --background, not --card: the cards inside are --card, and a card on
+		   a surface of its own colour is a card you cannot see. Putting the
+		   drawer on the darker ground gives the five cards an edge without
+		   drawing one, which is the whole reason they are cards. */
 		.ov-sidebar {
 			width: 100%;
 			height: 100%;
 			overflow: hidden;
 			border-left: 1px solid var(--border);
-			background: var(--card);
+			background: var(--background);
 			display: flex;
 			flex-direction: column;
 		}
@@ -119,9 +133,9 @@ templ overviewSidebarStyles() {
 // tab was opened an hour ago. Binding to the open event instead makes it lazy
 // and current at the same time — every open re-reads.
 templ overviewActivityCard() {
-	@card.Card() {
-		@card.Header() {
-			@card.Title(card.TitleProps{Class: "text-sm"}) {
+	@card.Card(card.Props{Class: overviewCardClass}) {
+		@card.Header(card.HeaderProps{Class: "gap-1"}) {
+			@card.Title(card.TitleProps{Class: SectionLabelClass}) {
 				Activity
 			}
 			@card.Description(card.DescriptionProps{Class: "text-xs"}) {
@@ -138,9 +152,9 @@ templ overviewActivityCard() {
 // the inventory merge reads what the host last reported over Redfish, so it
 // loads after first paint exactly like the old fetch did.
 templ overviewServerCard() {
-	@card.Card() {
-		@card.Header() {
-			@card.Title(card.TitleProps{Class: "text-sm"}) {
+	@card.Card(card.Props{Class: overviewCardClass}) {
+		@card.Header(card.HeaderProps{Class: "gap-1"}) {
+			@card.Title(card.TitleProps{Class: SectionLabelClass}) {
 				Server Information
 			}
 			@card.Description(card.DescriptionProps{Class: "text-xs"}) {
@@ -158,7 +172,7 @@ templ overviewServerCard() {
 // OverviewServerBody renders the identity rows; the zero model renders
 // placeholders for first paint.
 templ OverviewServerBody(m OverviewServer) {
-	@card.Content(card.ContentProps{Class: "py-0 pb-2"}) {
+	@card.Content() {
 		// has-data-[size=xs]:gap-0 counters the Group's own xs gap — the
 		// rows' hairline borders are the separation here.
 		@item.Group(item.GroupProps{Class: "has-data-[size=xs]:gap-0"}) {
@@ -172,7 +186,7 @@ templ OverviewServerBody(m OverviewServer) {
 	}
 	// The service reports the winning inventory source in
 	// Oem.NanoKVM.InventorySource, so the footer names the actual source.
-	@card.Footer(card.FooterProps{Class: "pt-2 text-xs text-muted-foreground"}) {
+	@card.Footer(card.FooterProps{Class: "text-xs text-muted-foreground"}) {
 		// templ trims text nodes, so spacing around the injected span and
 		// the link comes from margin utilities.
 		Read from
@@ -190,16 +204,16 @@ templ OverviewServerBody(m OverviewServer) {
 // values, rendered with the page. Only the release check (a GitHub call)
 // is a fragment.
 templ overviewBmcCard(log *slog.Logger) {
-	@card.Card() {
-		@card.Header() {
-			@card.Title(card.TitleProps{Class: "text-sm"}) {
+	@card.Card(card.Props{Class: overviewCardClass}) {
+		@card.Header(card.HeaderProps{Class: "gap-1"}) {
+			@card.Title(card.TitleProps{Class: SectionLabelClass}) {
 				BMC Information
 			}
 			@card.Description(card.DescriptionProps{Class: "text-xs"}) {
 				Current BMC build + management interface.
 			}
 		}
-		@card.Content(card.ContentProps{Class: "py-0 pb-2"}) {
+		@card.Content() {
 			@item.Group(item.GroupProps{Class: "has-data-[size=xs]:gap-0"}) {
 				// statusRow with a trailing slot: the release check loads into
 				// the value cluster, so the Content is laid out as a row
@@ -208,7 +222,7 @@ templ overviewBmcCard(log *slog.Logger) {
 					@item.Title(item.TitleProps{Class: "shrink-0 font-normal text-muted-foreground"}) {
 						Application
 					}
-					@item.Content(item.ContentProps{Class: "flex-row items-center justify-end gap-1.5"}) {
+					@item.Content(item.ContentProps{Class: "flex flex-row items-baseline gap-2"}) {
 						@statusValue(versionDisplay(application.CurrentVersion()))
 						<span class="contents" hx-get="/ui/overview/app-update" hx-trigger="load"></span>
 					}
@@ -218,7 +232,7 @@ templ overviewBmcCard(log *slog.Logger) {
 				@statusRow("IP Address", sysinfo.PrimaryIP(log))
 			}
 		}
-		@card.Footer(card.FooterProps{Class: "pt-2 text-xs text-muted-foreground"}) {
+		@card.Footer(card.FooterProps{Class: "text-xs text-muted-foreground"}) {
 			Interfaces: IPMI :623 · <a href="/redfish/v1" target="_blank" rel="noopener noreferrer" class="ml-1 underline underline-offset-4 hover:text-foreground">Redfish</a>
 		}
 	}
@@ -232,7 +246,6 @@ templ OverviewAppUpdateBody(m OverviewUpdateCheck) {
 		@button.Button(button.Props{
 			Variant: button.VariantOutline,
 			Size:    button.SizeSm,
-			Class:   "h-6 px-2 text-xs",
 			Attributes: templ.Attributes{
 				"hx-post":                  "/ui/overview/app/update",
 				"hx-swap":                  "none",
@@ -250,7 +263,7 @@ templ OverviewAppUpdateBody(m OverviewUpdateCheck) {
 	} else if m.Checked && m.Current != "" {
 		@badge.Badge(badge.Props{
 			Variant: badge.VariantSecondary,
-			Class:   "bg-green-500/15 text-green-500",
+			Class:   "bg-green-500/15 text-green-500 text-xs",
 		}) {
 			Latest
 		}
@@ -261,9 +274,9 @@ templ OverviewAppUpdateBody(m OverviewUpdateCheck) {
 // the Redfish host interface, plus the boot override currently staged for
 // it. Pure display — the controls live in the Boot Override card below.
 templ overviewHostFirmwareCard() {
-	@card.Card() {
-		@card.Header() {
-			@card.Title(card.TitleProps{Class: "text-sm"}) {
+	@card.Card(card.Props{Class: overviewCardClass}) {
+		@card.Header(card.HeaderProps{Class: "gap-1"}) {
+			@card.Title(card.TitleProps{Class: SectionLabelClass}) {
 				Host Firmware
 			}
 			@card.Description(card.DescriptionProps{Class: "text-xs"}) {
@@ -281,7 +294,7 @@ templ overviewHostFirmwareCard() {
 // checked in over the host interface, so the row is omitted while empty
 // rather than showing a placeholder that suggests missing data.
 templ OverviewHostFirmwareBody(m OverviewHostFirmware) {
-	@card.Content(card.ContentProps{Class: "py-0 pb-2"}) {
+	@card.Content() {
 		@item.Group(item.GroupProps{Class: "has-data-[size=xs]:gap-0"}) {
 			@statusRow("BIOS Version", m.BiosVersion)
 			@statusRow("Boot Override", m.BootOverride)
@@ -290,7 +303,7 @@ templ OverviewHostFirmwareBody(m OverviewHostFirmware) {
 			}
 		}
 	}
-	@card.Footer(card.FooterProps{Class: "pt-2 text-xs text-muted-foreground"}) {
+	@card.Footer(card.FooterProps{Class: "text-xs text-muted-foreground"}) {
 		Reported by the host firmware via
 		<a href="/redfish/v1/Systems/1" target="_blank" rel="noopener noreferrer" class="ml-1 underline underline-offset-4 hover:text-foreground">Redfish</a>.
 	}

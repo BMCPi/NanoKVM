@@ -25,6 +25,16 @@ import (
 // overviewSidebarID is the ID of the slide-in panel.
 const overviewSidebarID = "overview-sidebar"
 
+// overviewCardClass retunes card.Card for a drawer.
+//
+// The component's own scale is built for a page: 32px of padding and 32px
+// between header, content and footer. In a 28rem panel that spends a quarter
+// of the width on gutters and pushes a four-row readout to the height of a
+// screenful. Sixteen inside a card, sixteen between cards (the list's
+// space-y-4) and eight between a card's own parts is one scale with one
+// ratio, and it buys back 32px of line length per row.
+const overviewCardClass = "gap-2 [--card-spacing:--spacing(4)]"
+
 // OverviewSidebar is a push-style sidebar contained within the dashboard's
 // flex row (next to the console pane, below the navbar). Width animates
 // from 0 (closed) to 24rem (open) via data-state, so opening it shrinks
@@ -69,7 +79,7 @@ func OverviewSidebar(log *slog.Logger) templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(overviewSidebarID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 35, Col: 24}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 45, Col: 24}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -211,7 +221,7 @@ func OverviewSidebar(log *slog.Logger) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = item.Item(item.Props{Class: "rounded-none border-0 border-b border-border px-4 py-3"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = item.Item(item.Props{Class: "rounded-none border-0 border-b border-border px-4 py-4"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -272,7 +282,7 @@ func overviewSidebarStyles() templ.Component {
 			templ_7745c5c3_Var9 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<style>\n\t\t/* The width belongs to the resizable panel this sits in (see\n\t\t   home.templ), not to the sidebar: it used to animate its own width\n\t\t   between 0 and 24rem, which would now fight the drag handle. What is\n\t\t   left here is the surface — fill the panel, draw the edge, stack the\n\t\t   cards. */\n\t\t.ov-sidebar {\n\t\t\twidth: 100%;\n\t\t\theight: 100%;\n\t\t\toverflow: hidden;\n\t\t\tborder-left: 1px solid var(--border);\n\t\t\tbackground: var(--card);\n\t\t\tdisplay: flex;\n\t\t\tflex-direction: column;\n\t\t}\n\t\t/* Collapsed the panel is zero-width, and a 1px border on a zero-width\n\t\t   box still paints as a stray rule down the edge of the console. */\n\t\t.ov-sidebar[data-state=\"closed\"] { border-left-width: 0; }\n\t\t/* min-width:0 lets the cards inside reflow as the panel narrows\n\t\t   instead of forcing a horizontal scrollbar. */\n\t\t.ov-sidebar-inner {\n\t\t\twidth: 100%;\n\t\t\tmin-width: 0;\n\t\t\theight: 100%;\n\t\t\tdisplay: flex;\n\t\t\tflex-direction: column;\n\t\t}\n\t</style>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<style>\n\t\t/* The width belongs to the resizable panel this sits in (see\n\t\t   home.templ), not to the sidebar: it used to animate its own width\n\t\t   between 0 and 24rem, which would now fight the drag handle. What is\n\t\t   left here is the surface — fill the panel, draw the edge, stack the\n\t\t   cards. */\n\t\t/* --background, not --card: the cards inside are --card, and a card on\n\t\t   a surface of its own colour is a card you cannot see. Putting the\n\t\t   drawer on the darker ground gives the five cards an edge without\n\t\t   drawing one, which is the whole reason they are cards. */\n\t\t.ov-sidebar {\n\t\t\twidth: 100%;\n\t\t\theight: 100%;\n\t\t\toverflow: hidden;\n\t\t\tborder-left: 1px solid var(--border);\n\t\t\tbackground: var(--background);\n\t\t\tdisplay: flex;\n\t\t\tflex-direction: column;\n\t\t}\n\t\t/* Collapsed the panel is zero-width, and a 1px border on a zero-width\n\t\t   box still paints as a stray rule down the edge of the console. */\n\t\t.ov-sidebar[data-state=\"closed\"] { border-left-width: 0; }\n\t\t/* min-width:0 lets the cards inside reflow as the panel narrows\n\t\t   instead of forcing a horizontal scrollbar. */\n\t\t.ov-sidebar-inner {\n\t\t\twidth: 100%;\n\t\t\tmin-width: 0;\n\t\t\theight: 100%;\n\t\t\tdisplay: flex;\n\t\t\tflex-direction: column;\n\t\t}\n\t</style>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -352,7 +362,7 @@ func overviewActivityCard() templ.Component {
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = card.Title(card.TitleProps{Class: "text-sm"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var13), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = card.Title(card.TitleProps{Class: SectionLabelClass}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var13), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -384,7 +394,7 @@ func overviewActivityCard() templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = card.Header().Render(templ.WithChildren(ctx, templ_7745c5c3_Var12), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = card.Header(card.HeaderProps{Class: "gap-1"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var12), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -402,7 +412,7 @@ func overviewActivityCard() templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = card.Card().Render(templ.WithChildren(ctx, templ_7745c5c3_Var11), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = card.Card(card.Props{Class: overviewCardClass}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var11), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -476,7 +486,7 @@ func overviewServerCard() templ.Component {
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = card.Title(card.TitleProps{Class: "text-sm"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var18), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = card.Title(card.TitleProps{Class: SectionLabelClass}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var18), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -508,7 +518,7 @@ func overviewServerCard() templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = card.Header().Render(templ.WithChildren(ctx, templ_7745c5c3_Var17), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = card.Header(card.HeaderProps{Class: "gap-1"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var17), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -526,7 +536,7 @@ func overviewServerCard() templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = card.Card().Render(templ.WithChildren(ctx, templ_7745c5c3_Var16), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = card.Card(card.Props{Class: overviewCardClass}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var16), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -637,7 +647,7 @@ func OverviewServerBody(m OverviewServer) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = card.Content(card.ContentProps{Class: "py-0 pb-2"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var21), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = card.Content().Render(templ.WithChildren(ctx, templ_7745c5c3_Var21), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -665,7 +675,7 @@ func OverviewServerBody(m OverviewServer) templ.Component {
 				var templ_7745c5c3_Var24 string
 				templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(m.InventorySource)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 180, Col: 41}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 194, Col: 41}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 				if templ_7745c5c3_Err != nil {
@@ -687,7 +697,7 @@ func OverviewServerBody(m OverviewServer) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = card.Footer(card.FooterProps{Class: "pt-2 text-xs text-muted-foreground"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var23), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = card.Footer(card.FooterProps{Class: "text-xs text-muted-foreground"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var23), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -761,7 +771,7 @@ func overviewBmcCard(log *slog.Logger) templ.Component {
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = card.Title(card.TitleProps{Class: "text-sm"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var28), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = card.Title(card.TitleProps{Class: SectionLabelClass}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var28), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -793,7 +803,7 @@ func overviewBmcCard(log *slog.Logger) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = card.Header().Render(templ.WithChildren(ctx, templ_7745c5c3_Var27), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = card.Header(card.HeaderProps{Class: "gap-1"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var27), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -889,7 +899,7 @@ func overviewBmcCard(log *slog.Logger) templ.Component {
 							}
 							return nil
 						})
-						templ_7745c5c3_Err = item.Content(item.ContentProps{Class: "flex-row items-center justify-end gap-1.5"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var34), templ_7745c5c3_Buffer)
+						templ_7745c5c3_Err = item.Content(item.ContentProps{Class: "flex flex-row items-baseline gap-2"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var34), templ_7745c5c3_Buffer)
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
@@ -931,7 +941,7 @@ func overviewBmcCard(log *slog.Logger) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = card.Content(card.ContentProps{Class: "py-0 pb-2"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var30), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = card.Content().Render(templ.WithChildren(ctx, templ_7745c5c3_Var30), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -957,13 +967,13 @@ func overviewBmcCard(log *slog.Logger) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = card.Footer(card.FooterProps{Class: "pt-2 text-xs text-muted-foreground"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var35), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = card.Footer(card.FooterProps{Class: "text-xs text-muted-foreground"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var35), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = card.Card().Render(templ.WithChildren(ctx, templ_7745c5c3_Var26), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = card.Card(card.Props{Class: overviewCardClass}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var26), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1015,7 +1025,7 @@ func OverviewAppUpdateBody(m OverviewUpdateCheck) templ.Component {
 				var templ_7745c5c3_Var38 string
 				templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(versionDisplay(m.Latest))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 248, Col: 40}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 261, Col: 40}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 				if templ_7745c5c3_Err != nil {
@@ -1026,7 +1036,6 @@ func OverviewAppUpdateBody(m OverviewUpdateCheck) templ.Component {
 			templ_7745c5c3_Err = button.Button(button.Props{
 				Variant: button.VariantOutline,
 				Size:    button.SizeSm,
-				Class:   "h-6 px-2 text-xs",
 				Attributes: templ.Attributes{
 					"hx-post":            "/ui/overview/app/update",
 					"hx-swap":            "none",
@@ -1063,7 +1072,7 @@ func OverviewAppUpdateBody(m OverviewUpdateCheck) templ.Component {
 			})
 			templ_7745c5c3_Err = badge.Badge(badge.Props{
 				Variant: badge.VariantSecondary,
-				Class:   "bg-green-500/15 text-green-500",
+				Class:   "bg-green-500/15 text-green-500 text-xs",
 			}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var39), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -1139,7 +1148,7 @@ func overviewHostFirmwareCard() templ.Component {
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = card.Title(card.TitleProps{Class: "text-sm"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var43), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = card.Title(card.TitleProps{Class: SectionLabelClass}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var43), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1171,7 +1180,7 @@ func overviewHostFirmwareCard() templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = card.Header().Render(templ.WithChildren(ctx, templ_7745c5c3_Var42), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = card.Header(card.HeaderProps{Class: "gap-1"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var42), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1189,7 +1198,7 @@ func overviewHostFirmwareCard() templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = card.Card().Render(templ.WithChildren(ctx, templ_7745c5c3_Var41), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = card.Card(card.Props{Class: overviewCardClass}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var41), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1276,7 +1285,7 @@ func OverviewHostFirmwareBody(m OverviewHostFirmware) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = card.Content(card.ContentProps{Class: "py-0 pb-2"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var46), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = card.Content().Render(templ.WithChildren(ctx, templ_7745c5c3_Var46), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1298,7 +1307,7 @@ func OverviewHostFirmwareBody(m OverviewHostFirmware) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = card.Footer(card.FooterProps{Class: "pt-2 text-xs text-muted-foreground"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var48), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = card.Footer(card.FooterProps{Class: "text-xs text-muted-foreground"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var48), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

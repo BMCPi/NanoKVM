@@ -131,7 +131,7 @@ templ metricsTrendChart(id, unit, key string, height int, trend []telemetry.Poin
 // scrolling chart gallery. They stay in Settings, where the panel is 5xl and
 // lays them out two-up.
 templ MetricsOverviewBody(snap telemetry.Snapshot, trend []telemetry.Point) {
-	@card.Content(card.ContentProps{Class: "py-0 pb-2"}) {
+	@card.Content() {
 		if !snap.Collected {
 			// Deliberately terser than metricsDisabledNotice: that one explains
 			// the whole feature because it is the entire content of its panel,
@@ -159,10 +159,12 @@ templ MetricsOverviewBody(snap telemetry.Snapshot, trend []telemetry.Point) {
 // around all of this.
 templ metricsOverviewTrend(id, title, unit, key string, trend []telemetry.Point) {
 	<div class="flex flex-col gap-1">
-		<p class="text-xs font-medium">
-			{ title }
-			<span class="font-normal text-muted-foreground">— per 15s, last hour</span>
-		</p>
+		// The qualifier is a sibling, not part of the heading: SectionLabelClass
+		// is uppercase, and "— PER 15S, LAST HOUR" shouts a footnote.
+		<div class="flex items-baseline justify-between gap-2">
+			<p class={ SectionLabelClass }>{ title }</p>
+			<span class="text-xs text-muted-foreground">per 15s, last hour</span>
+		</div>
 		@metricsTrendChart(id, unit, key, 104, trend)
 	</div>
 }

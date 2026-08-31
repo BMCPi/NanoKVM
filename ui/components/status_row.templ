@@ -6,18 +6,27 @@ import "github.com/pi-bmc/nanokvm-app/ui/components/item"
 // label/value row shared by the overview sidebar cards and the settings
 // dialog's network-status grid: no side padding (the parent card supplies
 // it), a half-strength divider under each row, none after the last.
-const statusRowClasses = "rounded-none border-0 border-b border-border/50 px-0 py-1 last:border-b-0"
+//
+// A grid, not item.Item's own flex. Flex sizes the label to its text, so the
+// value column started at a different x on every row and the readout had no
+// column to read down — the labels were aligned and the data was not, which is
+// backwards. A fixed 7.5rem gutter fits the longest label at both call sites
+// ("BIOS Version", "USB Host Link") and gives the values one left edge.
+// items-baseline sits the two on the same baseline despite their differing
+// line heights; SizeXs's own gap-2 becomes the column gap.
+const statusRowClasses = "grid grid-cols-[7.5rem_minmax(0,1fr)] items-baseline " +
+	"rounded-none border-0 border-b border-border/50 px-0 py-1 last:border-b-0"
 
-// statusRow is one label / value readout row — muted label left, mono value
-// right. One definition keeps the overview and settings readouts in the same
-// rhythm by construction. Rows that need trailing content next to the value
+// statusRow is one label / value readout row: muted label in the gutter, mono
+// value in the column beside it. One definition keeps the overview and settings
+// readouts in the same rhythm by construction. Rows that need trailing content next to the value
 // compose the item parts themselves with statusRowClasses + statusValue.
 templ statusRow(label, value string) {
 	@item.Item(item.Props{Size: item.SizeXs, Class: statusRowClasses}) {
 		@item.Title(item.TitleProps{Class: "shrink-0 font-normal text-muted-foreground"}) {
 			{ label }
 		}
-		@item.Content(item.ContentProps{Class: "items-end"}) {
+		@item.Content() {
 			@statusValue(value)
 		}
 	}
@@ -26,7 +35,7 @@ templ statusRow(label, value string) {
 // statusValue is the value cell of a statusRow; the em-dash placeholder
 // shows while a fragment has not yet supplied the value.
 templ statusValue(value string) {
-	<span class="text-right font-mono break-all">
+	<span class="font-mono break-all">
 		if value != "" {
 			{ value }
 		} else {

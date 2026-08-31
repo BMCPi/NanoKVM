@@ -14,11 +14,20 @@ import "github.com/pi-bmc/nanokvm-app/ui/components/item"
 // label/value row shared by the overview sidebar cards and the settings
 // dialog's network-status grid: no side padding (the parent card supplies
 // it), a half-strength divider under each row, none after the last.
-const statusRowClasses = "rounded-none border-0 border-b border-border/50 px-0 py-1 last:border-b-0"
+//
+// A grid, not item.Item's own flex. Flex sizes the label to its text, so the
+// value column started at a different x on every row and the readout had no
+// column to read down — the labels were aligned and the data was not, which is
+// backwards. A fixed 7.5rem gutter fits the longest label at both call sites
+// ("BIOS Version", "USB Host Link") and gives the values one left edge.
+// items-baseline sits the two on the same baseline despite their differing
+// line heights; SizeXs's own gap-2 becomes the column gap.
+const statusRowClasses = "grid grid-cols-[7.5rem_minmax(0,1fr)] items-baseline " +
+	"rounded-none border-0 border-b border-border/50 px-0 py-1 last:border-b-0"
 
-// statusRow is one label / value readout row — muted label left, mono value
-// right. One definition keeps the overview and settings readouts in the same
-// rhythm by construction. Rows that need trailing content next to the value
+// statusRow is one label / value readout row: muted label in the gutter, mono
+// value in the column beside it. One definition keeps the overview and settings
+// readouts in the same rhythm by construction. Rows that need trailing content next to the value
 // compose the item parts themselves with statusRowClasses + statusValue.
 func statusRow(label, value string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
@@ -68,7 +77,7 @@ func statusRow(label, value string) templ.Component {
 				var templ_7745c5c3_Var4 string
 				templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/status_row.templ`, Line: 18, Col: 10}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/status_row.templ`, Line: 27, Col: 10}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 				if templ_7745c5c3_Err != nil {
@@ -102,7 +111,7 @@ func statusRow(label, value string) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = item.Content(item.ContentProps{Class: "items-end"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var5), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = item.Content().Render(templ.WithChildren(ctx, templ_7745c5c3_Var5), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -139,7 +148,7 @@ func statusValue(value string) templ.Component {
 			templ_7745c5c3_Var6 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<span class=\"text-right font-mono break-all\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<span class=\"font-mono break-all\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -147,7 +156,7 @@ func statusValue(value string) templ.Component {
 			var templ_7745c5c3_Var7 string
 			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(value)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/status_row.templ`, Line: 31, Col: 10}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/status_row.templ`, Line: 40, Col: 10}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 			if templ_7745c5c3_Err != nil {

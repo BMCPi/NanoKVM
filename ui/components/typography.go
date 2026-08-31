@@ -10,4 +10,4 @@ package components
 //
 //	<p class={ SectionLabelClass }>Power</p>
 //	<div class={ SectionLabelClass, "mb-2" }>[all]</div>
-const SectionLabelClass = "text-xs font-semibold uppercase text-muted-foreground"
+const SectionLabelClass = "text-xs font-semibold uppercase tracking-wider text-muted-foreground"
