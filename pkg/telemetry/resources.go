@@ -58,13 +58,23 @@ func initResourceMetrics() {
 	diskUsed := gauge("nanokvm_bmc_disk_used", "Writable data volume in use", "By")
 	diskTotal := gauge("nanokvm_bmc_disk_total", "Writable data volume capacity", "By")
 
+	// Not a ratio and not derivable from one. A BMC stalled on its SD card is
+	// idle by every jiffie measure, so cpu_utilization goes *down* at the
+	// moment something is wrong; this is the counter that says why. Unitless
+	// depth, so no WithUnit — a suffix would misdescribe it.
+	blocked, e := m.Int64ObservableGauge("nanokvm_bmc_procs_blocked",
+		metric.WithDescription("Tasks in uninterruptible sleep, from /proc/stat procs_blocked"))
+	if e != nil {
+		err = e
+	}
+
 	if err != nil {
 		pkgLog.Warn("telemetry: resource instrument creation", slog.Any("err", err))
 		return
 	}
 
-	// One callback for all seven: sysinfo.LatestUsage takes a mutex, and seven
-	// separate callbacks would take it seven times per scrape for the same
+	// One callback for all eight: sysinfo.LatestUsage takes a mutex, and eight
+	// separate callbacks would take it eight times per scrape for the same
 	// struct. The Valid flags gate each observation, so a subsystem that could
 	// not be read reports nothing rather than a zero an alert would fire on.
 	const bytesPerMB = 1024 * 1024
@@ -83,8 +93,11 @@ func initResourceMetrics() {
 			o.ObserveFloat64(diskUsed, float64(u.DiskUsedMB)*bytesPerMB)
 			o.ObserveFloat64(diskTotal, float64(u.DiskTotalMB)*bytesPerMB)
 		}
+		if u.ProcsBlockedValid {
+			o.ObserveInt64(blocked, int64(u.ProcsBlocked)) //nolint:gosec // a task count, bounded by pid_max
+		}
 		return nil
-	}, cpu, mem, disk, memUsed, memTotal, diskUsed, diskTotal)
+	}, cpu, mem, disk, memUsed, memTotal, diskUsed, diskTotal, blocked)
 	if err != nil {
 		pkgLog.Warn("telemetry: resource callback registration", slog.Any("err", err))
 	}

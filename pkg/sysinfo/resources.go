@@ -10,10 +10,16 @@ package sysinfo
 // which is the machine that can actually run out of room mid-upload.
 //
 // Everything here is parsed out of procfs and one statfs call. That is
-// deliberate: the target is a 1 GHz single-core SG2002 with ~256 MB of RAM, so
-// the collector may not fork, may not allocate per-sample buffers of any size,
+// deliberate: the target is a 1 GHz single-core SG2002 whose 256 MB of DRAM the
+// device tree carves down to 123 MB of usable RAM (the rest is the ION
+// reservation the capture pipeline needs), so the collector may not fork, must
+// keep its per-sample allocation to the smallest buffers that will do the job,
 // and may not pull in a dependency that walks all of /proc to answer three
 // questions.
+//
+// A sample is ~7 syscalls over 1661 bytes of procfs on a 10 s tick — around
+// 10^-5 of one core. There is no performance problem here to solve, and that is
+// the point: the austerity is what keeps it that way.
 
 import (
 	"bufio"
@@ -38,6 +44,14 @@ const (
 	// fill. The root is squashfs and /tmp is a small RAM overlay, so neither
 	// tells them anything they can act on.
 	dataVolumePath = "/var/lib/nanokvm"
+
+	// Scanner buffer sizing. bufio.Scanner's default is a lazily allocated
+	// 4 KiB, which is most of what a sample allocates — to read a 441-byte
+	// /proc/stat and a 1220-byte /proc/meminfo. 512 bytes clears the longest
+	// line either file has (the softirq row), and the max keeps the default
+	// ceiling as a safety net if a future kernel emits something longer.
+	scanBufSize = 512
+	scanBufMax  = 64 * 1024
 )
 
 // Usage is one reading of the BMC's own resource utilisation. Percentages are
@@ -63,6 +77,17 @@ type Usage struct {
 	DiskUsedMB  uint64
 	DiskTotalMB uint64
 	DiskValid   bool
+
+	// ProcsBlocked is /proc/stat's procs_blocked: tasks in uninterruptible
+	// sleep at the moment of the read. It is here because CPU percent cannot
+	// say it — a box stalled on the SD card is *idle*, so the processor graph
+	// goes quiet at exactly the moment something is wrong. It costs nothing:
+	// the line is in a file this collector already opens.
+	//
+	// It is a depth, not a percentage, and small numbers are normal. What an
+	// operator acts on is it staying above zero across several samples.
+	ProcsBlocked      uint64
+	ProcsBlockedValid bool
 }
 
 // ResourceSampler turns the cumulative counters in /proc/stat into a rate. It
@@ -85,9 +110,10 @@ type ResourceSampler struct {
 func (s *ResourceSampler) Sample() Usage {
 	var u Usage
 
-	if busy, all, err := readCPUTimes(); err == nil {
+	if ps, err := readProcStat(); err == nil {
 		u.CPURead = true
-		u.CPUPercent, u.CPUValid = s.cpuPercent(busy, all)
+		u.CPUPercent, u.CPUValid = s.cpuPercent(ps.busy, ps.total)
+		u.ProcsBlocked, u.ProcsBlockedValid = ps.blocked, ps.blockedValid
 	}
 
 	if totalKB, availKB, err := readMemInfo(); err == nil && totalKB > 0 {
@@ -139,59 +165,103 @@ func (s *ResourceSampler) cpuPercent(busy, all uint64) (float64, bool) {
 	return clampPercent(float64(deltaBusy) / float64(deltaAll) * 100), true
 }
 
-// readCPUTimes reads the aggregate cpu line from /proc/stat.
-func readCPUTimes() (busy, total uint64, err error) {
-	f, err := os.Open(procStatPath)
-	if err != nil {
-		return 0, 0, err
-	}
-	defer f.Close()
-	return parseCPUTimes(f)
+// procStat is one read of /proc/stat.
+type procStat struct {
+	// busy and total are jiffies from the aggregate "cpu" line.
+	busy, total uint64
+
+	// blocked is procs_blocked: how many tasks are in uninterruptible sleep
+	// right now, which on this appliance means waiting on the SD card. Unlike
+	// the jiffie counters it is an instantaneous depth, not a cumulative
+	// total, so it is reported as-is rather than differenced.
+	//
+	// blockedValid is false on a kernel that does not emit the field. It has
+	// been there since 2.6, so absence means procfs is not what we think it
+	// is — the same standard parseMemInfo holds MemAvailable to.
+	blocked      uint64
+	blockedValid bool
 }
 
-// parseCPUTimes splits the aggregate "cpu" line into busy and total jiffies.
+// readProcStat reads /proc/stat.
+func readProcStat() (procStat, error) {
+	f, err := os.Open(procStatPath)
+	if err != nil {
+		return procStat{}, err
+	}
+	defer f.Close()
+	return parseProcStat(f)
+}
+
+// parseProcStat splits the aggregate "cpu" line into busy and total jiffies,
+// and picks up procs_blocked on the way past.
 //
-// The fields, in order, are user nice system idle iowait irq softirq steal
+// The cpu fields, in order, are user nice system idle iowait irq softirq steal
 // guest guest_nice. Idle time is idle+iowait: a core blocked on I/O is not
 // doing work, and counting iowait as busy is what makes a quiet BMC that is
 // writing an ISO look pegged.
-func parseCPUTimes(r io.Reader) (busy, total uint64, err error) {
+//
+// procs_blocked sits below the per-cpu lines, so this cannot stop at the
+// aggregate line the way it used to. The whole file is 441 bytes on this
+// board; scanning the rest of it costs nothing worth measuring.
+func parseProcStat(r io.Reader) (procStat, error) {
 	const (
 		idleField   = 3
 		iowaitField = 4
 		minFields   = 4 // user nice system idle — the shortest line worth trusting
 	)
 
+	var (
+		out     procStat
+		haveCPU bool
+	)
+
 	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, scanBufSize), scanBufMax)
 	for sc.Scan() {
 		line := sc.Text()
-		if !strings.HasPrefix(line, "cpu ") && !strings.HasPrefix(line, "cpu\t") {
+
+		if !haveCPU && (strings.HasPrefix(line, "cpu ") || strings.HasPrefix(line, "cpu\t")) {
+			fields := strings.Fields(line)[1:]
+			if len(fields) < minFields {
+				return procStat{}, fmt.Errorf("%s: cpu line has %d fields, want at least %d",
+					procStatPath, len(fields), minFields)
+			}
+
+			var idle uint64
+			for i, f := range fields {
+				v, convErr := strconv.ParseUint(f, 10, 64)
+				if convErr != nil {
+					return procStat{}, fmt.Errorf("%s: cpu field %d (%q): %w",
+						procStatPath, i, f, convErr)
+				}
+				out.total += v
+				if i == idleField || i == iowaitField {
+					idle += v
+				}
+			}
+			out.busy = out.total - idle
+			haveCPU = true
 			continue
 		}
 
-		fields := strings.Fields(line)[1:]
-		if len(fields) < minFields {
-			return 0, 0, fmt.Errorf("%s: cpu line has %d fields, want at least %d",
-				procStatPath, len(fields), minFields)
-		}
-
-		var idle uint64
-		for i, f := range fields {
-			v, convErr := strconv.ParseUint(f, 10, 64)
+		if rest, ok := strings.CutPrefix(line, "procs_blocked"); ok {
+			v, convErr := strconv.ParseUint(strings.TrimSpace(rest), 10, 64)
 			if convErr != nil {
-				return 0, 0, fmt.Errorf("%s: cpu field %d (%q): %w", procStatPath, i, f, convErr)
+				// Not fatal: the CPU numbers are the reason this file is read,
+				// and they are already in hand. Leave blockedValid false so the
+				// gauge reports nothing rather than a fabricated zero.
+				continue
 			}
-			total += v
-			if i == idleField || i == iowaitField {
-				idle += v
-			}
+			out.blocked, out.blockedValid = v, true
 		}
-		return total - idle, total, nil
 	}
 	if err := sc.Err(); err != nil {
-		return 0, 0, err
+		return procStat{}, err
 	}
-	return 0, 0, errors.New(procStatPath + ": no aggregate cpu line")
+	if !haveCPU {
+		return procStat{}, errors.New(procStatPath + ": no aggregate cpu line")
+	}
+	return out, nil
 }
 
 // readMemInfo reads MemTotal and MemAvailable from /proc/meminfo, in kB.
@@ -216,6 +286,7 @@ func parseMemInfo(r io.Reader) (totalKB, availKB uint64, err error) {
 	var haveTotal, haveAvail bool
 
 	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, scanBufSize), scanBufMax)
 	for sc.Scan() {
 		key, rest, ok := strings.Cut(sc.Text(), ":")
 		if !ok {

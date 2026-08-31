@@ -2,6 +2,7 @@ package sysinfo
 
 import (
 	"math"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -19,10 +20,11 @@ ctxt 67890
 `
 
 func TestCPUTimesSplitsBusyFromIdle(t *testing.T) {
-	busy, total, err := parseCPUTimes(strings.NewReader(procStatSample))
+	ps, err := parseProcStat(strings.NewReader(procStatSample))
 	if err != nil {
-		t.Fatalf("parseCPUTimes: %v", err)
+		t.Fatalf("parseProcStat: %v", err)
 	}
+	busy, total := ps.busy, ps.total
 
 	// idle(8000) + iowait(500) is not work. Everything else is.
 	const wantTotal = 1000 + 20 + 300 + 8000 + 500 + 10 + 40
@@ -38,12 +40,12 @@ func TestCPUTimesSplitsBusyFromIdle(t *testing.T) {
 // A kernel built without CONFIG_SCHEDSTATS-era fields still reports the first
 // seven; anything shorter is a file we do not understand and must not guess at.
 func TestCPUTimesToleratesShortAndRejectsGarbage(t *testing.T) {
-	if _, _, err := parseCPUTimes(strings.NewReader("cpu 1 2 3 4\n")); err != nil {
+	if _, err := parseProcStat(strings.NewReader("cpu 1 2 3 4\n")); err != nil {
 		t.Errorf("a four-field cpu line should still parse: %v", err)
 	}
 	for _, in := range []string{"", "intr 1\n", "cpu\n", "cpu a b c d\n"} {
-		if _, _, err := parseCPUTimes(strings.NewReader(in)); err == nil {
-			t.Errorf("parseCPUTimes(%q) = nil error, want a refusal", in)
+		if _, err := parseProcStat(strings.NewReader(in)); err == nil {
+			t.Errorf("parseProcStat(%q) = nil error, want a refusal", in)
 		}
 	}
 }
@@ -283,5 +285,107 @@ func TestCPUPercentRefusesWhenIowaitWentBackwards(t *testing.T) {
 	// The reading still becomes the baseline, so the next interval is usable.
 	if got, ok := s.cpuPercent(760, 1040); !ok || math.Abs(got-50) > 0.001 {
 		t.Errorf("next interval: got %v ok=%v, want 50 true", got, ok)
+	}
+}
+
+// procs_blocked is the one thing in /proc/stat that CPU percent cannot say. A
+// BMC stalled on its SD card is idle by every jiffie measure, so the processor
+// graph flatlines at exactly the moment an operator needs a signal. The line is
+// in a file this collector already opens, below the per-cpu rows.
+const procStatBlockedSample = `cpu  1000 20 300 8000 500 10 40 0 0 0
+cpu0 1000 20 300 8000 500 10 40 0 0 0
+intr 12345
+ctxt 67890
+btime 1756600000
+processes 4321
+procs_running 1
+procs_blocked 3
+softirq 99 1 2 3 4 5 6 7 8 9
+`
+
+func TestProcStatReportsBlockedTasks(t *testing.T) {
+	ps, err := parseProcStat(strings.NewReader(procStatBlockedSample))
+	if err != nil {
+		t.Fatalf("parseProcStat: %v", err)
+	}
+	if !ps.blockedValid {
+		t.Fatal("blockedValid = false; procs_blocked is present in the sample")
+	}
+	if ps.blocked != 3 {
+		t.Errorf("blocked = %d, want 3", ps.blocked)
+	}
+	// Reading past the cpu line must not disturb the jiffie arithmetic.
+	if ps.total != 1000+20+300+8000+500+10+40 {
+		t.Errorf("total = %d — scanning on for procs_blocked changed the cpu maths", ps.total)
+	}
+}
+
+// A kernel that does not emit the field must be reported as unknown rather than
+// as zero: zero blocked tasks is the healthy reading, and inventing it would
+// make an unreadable box look fine.
+func TestProcStatDistinguishesAbsentBlockedFromZero(t *testing.T) {
+	ps, err := parseProcStat(strings.NewReader(procStatSample)) // no procs_blocked line
+	if err != nil {
+		t.Fatalf("parseProcStat: %v", err)
+	}
+	if ps.blockedValid {
+		t.Error("blockedValid = true for a /proc/stat with no procs_blocked line")
+	}
+
+	zero, err := parseProcStat(strings.NewReader("cpu 1 2 3 4\nprocs_blocked 0\n"))
+	if err != nil {
+		t.Fatalf("parseProcStat: %v", err)
+	}
+	if !zero.blockedValid || zero.blocked != 0 {
+		t.Errorf("procs_blocked 0 = (%d, valid=%v), want (0, valid=true)", zero.blocked, zero.blockedValid)
+	}
+}
+
+// The file header claims this collector keeps its per-sample allocation to the
+// smallest buffers that will do the job. That claim is only worth making if
+// something enforces it: bufio.Scanner's default is a lazily allocated 4 KiB
+// per scanner, and dropping the sc.Buffer calls silently takes a sample from
+// ~1.6 KB back to ~8.8 KB — to read two files totalling 1661 bytes.
+//
+// TotalAlloc rather than testing.Benchmark: the allocation *count* is identical
+// either way (only the sizes change), and the benchmark harness costs a second
+// per parser in a package that otherwise runs in milliseconds.
+//
+// The budget is deliberately loose. It exists to catch the 4 KiB default coming
+// back, not to police a hundred bytes.
+func TestParsersDoNotAllocateOversizedBuffers(t *testing.T) {
+	const (
+		budget = 2048 // bytes/op; the default-buffer regression lands at ~4.3 KB
+		runs   = 2000
+	)
+
+	allocBytesPerOp := func(fn func()) uint64 {
+		var before, after runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&before)
+		for range runs {
+			fn()
+		}
+		runtime.ReadMemStats(&after)
+		return (after.TotalAlloc - before.TotalAlloc) / runs
+	}
+
+	for _, tc := range []struct {
+		name string
+		in   string
+		run  func(r *strings.Reader)
+	}{
+		{"procStat", procStatBlockedSample, func(r *strings.Reader) { _, _ = parseProcStat(r) }},
+		{"memInfo", procMemSample, func(r *strings.Reader) { _, _, _ = parseMemInfo(r) }},
+	} {
+		r := strings.NewReader(tc.in)
+		got := allocBytesPerOp(func() {
+			r.Reset(tc.in)
+			tc.run(r)
+		})
+		if got > budget {
+			t.Errorf("%s allocates %d B/op, budget %d — has a scanner lost its sc.Buffer call?",
+				tc.name, got, budget)
+		}
 	}
 }
