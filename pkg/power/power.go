@@ -51,6 +51,7 @@ import (
 	"github.com/warthog618/go-gpiocdev"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
 )
 
@@ -115,6 +116,8 @@ type Controller struct {
 	gpioPower    config.GPIOPin
 	gpioPowerLED config.GPIOPin
 
+	log *slog.Logger
+
 	mu    sync.Mutex
 	lines map[config.GPIOPin]*gpiocdev.Line
 
@@ -134,11 +137,12 @@ type Controller struct {
 // NewController builds a power Controller from its config sections. Called
 // once by cmd/server/main.go; the returned Controller is then threaded to
 // every consumer via pkg/deps instead of a package-level singleton.
-func NewController(hw config.Hardware, pw config.Power) *Controller {
+func NewController(hw config.Hardware, pw config.Power, log *slog.Logger) *Controller {
 	return &Controller{
 		legacyMode:   pw.LegacyMode,
 		gpioPower:    hw.GPIOPower,
 		gpioPowerLED: hw.GPIOPowerLED,
+		log:          logger.Or(log),
 		lines:        make(map[config.GPIOPin]*gpiocdev.Line),
 		subs:         make(map[chan bool]struct{}),
 	}
@@ -225,16 +229,16 @@ func (c *Controller) PowerOn(ctx context.Context) (retErr error) {
 		return fmt.Errorf("read state: %w", err)
 	}
 	if on {
-		slog.DebugContext(ctx, "power: already on, no-op")
+		c.log.DebugContext(ctx, "power: already on, no-op")
 		return nil
 	}
 
 	if !c.legacyMode {
-		slog.InfoContext(ctx, "power: power-on (short button press)")
+		c.log.InfoContext(ctx, "power: power-on (short button press)")
 		return c.buttonPress(shortPressDuration)
 	}
 
-	slog.InfoContext(ctx, "power: power-on boot sequence (legacy mode)")
+	c.log.InfoContext(ctx, "power: power-on boot sequence (legacy mode)")
 	return c.legacyBootSequence()
 }
 
@@ -259,16 +263,16 @@ func (c *Controller) PowerOff(ctx context.Context) (retErr error) {
 		return fmt.Errorf("read state: %w", err)
 	}
 	if !on {
-		slog.DebugContext(ctx, "power: already off, no-op")
+		c.log.DebugContext(ctx, "power: already off, no-op")
 		return nil
 	}
 
 	if !c.legacyMode {
-		slog.InfoContext(ctx, "power: soft shutdown (short button press)")
+		c.log.InfoContext(ctx, "power: soft shutdown (short button press)")
 		return c.buttonPress(shortPressDuration)
 	}
 
-	slog.InfoContext(ctx, "power: power-off (legacy — set pin 0)")
+	c.log.InfoContext(ctx, "power: power-off (legacy — set pin 0)")
 	return c.legacyWritePin(0)
 }
 
@@ -293,16 +297,16 @@ func (c *Controller) ForceOff(ctx context.Context) (retErr error) {
 		return fmt.Errorf("read state: %w", err)
 	}
 	if !on {
-		slog.DebugContext(ctx, "power: already off, no-op")
+		c.log.DebugContext(ctx, "power: already off, no-op")
 		return nil
 	}
 
 	if !c.legacyMode {
-		slog.InfoContext(ctx, "power: force shutdown (long button press ≥5 s)")
+		c.log.InfoContext(ctx, "power: force shutdown (long button press ≥5 s)")
 		return c.buttonPress(longPressDuration)
 	}
 
-	slog.InfoContext(ctx, "power: force-off (legacy — set pin 0)")
+	c.log.InfoContext(ctx, "power: force-off (legacy — set pin 0)")
 	return c.legacyWritePin(0)
 }
 
@@ -326,7 +330,7 @@ func (c *Controller) Reset(ctx context.Context) (retErr error) {
 
 	if on {
 		if c.legacyMode {
-			slog.InfoContext(ctx, "power: reset — off (legacy)")
+			c.log.InfoContext(ctx, "power: reset — off (legacy)")
 			if err := c.legacyWritePin(0); err != nil {
 				return fmt.Errorf("reset legacy off: %w", err)
 			}
@@ -337,11 +341,11 @@ func (c *Controller) Reset(ctx context.Context) (retErr error) {
 	}
 
 	if !c.legacyMode {
-		slog.InfoContext(ctx, "power: reset — power on (short press)")
+		c.log.InfoContext(ctx, "power: reset — power on (short press)")
 		return c.buttonPress(shortPressDuration)
 	}
 
-	slog.InfoContext(ctx, "power: reset — boot sequence (legacy)")
+	c.log.InfoContext(ctx, "power: reset — boot sequence (legacy)")
 	return c.legacyBootSequence()
 }
 
@@ -359,7 +363,7 @@ func (c *Controller) Reset(ctx context.Context) (retErr error) {
 //
 // Caller must hold c.mu.
 func (c *Controller) forceOffAndWait(ctx context.Context, what string) error {
-	slog.InfoContext(ctx, "power: force off (long button press)", slog.String("op", what))
+	c.log.InfoContext(ctx, "power: force off (long button press)", slog.String("op", what))
 	if err := c.buttonPress(longPressDuration); err != nil {
 		return fmt.Errorf("%s force-off: %w", what, err)
 	}
@@ -367,7 +371,7 @@ func (c *Controller) forceOffAndWait(ctx context.Context, what string) error {
 		if ctx.Err() != nil {
 			return fmt.Errorf("%s abandoned while waiting for off: %w", what, err)
 		}
-		slog.WarnContext(ctx, "power: timed out waiting for off, proceeding anyway",
+		c.log.WarnContext(ctx, "power: timed out waiting for off, proceeding anyway",
 			slog.String("op", what), slog.Any("err", err))
 	}
 	return nil
@@ -424,7 +428,7 @@ func (c *Controller) ensureLEDWatcher() error {
 	// see the noise.
 	line, err := gpiocdev.RequestLine(pin.Chip, pin.Line, append(opts, gpiocdev.WithDebounce(ledDebounce))...)
 	if err != nil {
-		slog.Debug("power: debounce unavailable, retrying without",
+		c.log.Debug("power: debounce unavailable, retrying without",
 			slog.String("pin", pin.String()), slog.Any("err", err))
 		line, err = gpiocdev.RequestLine(pin.Chip, pin.Line, opts...)
 		if err != nil {
@@ -442,7 +446,7 @@ func (c *Controller) ensureLEDWatcher() error {
 
 	c.ledLine = line
 	c.setLED(v == 1)
-	slog.Info("power: watching power-LED",
+	c.log.Info("power: watching power-LED",
 		slog.String("pin", pin.String()), slog.Bool("initialState", v == 1))
 	return nil
 }
@@ -458,7 +462,7 @@ func (c *Controller) setLED(on bool) {
 	if c.ledOn.Swap(on) == on {
 		return
 	}
-	slog.Debug("power: power-LED changed", slog.Bool("on", on))
+	c.log.Debug("power: power-LED changed", slog.Bool("on", on))
 	// context.Background is correct here and not a missing parameter: this runs
 	// on the GPIO edge-event goroutine, driven by the host changing state on
 	// its own. There is no request, and no caller whose cancellation should
@@ -516,14 +520,14 @@ func (c *Controller) buttonPress(duration time.Duration) error {
 	if err := line.SetValue(0); err != nil {
 		return fmt.Errorf("press down: %w", err)
 	}
-	slog.Debug("power: gpio pressed (pulled to ground)", slog.String("pin", pin.String()))
+	c.log.Debug("power: gpio pressed (pulled to ground)", slog.String("pin", pin.String()))
 	time.Sleep(duration)
 
 	// Release — float back to HIGH (open-drain high-impedance).
 	if err := line.SetValue(1); err != nil {
 		return fmt.Errorf("press release: %w", err)
 	}
-	slog.Debug("power: gpio released (floating high)", slog.String("pin", pin.String()))
+	c.log.Debug("power: gpio released (floating high)", slog.String("pin", pin.String()))
 
 	time.Sleep(postPressDelay)
 	return nil
@@ -677,6 +681,6 @@ func (c *Controller) writeOutput(pin config.GPIOPin, val int) error {
 	if err := l.SetValue(v); err != nil {
 		return fmt.Errorf("set %s = %d: %w", pin, v, err)
 	}
-	slog.Debug("power: gpio set", slog.String("pin", pin.String()), slog.Int("value", v))
+	c.log.Debug("power: gpio set", slog.String("pin", pin.String()), slog.Int("value", v))
 	return nil
 }

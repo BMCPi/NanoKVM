@@ -2,6 +2,7 @@ package power
 
 import (
 	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -31,6 +32,7 @@ func newSimController(t *testing.T) (*Controller, *gpiosim.Simpleton) {
 
 	c := &Controller{
 		gpioPowerLED: config.GPIOPin{Chip: sim.ChipName(), Line: ledOffset},
+		log:          slog.New(slog.DiscardHandler),
 		lines:        make(map[config.GPIOPin]*gpiocdev.Line),
 		subs:         make(map[chan bool]struct{}),
 	}

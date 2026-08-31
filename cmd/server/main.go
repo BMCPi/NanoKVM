@@ -163,7 +163,7 @@ func initialize(ctx context.Context) {
 	// singletons: constructed once here, shared by every subsystem that needs
 	// them (IPMI, the auto-update ticker, the HTTP API and UI via deps.Deps).
 	cfg := config.GetInstance()
-	powerCtrl = power.NewController(cfg.Hardware, cfg.Power)
+	powerCtrl = power.NewController(cfg.Hardware, cfg.Power, rootLog.With("component", "power"))
 	fwCtrl = firmware.NewController(cfg)
 	videoHub = newVideoHub(cfg)
 
