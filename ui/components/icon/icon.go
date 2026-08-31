@@ -98,11 +98,10 @@ func attrString(attrs templ.Attributes) string {
 		switch v := attrs[k].(type) {
 		case bool:
 			if v {
-				b.WriteString(" ")
-				b.WriteString(templ.EscapeString(k))
+				b.WriteString(" " + templ.EscapeString(k))
 			}
 		default:
-			fmt.Fprintf(&b, " %s=\"%s\"", templ.EscapeString(k), templ.EscapeString(fmt.Sprint(v)))
+			b.WriteString(fmt.Sprintf(" %s=\"%s\"", templ.EscapeString(k), templ.EscapeString(fmt.Sprint(v))))
 		}
 	}
 	return b.String()
