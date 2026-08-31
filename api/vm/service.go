@@ -9,6 +9,9 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/video/rtc"
 )
 
+// errorKey is the JSON field every failure response in this package uses.
+const errorKey = "error"
+
 type Service struct {
 	Power    *power.Controller
 	Firmware *firmware.Controller

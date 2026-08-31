@@ -165,7 +165,7 @@ func (d *dhcpRunner) maintain(lease *nclient4.Lease) (dhcpOutcome, *nclient4.Lea
 		now := time.Now()
 		switch {
 		case now.Before(t1):
-			stopped, _, reacquire := d.sleepUntil(t1, lease)
+			stopped, reacquire := d.sleepUntil(t1, lease)
 			if stopped {
 				return dhcpStopped, nil
 			}
@@ -202,7 +202,7 @@ func (d *dhcpRunner) maintain(lease *nclient4.Lease) (dhcpOutcome, *nclient4.Lea
 			if deadline.After(expiry) {
 				deadline = expiry
 			}
-			stopped, _, reacquire := d.sleepUntil(deadline, lease)
+			stopped, reacquire := d.sleepUntil(deadline, lease)
 			if stopped {
 				return dhcpStopped, nil
 			}
@@ -219,18 +219,19 @@ func (d *dhcpRunner) maintain(lease *nclient4.Lease) (dhcpOutcome, *nclient4.Lea
 
 // sleepUntil waits for a deadline while staying responsive to shutdown and to
 // link-monitor kicks. On a kick it re-verifies the lease is still programmed (a
-// link flap or netdev re-creation wipes it) and re-applies it, then returns
-// kicked so the caller re-reads the clock rather than assuming it slept.
-func (d *dhcpRunner) sleepUntil(deadline time.Time, lease *nclient4.Lease) (stopped, kicked, reacquire bool) {
+// link flap or netdev re-creation wipes it) and re-applies it; either way the
+// caller's own loop re-reads the clock on its next iteration, so a kick needs
+// no separate signal back to the caller.
+func (d *dhcpRunner) sleepUntil(deadline time.Time, lease *nclient4.Lease) (stopped, reacquire bool) {
 	timer := time.NewTimer(time.Until(deadline))
 	defer timer.Stop()
 	select {
 	case <-d.done:
-		return true, false, false
+		return true, false
 	case <-timer.C:
-		return false, false, false
+		return false, false
 	case <-d.reacquire:
-		return false, false, true
+		return false, true
 	case <-d.kick:
 		if !leaseApplied(d.iface, lease) {
 			log.Warnf("network: dhcp %s: address lost; re-applying lease", d.iface)
@@ -238,7 +239,7 @@ func (d *dhcpRunner) sleepUntil(deadline time.Time, lease *nclient4.Lease) (stop
 				log.Warnf("network: dhcp %s: re-apply failed: %v", d.iface, err)
 			}
 		}
-		return false, true, false
+		return false, false
 	}
 }
 
@@ -494,7 +495,7 @@ func rememberAddr(iface string, ip net.IP) {
 	if prev, err := os.ReadFile(path); err == nil && strings.TrimSpace(string(prev)) == ip.String() {
 		return // unchanged; do not rewrite on every renewal
 	}
-	if err := os.WriteFile(path, []byte(ip.String()+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(ip.String()+"\n"), 0o600); err != nil {
 		log.Debugf("network: dhcp %s: remember %s: %v", iface, ip, err)
 	}
 }

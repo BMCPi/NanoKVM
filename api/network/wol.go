@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -34,7 +35,10 @@ func (s *Service) WakeOnLAN(c *gin.Context) {
 	}
 
 	command := fmt.Sprintf("ether-wake -b %s", mac)
-	cmd := exec.Command("sh", "-c", command)
+	// context.Background(), not c.Request.Context(): the magic packet send
+	// must complete even if the client disconnects right after issuing the
+	// request, so the command's lifetime is intentionally not tied to it.
+	cmd := exec.CommandContext(context.Background(), "sh", "-c", command)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -102,7 +106,7 @@ func (s *Service) SetMacName(c *gin.Context) {
 	}
 
 	data := strings.Join(newLines, "\n")
-	err = os.WriteFile(WolMacFile, []byte(data), 0o644)
+	err = os.WriteFile(WolMacFile, []byte(data), 0o600) //nolint:gosec // G703: destination is the hardcoded WolMacFile constant, never attacker-influenced; only the persisted MAC/name content is request-supplied, which is the intended feature
 	if err != nil {
 		log.Errorf("failed to write %s: %s", WolMacFile, err)
 		rsp.ErrRsp(c, -3, "write failed")
@@ -140,7 +144,7 @@ func (s *Service) DeleteMac(c *gin.Context) {
 	}
 
 	data := strings.Join(newMacs, "\n")
-	err = os.WriteFile(WolMacFile, []byte(data), 0o644)
+	err = os.WriteFile(WolMacFile, []byte(data), 0o600) //nolint:gosec // G703: destination is the hardcoded WolMacFile constant, never attacker-influenced; only the persisted MAC/name content is request-supplied, which is the intended feature
 	if err != nil {
 		log.Errorf("failed to write %s: %s", WolMacFile, err)
 		rsp.ErrRsp(c, -3, "write failed")

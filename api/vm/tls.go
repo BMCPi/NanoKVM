@@ -12,8 +12,8 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 )
 
-func (s *Service) SetTls(c *gin.Context) {
-	var req proto.SetTlsReq
+func (s *Service) SetTLS(c *gin.Context) {
+	var req proto.SetTLSReq
 	var rsp proto.Response
 
 	err := proto.ParseFormRequest(c, &req)
@@ -58,11 +58,7 @@ func EnableTLS() error {
 	conf.Cert.Crt = "/etc/kvm/server.crt"
 	conf.Cert.Key = "/etc/kvm/server.key"
 
-	if err := config.Write(conf); err != nil {
-		return err
-	}
-
-	return nil
+	return config.Write(conf)
 }
 
 // DisableTLS switches the persisted proto back to http.
@@ -74,9 +70,5 @@ func DisableTLS() error {
 
 	conf.Proto = "http"
 
-	if err := config.Write(conf); err != nil {
-		return err
-	}
-
-	return nil
+	return config.Write(conf)
 }

@@ -83,7 +83,7 @@ func (w *hidSocketWriter) send(v any) error {
 func (s *Service) HID(c *gin.Context) {
 	ctrl := s.HIDGadget
 	if ctrl == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "HID gadget is not available on this device"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: "HID gadget is not available on this device"})
 		return
 	}
 
@@ -338,20 +338,20 @@ func (s *Service) GetMacros(c *gin.Context) {
 func (s *Service) CreateMacro(c *gin.Context) {
 	var macro config.KeyboardMacro
 	if err := c.ShouldBindJSON(&macro); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
 		return
 	}
 
 	conf := s.Conf
 	if len(conf.Macros) >= config.MaxMacros {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "the macro limit has been reached"})
+		c.JSON(http.StatusBadRequest, gin.H{errorKey: "the macro limit has been reached"})
 		return
 	}
 
 	macro.ID = uuid.NewString()
 	macro.SortOrder = len(conf.Macros)
 	if err := validateMacro(&macro); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
 		return
 	}
 
@@ -365,7 +365,7 @@ func (s *Service) CreateMacro(c *gin.Context) {
 func (s *Service) UpdateMacro(c *gin.Context) {
 	var macro config.KeyboardMacro
 	if err := c.ShouldBindJSON(&macro); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
 		return
 	}
 
@@ -373,13 +373,13 @@ func (s *Service) UpdateMacro(c *gin.Context) {
 	conf := s.Conf
 	idx := macroIndex(conf, id)
 	if idx < 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "no such macro"})
+		c.JSON(http.StatusNotFound, gin.H{errorKey: "no such macro"})
 		return
 	}
 
 	macro.ID = id
 	if err := validateMacro(&macro); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
 		return
 	}
 
@@ -394,7 +394,7 @@ func (s *Service) DeleteMacro(c *gin.Context) {
 	conf := s.Conf
 	idx := macroIndex(conf, c.Param("id"))
 	if idx < 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "no such macro"})
+		c.JSON(http.StatusNotFound, gin.H{errorKey: "no such macro"})
 		return
 	}
 
@@ -409,21 +409,21 @@ func (s *Service) DeleteMacro(c *gin.Context) {
 func (s *Service) RunMacro(c *gin.Context) {
 	ctrl := s.HIDGadget
 	if ctrl == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "HID gadget is not available on this device"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: "HID gadget is not available on this device"})
 		return
 	}
 
 	conf := s.Conf
 	idx := macroIndex(conf, c.Param("id"))
 	if idx < 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "no such macro"})
+		c.JSON(http.StatusNotFound, gin.H{errorKey: "no such macro"})
 		return
 	}
 	macro := conf.Macros[idx]
 
 	steps, err := resolveMacro(macro)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
 		return
 	}
 
@@ -436,7 +436,7 @@ func (s *Service) RunMacro(c *gin.Context) {
 
 	if err := ctrl.RunMacro(ctx, steps); err != nil {
 		log.Warnf("hid: macro %q failed: %s", macro.Name, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 		return
 	}
 

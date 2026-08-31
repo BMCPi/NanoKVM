@@ -47,7 +47,7 @@ func (w *wsSignaler) Send(m rtc.Message) error {
 // stop encoding for a viewer who has gone away.
 func (s *Service) Video(c *gin.Context) {
 	if s.VideoHub == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "video capture is not available on this device"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: "video capture is not available on this device"})
 		return
 	}
 

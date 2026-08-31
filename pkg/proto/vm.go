@@ -57,6 +57,6 @@ type SetSSHKeysReq struct {
 	SSHKey string `json:"sshKey" validate:"omitempty"`
 }
 
-type SetTlsReq struct {
+type SetTLSReq struct {
 	Enabled bool `validate:"omitempty"`
 }

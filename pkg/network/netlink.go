@@ -176,7 +176,7 @@ func writeResolvConf(servers []net.IP) {
 	for _, ip := range servers {
 		fmt.Fprintf(&b, "nameserver %s\n", ip.String())
 	}
-	if err := os.WriteFile("/etc/resolv.conf", []byte(b.String()), 0o644); err != nil {
+	if err := os.WriteFile("/etc/resolv.conf", []byte(b.String()), 0o644); err != nil { //nolint:gosec // G306: system resolver config -- every process doing name resolution (busybox wget/ping, the Go runtime's own resolver) reads this well-known path, so it must stay world-readable
 		log.Warnf("network: write /etc/resolv.conf: %v", err)
 	}
 }

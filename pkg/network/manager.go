@@ -40,6 +40,9 @@ const (
 	// attempts (link never appearing, LinkSetUp errors, static apply errors).
 	supRetryFloor = 5 * time.Second
 	supRetryCap   = 60 * time.Second
+
+	// eth0Label names the primary uplink in diagnostic log output.
+	eth0Label = "eth0"
 )
 
 // rhiEth0Wait caps how long the RHI defers to eth0. The uplink is configured
@@ -235,7 +238,7 @@ func (m *Manager) waitReady(timeout time.Duration) {
 		name  string
 		ready <-chan struct{}
 	}{
-		{"eth0", m.eth0Ready},
+		{eth0Label, m.eth0Ready},
 		{"rhi", m.rhiReady},
 	} {
 		select {
