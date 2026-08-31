@@ -40,6 +40,7 @@ func mediaFragmentRoutes(g *gin.RouterGroup, d *deps.Deps) {
 	m.GET("/add", getMediaAdd(d))
 	m.POST("/eject", postMediaEject(d))
 	m.POST("/insert", postMediaInsert(d))
+	m.POST("/delete", postMediaDelete(d))
 	m.POST("/upload", postMediaUpload(d))
 	m.POST("/fetch", postMediaFetch(d))
 	m.GET("/fetch/progress", getMediaFetchProgress(d))
@@ -206,6 +207,41 @@ func postMediaInsert(d *deps.Deps) gin.HandlerFunc {
 		hxToast(c, "success", "Mounted "+name, "")
 		files, inserted := components.MediaState(d.Firmware)
 		renderFragment(c, components.VMMenuBody(files, inserted))
+	}
+}
+
+// postMediaDelete unlinks a staged image from the media library.
+//
+// Reached from the Existing tab's split button: the operator picks Delete
+// from the chevron menu, which swaps the primary button for a destructive
+// one. That two-step is the confirmation — there is no modal on top of it,
+// because a second prompt for an action that already took two deliberate
+// clicks trains people to dismiss prompts.
+//
+// The controller owns the two refusals that matter: DeleteMediaFile will not
+// unlink the image the gadget is currently serving (the host would see its
+// CD-ROM disappear mid-read), and mediaPathFor rejects a name that escapes
+// the media directory. Both surface here as a toast rather than a status
+// code, since htmx skips the swap on a 4xx and the message would never land.
+//
+// The response re-renders the Add view rather than the mount summary: the
+// operator is managing the library and wants the shortened list, not to be
+// bounced somewhere else after every deletion.
+func postMediaDelete(d *deps.Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		name := c.PostForm("name")
+		if name == "" {
+			hxToast(c, "error", "Delete failed", "select a file to delete")
+			mediaRenderAdd(c, d)
+			return
+		}
+		if err := d.Firmware.DeleteMediaFile(name); err != nil {
+			hxToast(c, "error", "Delete failed", err.Error())
+			mediaRenderAdd(c, d)
+			return
+		}
+		hxToast(c, "success", "Deleted "+name, "")
+		mediaRenderAdd(c, d)
 	}
 }
 

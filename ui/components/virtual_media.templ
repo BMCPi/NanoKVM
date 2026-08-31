@@ -8,6 +8,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
 	pkgutils "github.com/pi-bmc/nanokvm-app/pkg/utils"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
+	"github.com/pi-bmc/nanokvm-app/ui/components/buttongroup"
 	"github.com/pi-bmc/nanokvm-app/ui/components/dropdownmenu"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
 	"github.com/pi-bmc/nanokvm-app/ui/components/input"
@@ -72,6 +73,25 @@ func fetchPhaseLabel(format string) string {
 // does not recognise is staged byte-for-byte exactly as before.
 func mediaUploadAccept() string {
 	return strings.Join(append([]string{".iso", ".img"}, pkgutils.CompressionExtensions()...), ",")
+}
+
+// mediaActionAttrs wires one action of the Existing tab's split button.
+//
+// The verb lives on the button, never on the enclosing form. htmx captures a
+// verb attribute when it processes an element, so a single shared button
+// whose hx-post is rewritten at runtime keeps firing the old request while
+// the label advertises the new one — the exact shape of the power-toggle bug.
+// Two buttons with two static verbs cannot drift: whichever is visible is the
+// only one whose request exists at all.
+//
+// hx-include is needed because the button is not the form: the select renders
+// its value into a hidden input, and only "closest form" pulls it in.
+func mediaActionAttrs(path string) templ.Attributes {
+	return templ.Attributes{
+		"hx-post":         path,
+		"hx-include":      "closest form",
+		"hx-disabled-elt": "this",
+	}
 }
 
 // MediaState snapshots the staged ISO list and insertion state; rendered
@@ -229,12 +249,14 @@ templ VMAddBody(files []string) {
 				}
 			}
 			@tabs.Content(tabs.ContentProps{Value: "existing", Class: "space-y-2"}) {
-				<form
-					class="flex items-center gap-2"
-					hx-post="/ui/media/insert"
-					hx-target="#vm-menu-body"
-					hx-disabled-elt="find button"
-				>
+				// No verb and no submit button on the form itself: each
+				// action carries its own (see mediaActionAttrs). A form with
+				// a verb would run that one regardless of which button is
+				// showing. It stays a <form> so hx-include="closest form"
+				// reaches the select's hidden input, and nothing in it can
+				// submit natively — implicit submission needs a text field,
+				// and the only other control here is the combobox button.
+				<form id="vm-existing-form" class="flex items-center gap-2" hx-target="#vm-menu-body">
 					@selectcomp.Select(selectcomp.Props{ID: "vm-insert-name", Name: "name"}) {
 						@selectcomp.Trigger(selectcomp.TriggerProps{Class: "h-8 flex-1 min-w-0"}) {
 							@selectcomp.Value(selectcomp.ValueProps{Placeholder: "— select ISO —"})
@@ -247,8 +269,58 @@ templ VMAddBody(files []string) {
 							}
 						}
 					}
-					@button.Button(button.Props{Size: button.SizeSm, Type: button.TypeSubmit}) {
-						Mount
+					@buttongroup.ButtonGroup() {
+						@button.Button(button.Props{
+							ID:         "vm-mount-submit",
+							Size:       button.SizeSm,
+							Attributes: mediaActionAttrs("/ui/media/insert"),
+						}) {
+							Mount
+						}
+						// Hidden until the chevron menu selects it. Those two
+						// deliberate steps are the confirmation for an unlink;
+						// a modal on top of them would just train people to
+						// dismiss modals.
+						@button.Button(button.Props{
+							ID:      "vm-delete-submit",
+							Size:    button.SizeSm,
+							Variant: button.VariantDestructive,
+							Attributes: utils.MergeAttributes(
+								mediaActionAttrs("/ui/media/delete"),
+								// The hidden ATTRIBUTE: preflight's
+								// [hidden]{display:none!important} wins where a
+								// `hidden` class loses to the button's own
+								// inline-flex on stylesheet order.
+								templ.Attributes{"hidden": true},
+							),
+						}) {
+							Delete
+						}
+						@dropdownmenu.DropdownMenu() {
+							@button.Button(button.Props{
+								ID:   "vm-action-menu",
+								Size: button.SizeIconSm,
+								Attributes: utils.MergeAttributes(
+									dropdownmenu.Trigger(ctx),
+									templ.Attributes{"aria-label": "Choose media action"},
+								),
+							}) {
+								@icon.ChevronDown()
+							}
+							@dropdownmenu.Content(dropdownmenu.ContentProps{Align: dropdownmenu.AlignEnd, Class: "min-w-32"}) {
+								@dropdownmenu.Item(dropdownmenu.ItemProps{
+									Attributes: templ.Attributes{"data-vm-action": "mount"},
+								}) {
+									Mount
+								}
+								@dropdownmenu.Item(dropdownmenu.ItemProps{
+									Variant:    dropdownmenu.ItemVariantDestructive,
+									Attributes: templ.Attributes{"data-vm-action": "delete"},
+								}) {
+									Delete
+								}
+							}
+						}
 					}
 				</form>
 			}

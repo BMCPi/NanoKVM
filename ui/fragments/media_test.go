@@ -363,3 +363,116 @@ func TestMediaFetchStatusCarriesFormatAndReportsExtractionOnCompletion(t *testin
 		t.Errorf("HX-Trigger = %q, want the completion toast to report bytes extracted from an xz source", trigger)
 	}
 }
+
+// ── delete ──────────────────────────────────────────────────────────────
+//
+// Deleting a staged image is reachable from the Existing tab's split button:
+// pick Delete from the chevron menu, then press the button that replaces
+// Mount. The two-step is the confirmation, so the handler below is the only
+// thing standing between a click and an unlinked file — which is why the
+// mounted-image guard gets its own test rather than being trusted to the UI.
+
+func writeStagedMedia(t *testing.T, mediaDir, name string) string {
+	t.Helper()
+	path := filepath.Join(mediaDir, name)
+	if err := os.WriteFile(path, []byte("not really an iso"), 0o600); err != nil {
+		t.Fatalf("seed %s: %v", name, err)
+	}
+	return path
+}
+
+func postForm(t *testing.T, r *gin.Engine, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func TestMediaDeleteRemovesAStagedFile(t *testing.T) {
+	r, mediaDir := mediaRouter(t)
+	path := writeStagedMedia(t, mediaDir, "alpine.iso")
+	writeStagedMedia(t, mediaDir, "keep-me.iso")
+
+	w := postForm(t, r, "/ui/media/delete", "name=alpine.iso")
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 — htmx skips the swap on a 4xx/5xx, so the "+
+			"refreshed file list would never reach the page", w.Code)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("alpine.iso still on disk: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(mediaDir, "keep-me.iso")); err != nil {
+		t.Errorf("deleting one image took another with it: %v", err)
+	}
+	if w.Header().Get("HX-Trigger") == "" {
+		t.Error("no toast: a destructive action that reports nothing is indistinguishable from a no-op")
+	}
+	// The response re-renders the Add view rather than jumping back to the
+	// mount summary: the operator is managing the library, and the fresh
+	// list is what they need to see.
+	if body := w.Body.String(); !strings.Contains(body, "keep-me.iso") {
+		t.Errorf("response does not carry the refreshed file list:\n%s", body)
+	} else if strings.Contains(body, "alpine.iso") {
+		t.Errorf("deleted image still listed in the response:\n%s", body)
+	}
+}
+
+// The controller refuses to unlink the image the gadget is currently serving,
+// because the host would see its CD-ROM vanish mid-read. The handler has to
+// surface that as a toast rather than swallowing it.
+func TestMediaDeleteRefusesTheMountedImage(t *testing.T) {
+	r, mediaDir := mediaRouterWithGadget(t)
+	path := writeStagedMedia(t, mediaDir, "mounted.iso")
+
+	if w := postForm(t, r, "/ui/media/insert", "name=mounted.iso"); w.Code != http.StatusOK {
+		t.Fatalf("setup mount: status %d", w.Code)
+	}
+
+	w := postForm(t, r, "/ui/media/delete", "name=mounted.iso")
+
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("the mounted image was deleted out from under the gadget: %v", err)
+	}
+	trigger := w.Header().Get("HX-Trigger")
+	if !strings.Contains(trigger, "eject") {
+		t.Errorf("HX-Trigger = %q, want a toast telling the operator to eject first", trigger)
+	}
+}
+
+func TestMediaDeleteRequiresAName(t *testing.T) {
+	r, mediaDir := mediaRouter(t)
+	writeStagedMedia(t, mediaDir, "alpine.iso")
+
+	w := postForm(t, r, "/ui/media/delete", "name=")
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 so the error toast swaps in", w.Code)
+	}
+	if w.Header().Get("HX-Trigger") == "" {
+		t.Error("no toast for an empty selection")
+	}
+	entries, _ := os.ReadDir(mediaDir)
+	if len(entries) != 1 {
+		t.Errorf("media dir holds %d entries, want the untouched 1", len(entries))
+	}
+}
+
+// Path traversal: the name arrives from a form field, so "../../etc/passwd"
+// must not escape the media directory. mediaPathFor is the guard; this pins
+// that the handler routes through it.
+func TestMediaDeleteRefusesATraversingName(t *testing.T) {
+	r, mediaDir := mediaRouter(t)
+	outside := filepath.Join(filepath.Dir(mediaDir), "outside.iso")
+	if err := os.WriteFile(outside, []byte("keep"), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	postForm(t, r, "/ui/media/delete", "name=../outside.iso")
+
+	if _, err := os.Stat(outside); err != nil {
+		t.Errorf("a traversing name unlinked a file outside the media dir: %v", err)
+	}
+}

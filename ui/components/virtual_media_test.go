@@ -144,3 +144,142 @@ func TestUploadPhaseLabelKnowsEveryCompressionExtension(t *testing.T) {
 		}
 	}
 }
+
+// ── the Existing tab's split button ─────────────────────────────────────
+//
+// Mount and Delete share one file selector. They are two separate buttons
+// rather than one whose verb is rewritten, because htmx captures a verb
+// attribute when it processes an element: mutating hx-post afterwards does
+// nothing without htmx.process(), and the power toggle already shipped once
+// posting the previous action while the label said the new one. Two static
+// buttons, one hidden, cannot drift that way — whichever is visible is the
+// only one whose request exists.
+
+func renderVMAdd(t *testing.T, files []string) string {
+	t.Helper()
+	return renderToString(t, func(w *strings.Builder) error {
+		return VMAddBody(files).Render(context.Background(), w)
+	})
+}
+
+// buttonTag returns the markup of the element carrying id.
+func buttonTag(t *testing.T, html, id string) string {
+	t.Helper()
+	re := regexp.MustCompile(`<[a-zA-Z]+[^>]*\bid="` + regexp.QuoteMeta(id) + `"[^>]*>`)
+	m := re.FindString(html)
+	if m == "" {
+		t.Fatalf("no element with id %q in:\n%s", id, html)
+	}
+	return m
+}
+
+func TestMediaActionsAreTwoStaticButtons(t *testing.T) {
+	html := renderVMAdd(t, []string{"alpine.iso"})
+
+	mount := buttonTag(t, html, "vm-mount-submit")
+	del := buttonTag(t, html, "vm-delete-submit")
+
+	if !strings.Contains(mount, `hx-post="/ui/media/insert"`) {
+		t.Errorf("mount button does not post to /ui/media/insert: %s", mount)
+	}
+	if !strings.Contains(del, `hx-post="/ui/media/delete"`) {
+		t.Errorf("delete button does not post to /ui/media/delete: %s", del)
+	}
+	// Each carries its own verb; neither is a shared button reprogrammed at
+	// runtime, which htmx would ignore.
+	if strings.Contains(mount, "/ui/media/delete") || strings.Contains(del, "/ui/media/insert") {
+		t.Error("the two actions share a request target")
+	}
+}
+
+// The gate the request asked for: Delete cannot be pressed until it has been
+// chosen from the chevron menu.
+func TestDeleteStartsHidden(t *testing.T) {
+	html := renderVMAdd(t, []string{"alpine.iso"})
+
+	del := buttonTag(t, html, "vm-delete-submit")
+	if !strings.Contains(del, "hidden") {
+		t.Errorf("the delete button renders visible, so a stray click destroys an "+
+			"image with no deliberate step in between: %s", del)
+	}
+	if mount := buttonTag(t, html, "vm-mount-submit"); strings.Contains(mount, " hidden") {
+		t.Errorf("mount is hidden by default; the panel opens with no usable action: %s", mount)
+	}
+	// Hidden by ATTRIBUTE, not a utility class: preflight's
+	// [hidden]{display:none!important} beats the button's own inline-flex,
+	// where a `hidden` class loses to it on stylesheet order.
+	if strings.Contains(del, `class="hidden`) || strings.Contains(del, ` hidden "`) {
+		t.Error("delete hidden via a class, which the button's inline-flex overrides")
+	}
+}
+
+func TestDeleteIsMarkedDestructive(t *testing.T) {
+	html := renderVMAdd(t, []string{"alpine.iso"})
+
+	del := buttonTag(t, html, "vm-delete-submit")
+	if !strings.Contains(del, "destructive") {
+		t.Errorf("the delete button is styled like Mount; the only thing separating "+
+			"a mount from an unlink would be the word: %s", del)
+	}
+}
+
+// Nothing may submit the enclosing form on its own. A native submit would run
+// whichever action the form names regardless of which button is showing —
+// exactly the label-says-one-thing-does-another failure the split avoids.
+func TestExistingFormCannotSelfSubmit(t *testing.T) {
+	html := renderVMAdd(t, []string{"alpine.iso"})
+
+	formRe := regexp.MustCompile(`(?s)<form[^>]*id="vm-existing-form".*?</form>`)
+	form := formRe.FindString(html)
+	if form == "" {
+		t.Fatalf("vm-existing-form not found in:\n%s", html)
+	}
+	if strings.Contains(form, `type="submit"`) {
+		t.Error("a submit button inside the form can fire the form's own action")
+	}
+	openTag := regexp.MustCompile(`<form[^>]*id="vm-existing-form"[^>]*>`).FindString(form)
+	if strings.Contains(openTag, "hx-post") {
+		t.Errorf("the form carries its own verb, which would run whichever action it "+
+			"names no matter which button is visible: %s", openTag)
+	}
+}
+
+// The chevron menu is the only way into delete mode, so both actions have to
+// be reachable from it — including switching back.
+func TestActionMenuOffersBothActions(t *testing.T) {
+	html := renderVMAdd(t, []string{"alpine.iso"})
+
+	for _, action := range []string{"mount", "delete"} {
+		if !strings.Contains(html, `data-vm-action="`+action+`"`) {
+			t.Errorf("no menu item selects %q", action)
+		}
+	}
+	// The trigger is icon-only, so its accessible name has to come from an
+	// aria-label — an unlabelled button is announced as just "button", and
+	// this one is the only route to Delete.
+	trigger := buttonTag(t, html, "vm-action-menu")
+	if !strings.Contains(trigger, "aria-label=") {
+		t.Errorf("the action menu trigger has no accessible name: %s", trigger)
+	}
+	if !strings.Contains(trigger, `aria-haspopup="menu"`) {
+		t.Errorf("the trigger is not wired as a menu button: %s", trigger)
+	}
+}
+
+// The ids the toggle script reaches for. Renaming one half silently strands
+// the other: the menu would open, the click would do nothing, and Delete
+// would stay unreachable.
+func TestActionToggleScriptMatchesTheMarkup(t *testing.T) {
+	src, err := TemplFiles.ReadFile("virtual_media.js")
+	if err != nil {
+		t.Fatalf("read virtual_media.js: %v", err)
+	}
+	js := string(src)
+
+	for _, ref := range []string{"vm-mount-submit", "vm-delete-submit", "data-vm-action"} {
+		if !strings.Contains(js, ref) {
+			t.Errorf("virtual_media.js never mentions %q, so the chevron menu cannot "+
+				"switch the button it is supposed to switch", ref)
+		}
+	}
+}
