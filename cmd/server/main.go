@@ -294,8 +294,8 @@ func run(ctx context.Context, stop context.CancelFunc) error {
 	//   3. RequestLogger, innermost of the three, so its latency covers the
 	//      handler rather than the middleware around it.
 	telemetry.Middleware(r)
-	r.Use(middleware.Recovery())
-	r.Use(middleware.RequestLogger())
+	r.Use(middleware.Recovery(rootLog.With("component", "http")))
+	r.Use(middleware.RequestLogger(rootLog.With("component", "http")))
 	if conf.Authentication == "disable" {
 		r.Use(cors.Default())
 	}

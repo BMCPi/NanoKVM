@@ -32,7 +32,7 @@ func Register(r *gin.Engine, api *gin.RouterGroup, d *deps.Deps) {
 	// Token validation for client-side redirect decisions. ResolveAuth owns
 	// the cookie/JWT logic (and the authentication=disable bypass); this
 	// handler only reports the outcome.
-	r.GET("/api/auth/check", middleware.ResolveAuth(), func(c *gin.Context) {
+	r.GET("/api/auth/check", middleware.ResolveAuth(h.log), func(c *gin.Context) {
 		if middleware.IsAuthed(c) {
 			c.JSON(http.StatusOK, gin.H{"valid": true})
 			return

@@ -78,7 +78,7 @@ func Register(r *gin.Engine, d *deps.Deps) {
 	// Protected endpoints. CheckAuth passes host-interface requests through
 	// unauthenticated (DSP0270); handlers guard host-owned writes with
 	// hostWritable instead.
-	api := r.Group("/redfish/v1").Use(HostTrace(h.log), CheckAuth())
+	api := r.Group("/redfish/v1").Use(HostTrace(h.log), CheckAuth(h.log))
 	{
 		// Systems. PATCH carries both write directions: operators stage the
 		// boot override, the host firmware reports identity/boot progress.

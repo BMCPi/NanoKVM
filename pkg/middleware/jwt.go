@@ -10,9 +10,26 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 )
 
 const cookieName = "nano-kvm-token"
+
+// pkgLogHolder backs ParseJWT's debug logging for callers that cannot hand it
+// an injected logger directly: CheckPageAuth (below) and api/redfish's
+// sessionUsername both call ParseJWT straight, with no constructor of their
+// own to thread a logger through. CheckToken and ResolveAuth seed the holder
+// with the logger their caller gave them, so ParseJWT logs at the right
+// component when reached through them; callers that never go through either
+// leave it at the process default. See logger.Holder's doc comment for why a
+// sync.Once-guarded var would get at least one of those callers wrong.
+var pkgLogHolder logger.Holder
+
+// pkgLog returns the package's component logger, defaulting to the process
+// logger before CheckToken or ResolveAuth has seeded the holder.
+func pkgLog() *slog.Logger {
+	return pkgLogHolder.Get()
+}
 
 // authedKey is the gin.Context key set to true when the request was
 // authenticated (or when auth is globally disabled). Read it via IsAuthed.
@@ -29,7 +46,8 @@ type Token struct {
 	jwt.RegisteredClaims
 }
 
-func CheckToken() gin.HandlerFunc {
+func CheckToken(log *slog.Logger) gin.HandlerFunc {
+	pkgLogHolder.Set(log)
 	return func(c *gin.Context) {
 		if allowByToken(c) {
 			c.Next()
@@ -44,7 +62,8 @@ func CheckToken() gin.HandlerFunc {
 // the authedKey context flag accordingly. It NEVER redirects or aborts;
 // downstream handlers may render different content for authed vs guest.
 // If the cookie is present but invalid/expired it is cleared.
-func ResolveAuth() gin.HandlerFunc {
+func ResolveAuth(log *slog.Logger) gin.HandlerFunc {
+	pkgLogHolder.Set(log)
 	return func(c *gin.Context) {
 		conf := config.GetInstance()
 		if conf.Authentication == "disable" {
@@ -191,7 +210,7 @@ func ParseJWT(jwtToken string) (*Token, error) {
 		return []byte(conf.JWT.SecretKey), nil
 	})
 	if err != nil {
-		slog.Debug("parse jwt error", slog.Any("err", err))
+		pkgLog().Debug("parse jwt error", slog.Any("err", err))
 		return nil, err
 	}
 

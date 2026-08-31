@@ -16,6 +16,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/api/redfish"
 	"github.com/pi-bmc/nanokvm-app/api/vm"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
 )
 
@@ -25,7 +26,7 @@ import (
 // the few public endpoints (login, token check, the Redfish tree with its
 // own session auth) take the engine explicitly.
 func Register(r *gin.Engine, d *deps.Deps) {
-	authed := r.Group("/api", middleware.CheckToken())
+	authed := r.Group("/api", middleware.CheckToken(logger.Or(d.Log)))
 
 	auth.Register(r, authed, d)
 	application.Register(authed, d)

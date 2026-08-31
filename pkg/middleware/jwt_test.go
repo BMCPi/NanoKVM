@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -209,7 +210,7 @@ func TestCheckToken_NoCookie_Returns401(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, r := gin.CreateTestContext(w)
-	r.GET("/api/test", CheckToken(), func(c *gin.Context) {
+	r.GET("/api/test", CheckToken(slog.New(slog.DiscardHandler)), func(c *gin.Context) {
 		c.String(http.StatusOK, "ok")
 	})
 	c.Request = httptest.NewRequest(http.MethodGet, "/api/test", nil)
@@ -225,7 +226,7 @@ func TestCheckToken_ValidCookie_PassesThrough(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, r := gin.CreateTestContext(w)
-	r.GET("/api/test", CheckToken(), func(c *gin.Context) {
+	r.GET("/api/test", CheckToken(slog.New(slog.DiscardHandler)), func(c *gin.Context) {
 		c.String(http.StatusOK, "ok")
 	})
 	c.Request = httptest.NewRequest(http.MethodGet, "/api/test", nil)
@@ -242,7 +243,7 @@ func TestCheckToken_ExpiredCookie_Returns401(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, r := gin.CreateTestContext(w)
-	r.GET("/api/test", CheckToken(), func(c *gin.Context) {
+	r.GET("/api/test", CheckToken(slog.New(slog.DiscardHandler)), func(c *gin.Context) {
 		c.String(http.StatusOK, "ok")
 	})
 	c.Request = httptest.NewRequest(http.MethodGet, "/api/test", nil)

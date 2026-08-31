@@ -64,7 +64,7 @@ func pageRoutes(r *gin.Engine, d *deps.Deps, log *slog.Logger) {
 	// Public auth page. ResolveAuth only flags the session; an already
 	// authed visitor is bounced to the dashboard server-side instead of
 	// via a client-side /api/auth/check probe.
-	r.GET("/auth/login", middleware.ResolveAuth(), func(c *gin.Context) {
+	r.GET("/auth/login", middleware.ResolveAuth(log), func(c *gin.Context) {
 		if middleware.IsAuthed(c) {
 			c.Redirect(http.StatusFound, "/dashboard")
 			return
@@ -74,7 +74,7 @@ func pageRoutes(r *gin.Engine, d *deps.Deps, log *slog.Logger) {
 
 	// All page routes resolve auth status (sets authed flag, never redirects).
 	pageGroup := r.Group("/")
-	pageGroup.Use(middleware.ResolveAuth())
+	pageGroup.Use(middleware.ResolveAuth(log))
 
 	// htmx fragment endpoints. Registered on pageGroup rather than protected
 	// so they can reject with HX-Redirect instead of RequireAuth's 302, which

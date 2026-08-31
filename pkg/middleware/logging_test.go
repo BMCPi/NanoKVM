@@ -16,19 +16,17 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
-// newTestLogger installs a JSON slog default writing to a buffer, restoring
-// the previous default when the test ends.
-func newTestLogger(t *testing.T) *bytes.Buffer {
+// newTestLogger builds a JSON logger writing to a buffer, wrapped exactly as
+// logger.Init wraps the process logger, so these tests exercise the same
+// handler stack production runs. Callers pass the returned logger straight
+// into the constructor under test — RequestLogger/Recovery take it directly
+// now, so there is no process-wide default left to swap.
+func newTestLogger(t *testing.T) (*bytes.Buffer, *slog.Logger) {
 	t.Helper()
 	var buf bytes.Buffer
-	prev := slog.Default()
-	// Wrapped exactly as logger.Init wraps the process logger, so these tests
-	// exercise the same handler stack production runs.
 	h := logger.WithTraceContext(
 		slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	slog.SetDefault(slog.New(h))
-	t.Cleanup(func() { slog.SetDefault(prev) })
-	return &buf
+	return &buf, slog.New(h)
 }
 
 func decodeRecords(t *testing.T, buf *bytes.Buffer) []map[string]any {
@@ -63,10 +61,10 @@ func TestRequestLoggerLevelsByOutcome(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		buf := newTestLogger(t)
+		buf, log := newTestLogger(t)
 
 		r := gin.New()
-		r.Use(RequestLogger())
+		r.Use(RequestLogger(log))
 		r.GET("/x", func(c *gin.Context) { c.Status(tc.status) })
 
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x?a=1", nil)
@@ -101,7 +99,7 @@ func TestRequestLoggerLevelsByOutcome(t *testing.T) {
 // has replaced that request by then.
 func TestRequestLoggerCorrelatesWithTrace(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	buf := newTestLogger(t)
+	buf, log := newTestLogger(t)
 
 	// A real SDK provider: spans are recorded and get valid IDs even with no
 	// exporter attached, which is exactly the BMC's default configuration
@@ -111,11 +109,11 @@ func TestRequestLoggerCorrelatesWithTrace(t *testing.T) {
 
 	r := gin.New()
 	r.Use(otelgin.Middleware("test", otelgin.WithTracerProvider(tp)))
-	r.Use(RequestLogger())
+	r.Use(RequestLogger(log))
 	r.GET("/x", func(c *gin.Context) {
 		// A line logged by a handler must land in the same trace as the
 		// request line — that is what makes the two greppable together.
-		slog.InfoContext(c.Request.Context(), "handler ran")
+		log.InfoContext(c.Request.Context(), "handler ran")
 		c.Status(http.StatusOK)
 	})
 
@@ -155,7 +153,7 @@ func TestRequestLoggerCorrelatesWithTrace(t *testing.T) {
 func TestMiddlewareOrderYieldsTraceIDs(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	build := func(otelFirst bool) *gin.Engine {
+	build := func(otelFirst bool, log *slog.Logger) *gin.Engine {
 		tp := sdktrace.NewTracerProvider()
 		t.Cleanup(func() { _ = tp.Shutdown(t.Context()) })
 		otel := otelgin.Middleware("test", otelgin.WithTracerProvider(tp))
@@ -163,9 +161,9 @@ func TestMiddlewareOrderYieldsTraceIDs(t *testing.T) {
 		r := gin.New()
 		if otelFirst {
 			r.Use(otel)
-			r.Use(RequestLogger())
+			r.Use(RequestLogger(log))
 		} else {
-			r.Use(RequestLogger())
+			r.Use(RequestLogger(log))
 			r.Use(otel)
 		}
 		r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
@@ -173,8 +171,8 @@ func TestMiddlewareOrderYieldsTraceIDs(t *testing.T) {
 	}
 
 	hasTraceID := func(otelFirst bool) bool {
-		buf := newTestLogger(t)
-		build(otelFirst).ServeHTTP(httptest.NewRecorder(),
+		buf, log := newTestLogger(t)
+		build(otelFirst, log).ServeHTTP(httptest.NewRecorder(),
 			httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil))
 		recs := decodeRecords(t, buf)
 		if len(recs) != 1 {
@@ -200,10 +198,10 @@ func TestMiddlewareOrderYieldsTraceIDs(t *testing.T) {
 // a separate writer.
 func TestRecoveryLogsAndReturns500(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	buf := newTestLogger(t)
+	buf, log := newTestLogger(t)
 
 	r := gin.New()
-	r.Use(Recovery())
+	r.Use(Recovery(log))
 	r.GET("/boom", func(_ *gin.Context) { panic("kaboom") })
 
 	w := httptest.NewRecorder()
@@ -233,5 +231,20 @@ func TestRecoveryLogsAndReturns500(t *testing.T) {
 	}
 	if !strings.Contains(stack, "Recovery") {
 		t.Errorf("stack does not name the recovering middleware: %q", stack)
+	}
+}
+
+// TestRequestLoggerUsesInjectedLogger confirms RequestLogger writes through
+// the logger it is constructed with, rather than any process-wide default.
+func TestRequestLoggerUsesInjectedLogger(t *testing.T) {
+	var buf bytes.Buffer
+	l := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	r := gin.New()
+	r.Use(RequestLogger(l))
+	r.GET("/ping", func(c *gin.Context) { c.Status(http.StatusOK) })
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/ping", nil))
+	if !strings.Contains(buf.String(), "http request") {
+		t.Fatalf("injected logger saw no request line; buf=%q", buf.String())
 	}
 }

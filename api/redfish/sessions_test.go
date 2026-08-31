@@ -31,7 +31,7 @@ func authTestServer(t *testing.T) *httptest.Server {
 	r.GET(sessionServicePath, h.GetSessionService)
 	r.POST(sessionsPath, h.CreateSession)
 
-	api := r.Group("/redfish/v1").Use(CheckAuth())
+	api := r.Group("/redfish/v1").Use(CheckAuth(h.log))
 	{
 		api.GET("/Systems", h.GetSystemCollection)
 		api.GET("/Systems/1", h.GetSystem)

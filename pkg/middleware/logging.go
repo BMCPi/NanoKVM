@@ -22,13 +22,16 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 )
 
 // RequestLogger logs one record per served request.
 //
 // The level reflects the outcome so an operator can raise the log level and
 // still see failures: 5xx logs at error, 4xx at warn, everything else at info.
-func RequestLogger() gin.HandlerFunc {
+func RequestLogger(log *slog.Logger) gin.HandlerFunc {
+	log = logger.Or(log)
 	return func(c *gin.Context) {
 		start := time.Now()
 		path := c.Request.URL.Path
@@ -59,11 +62,11 @@ func RequestLogger() gin.HandlerFunc {
 		ctx := c.Request.Context()
 		switch {
 		case status >= http.StatusInternalServerError:
-			slog.ErrorContext(ctx, "http request", attrs...)
+			log.ErrorContext(ctx, "http request", attrs...)
 		case status >= http.StatusBadRequest:
-			slog.WarnContext(ctx, "http request", attrs...)
+			log.WarnContext(ctx, "http request", attrs...)
 		default:
-			slog.InfoContext(ctx, "http request", attrs...)
+			log.InfoContext(ctx, "http request", attrs...)
 		}
 	}
 }
@@ -75,7 +78,8 @@ func RequestLogger() gin.HandlerFunc {
 // connection is already gone, and writing a status to it would panic again. It
 // is a client event, not a server fault, so it must not be logged at error —
 // on a BMC, browsers abandon the video and SSE streams constantly.
-func Recovery() gin.HandlerFunc {
+func Recovery(log *slog.Logger) gin.HandlerFunc {
+	log = logger.Or(log)
 	return func(c *gin.Context) {
 		defer func() {
 			r := recover()
@@ -85,7 +89,7 @@ func Recovery() gin.HandlerFunc {
 
 			ctx := c.Request.Context()
 			if isBrokenPipe(r) {
-				slog.WarnContext(ctx, "http connection closed by peer",
+				log.WarnContext(ctx, "http connection closed by peer",
 					slog.String("path", c.Request.URL.Path),
 					slog.Any("err", r))
 				// The response is unwritable; abort without touching it.
@@ -95,7 +99,7 @@ func Recovery() gin.HandlerFunc {
 
 			buf := make([]byte, 8<<10)
 			buf = buf[:runtime.Stack(buf, false)]
-			slog.ErrorContext(ctx, "panic recovered in http handler",
+			log.ErrorContext(ctx, "panic recovered in http handler",
 				slog.String("method", c.Request.Method),
 				slog.String("path", c.Request.URL.Path),
 				slog.Any("panic", r),
