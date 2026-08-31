@@ -2,6 +2,17 @@
 // Raspberry Pi 5 BootROM over USB. It talks to the kernel's usbfs
 // directly via ioctl(2) so the binary can be cross-compiled for
 // riscv64 without CGo or libusb.
+//
+// This is a riscv64 binary that ships inside the device image itself
+// (Makefile's `deploy` target and .goreleaser.yaml both build it for
+// linux/riscv64 and package it at system/usr/bin/rpiboot alongside
+// NanoKVM-Server) — it runs on the BMC, against the BMC's own USB port
+// and the Raspberry Pi 5 compute module physically attached to it, not
+// on an operator's workstation. Nothing in this repo or the Yocto build
+// tree (nanokvm-build) execs it automatically; no caller was found in
+// pkg/ or api/. Its argv therefore comes only from whoever has a local
+// shell on the BMC (SSH per pkg/ssh, or the serial console) invoking it
+// by hand — never from an HTTP request or any other network input.
 package main
 
 import (
@@ -68,7 +79,7 @@ const bulkPad = (^uint(0) >> 32) & 1 * 4 // 4 on 64-bit, 0 on 32-bit
 
 func main() {
 	if len(os.Args) < 2 {
-		log.Fatalf("usage: %s <payload.bin>", os.Args[0]) //nolint:gosec // G706: os.Args[0] is this process's own argv[0] on the operator's own terminal, not remote/multi-tenant log input — there is nothing to inject into
+		log.Fatalf("usage: %s <payload.bin>", os.Args[0]) //nolint:gosec // G706: os.Args[0] is this BMC-resident binary's own argv[0], set by whoever invoked it from a local shell on the device — not data that arrived over the network, so there is nothing to inject into this process's own stdout
 	}
 	payloadPath := os.Args[1]
 
@@ -108,7 +119,7 @@ func main() {
 	log.Printf("Received ASIC ID handshake (%d bytes): %x", n, asicID[:n])
 
 	// Step B: load the payload.
-	payloadData, err := os.ReadFile(payloadPath) //nolint:gosec // G703: payloadPath is os.Args[1], the operator's own command-line argument on their own workstation — reading whatever file they name is the tool's entire purpose, not a privilege-boundary crossing
+	payloadData, err := os.ReadFile(payloadPath) //nolint:gosec // G703: payloadPath is os.Args[1] on this BMC-resident binary; no caller in this repo or nanokvm-build was found passing it a network- or request-derived value, and reading whatever file the local invoker names is the tool's entire purpose — not a boundary crossing for whoever already has a shell on the device
 	if err != nil {
 		log.Fatalf("Failed to read payload file: %v", err)
 	}
@@ -126,12 +137,12 @@ func main() {
 // the raw payload bytes on the bulk OUT endpoint.
 func pushPayload(fd int, data []byte) error {
 	header := make([]byte, 4)
-	binary.LittleEndian.PutUint32(header, uint32(len(data))) //nolint:gosec // G115: data is a boot payload (U-Boot image) supplied by the operator on their own workstation; it is nowhere near the 4GiB uint32 range in practice, and the wire header is a hard 4-byte field this tool must fill regardless
+	binary.LittleEndian.PutUint32(header, uint32(len(data))) //nolint:gosec // G115: data is the boot payload (U-Boot image) read from the local file named on this BMC-resident binary's own argv; it is nowhere near the 4GiB uint32 range in practice, and the wire header is a hard 4-byte field this tool must fill regardless
 
 	if _, err := bulkTransfer(fd, epOutAddr, header, 5000); err != nil {
 		return fmt.Errorf("send size header: %w", err)
 	}
-	log.Printf("Sent payload size header: %d bytes", len(data)) //nolint:gosec // G706: len(data) is a byte count formatted with %d, not attacker text, and the destination is the operator's own terminal — there is no injectable content here
+	log.Printf("Sent payload size header: %d bytes", len(data)) //nolint:gosec // G706: len(data) is a byte count formatted with %d, not text, and it is printed to this process's own stdout on the BMC — there is no injectable content and no remote reader
 
 	written, err := bulkTransfer(fd, epOutAddr, data, 30000)
 	if err != nil {
@@ -210,7 +221,7 @@ func bulkTransfer(fd int, ep uint8, buf []byte, timeoutMs uint32) (int, error) {
 	}
 	t := usbdevfsBulkTransfer{
 		Endpoint: uint32(ep),
-		Length:   uint32(len(buf)), //nolint:gosec // G115: buf is at most the payload size read from a local file (see pushPayload); the usbdevfs_bulktransfer.len field this feeds is a uint32 on the wire, so the conversion is required, not incidental
+		Length:   uint32(len(buf)), //nolint:gosec // G115: buf is at most the payload size read from the local file named on argv (see pushPayload); the usbdevfs_bulktransfer.len field this feeds is a uint32 on the wire, so the conversion is required, not incidental
 		Timeout:  timeoutMs,
 		Data:     uintptr(unsafe.Pointer(&buf[0])),
 	}
