@@ -267,7 +267,30 @@ type Hardware struct {
 // the default button-press simulation via the power-LED header.
 type Power struct {
 	LegacyMode bool `yaml:"legacyMode"`
+
+	// Reset selects how (*power.Controller).Restart dispatches a reset
+	// request: PowerResetAuto, PowerResetLine or PowerResetCycle. An absent
+	// key defaults to PowerResetAuto; any other value is rejected at load
+	// (see applyPowerDefaults) rather than silently coerced, because "line"
+	// asked for something a "cycle" fallback would do without the operator
+	// noticing their config was ignored.
+	Reset string `yaml:"reset"`
 }
+
+// Valid values for Power.Reset.
+const (
+	// PowerResetAuto uses the board's dedicated reset line when the hardware
+	// profile wires one, and falls back to a force-off+repower cycle when it
+	// doesn't.
+	PowerResetAuto = "auto"
+	// PowerResetLine restricts reset to the dedicated line only: an unwired
+	// board errors (power.ErrNoResetLine) instead of substituting a cycle,
+	// which is destructive to whatever the host OS was doing.
+	PowerResetLine = "line"
+	// PowerResetCycle always force-off+repowers, even on a board that wires
+	// a reset line.
+	PowerResetCycle = "cycle"
+)
 
 type IPMI struct {
 	Enabled bool `yaml:"enabled"`

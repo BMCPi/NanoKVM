@@ -67,6 +67,13 @@ const ActionTimeout = 90 * time.Second
 // Callers should fall back to polling State.
 var ErrNoEdgeEvents = errors.New("power: edge events unavailable (legacy mode)")
 
+// ErrNoResetLine is returned by ResetLine, and by Restart in "line" policy,
+// when the compiled hardware profile resolves no GPIOReset pin — this board
+// revision wires no dedicated reset header. Restart in "auto" policy treats
+// this as "fall back to Reset" rather than surfacing it; "line" policy
+// surfaces it because the operator explicitly asked for the line only.
+var ErrNoResetLine = errors.New("power: reset line not wired")
+
 // gpioConsumer labels the process holding the GPIO lines (shown in gpioinfo).
 const gpioConsumer = "nanokvm-power"
 
@@ -82,6 +89,14 @@ const (
 
 	// postPressDelay lets the hardware settle after releasing the button.
 	postPressDelay = 500 * time.Millisecond
+
+	// resetPulseDuration is the dedicated reset line's momentary active
+	// pulse. A motherboard reset header typically latches on far less than
+	// this (tens of ms), but 250ms comfortably clears any debounce
+	// capacitor on the host side while staying well under the ~1s a human
+	// finger holds a physical reset button — long enough to register
+	// reliably, short enough to read as a tap rather than a hold.
+	resetPulseDuration = 250 * time.Millisecond
 
 	// offTimeout bounds how long waitForOff blocks for the host to power down.
 	offTimeout = 30 * time.Second
@@ -115,6 +130,15 @@ type Controller struct {
 	legacyMode   bool
 	gpioPower    config.GPIOPin
 	gpioPowerLED config.GPIOPin
+	gpioReset    config.GPIOPin
+
+	// resetPolicy is config.Power.Reset (auto|line|cycle), read once at
+	// construction like the fields above. Restart is the only reader; an
+	// empty or otherwise unrecognised value dispatches as auto, since
+	// pkg/config's load-time validation is the actual gatekeeper for this
+	// string — a Controller built directly (tests, a future caller outside
+	// the config package) still gets a sane default rather than a panic.
+	resetPolicy string
 
 	log *slog.Logger
 
@@ -142,6 +166,8 @@ func NewController(hw config.Hardware, pw config.Power, log *slog.Logger) *Contr
 		legacyMode:   pw.LegacyMode,
 		gpioPower:    hw.GPIOPower,
 		gpioPowerLED: hw.GPIOPowerLED,
+		gpioReset:    hw.GPIOReset,
+		resetPolicy:  pw.Reset,
 		log:          logger.Or(log),
 		lines:        make(map[config.GPIOPin]*gpiocdev.Line),
 		subs:         make(map[chan bool]struct{}),
@@ -349,6 +375,69 @@ func (c *Controller) Reset(ctx context.Context) (retErr error) {
 	return c.legacyBootSequence()
 }
 
+// CanResetLine reports whether the compiled hardware profile wires a
+// dedicated reset pin (GPIOReset). It reflects the profile only — it does
+// not probe the line — so it is safe to call without holding mu.
+func (c *Controller) CanResetLine() bool {
+	return !c.gpioReset.IsZero()
+}
+
+// ResetLine pulses the dedicated reset line: a momentary active-low pulse
+// (resetPulseDuration), mirroring the power button's request/hold/release
+// discipline (see buttonPress) but on its own GPIO line and its own,
+// shorter, duration. Unlike Reset, this never touches the power pin and
+// never waits for the power LED — a reset-line pulse is a signal to
+// hardware that is still powered, not a power-cycle.
+//
+// Returns an error wrapping ErrNoResetLine when the profile wires no reset
+// pin, checked before taking mu so the static "this board can't do that"
+// answer never queues behind an in-flight power sequence. Callers should
+// test with errors.Is(err, ErrNoResetLine), not equality.
+func (c *Controller) ResetLine(ctx context.Context) (retErr error) {
+	if !c.CanResetLine() {
+		return fmt.Errorf("reset-line pulse: %w", ErrNoResetLine)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	defer func() { telemetry.PowerOperation(ctx, "reset_line", retErr) }()
+
+	// Re-check after the lock: a queued caller may have waited out a
+	// multi-second sequence, and the client that asked for this one may be
+	// long gone.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	c.log.InfoContext(ctx, "power: reset (dedicated reset-line pulse)")
+	return c.pulseResetLine()
+}
+
+// Restart dispatches a reset request per the operator's power.reset policy
+// (resetPolicy):
+//   - "line":  ResetLine only. Errors (ErrNoResetLine) if the board wires no
+//     reset pin — never silently substitutes Reset's force-off+repower,
+//     which is destructive to whatever the host OS was doing.
+//   - "cycle": Reset, unconditionally, even when a reset line is wired.
+//   - "auto" (the default, and the fallback for any unrecognised value):
+//     ResetLine when the board wires one, else Reset.
+func (c *Controller) Restart(ctx context.Context) error {
+	switch c.resetPolicy {
+	case config.PowerResetLine:
+		return c.ResetLine(ctx)
+	case config.PowerResetCycle:
+		return c.Reset(ctx)
+	default: // config.PowerResetAuto, and anything else — see resetPolicy's doc comment
+		if c.CanResetLine() {
+			return c.ResetLine(ctx)
+		}
+		return c.Reset(ctx)
+	}
+}
+
 // Close releases the power-LED GPIO line if ensureLEDWatcher ever requested
 // it. Idempotent and safe to call even when the line was never requested
 // (legacy mode, or button mode that never had State/Watch called). The
@@ -553,6 +642,45 @@ func (c *Controller) buttonPress(duration time.Duration) error {
 	c.log.Debug("power: gpio released (floating high)", slog.String("pin", pin.String()))
 
 	time.Sleep(postPressDelay)
+	return nil
+}
+
+// pulseResetLine drives the dedicated reset pin through the same
+// request/hold/release discipline as buttonPress — ensure released, pull to
+// ground, hold, release — but on its own line (c.gpioReset) and its own,
+// shorter, duration (resetPulseDuration). It is written separately from
+// buttonPress, rather than sharing one parameterised helper, so a change to
+// the power button's press mechanics can never accidentally change the
+// reset pulse's, and vice versa.
+//
+// Caller must hold c.mu, and must have already confirmed c.gpioReset is
+// wired (see CanResetLine) — this does not check pin.IsZero() itself.
+func (c *Controller) pulseResetLine() error {
+	pin := c.gpioReset
+
+	line, err := c.buttonLine(pin)
+	if err != nil {
+		return err
+	}
+
+	// Guarantee starting state is released (high-impedance, host holds HIGH).
+	if err := line.SetValue(1); err != nil {
+		return fmt.Errorf("pre-pulse release: %w", err)
+	}
+
+	// Pull to ground — reset asserted (open-drain actively drives LOW).
+	if err := line.SetValue(0); err != nil {
+		return fmt.Errorf("pulse down: %w", err)
+	}
+	c.log.Debug("power: reset-line pulsed (pulled to ground)", slog.String("pin", pin.String()))
+	time.Sleep(resetPulseDuration)
+
+	// Release — float back to HIGH (open-drain high-impedance).
+	if err := line.SetValue(1); err != nil {
+		return fmt.Errorf("pulse release: %w", err)
+	}
+	c.log.Debug("power: reset-line released (floating high)", slog.String("pin", pin.String()))
+
 	return nil
 }
 

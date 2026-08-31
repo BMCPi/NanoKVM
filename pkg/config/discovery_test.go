@@ -80,7 +80,9 @@ func loadConfigFromYAML(t *testing.T, yamlText string) (Config, string) {
 	if err := viper.Unmarshal(&instance); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	checkDefaultValue()
+	if err := checkDefaultValue(); err != nil {
+		t.Fatalf("checkDefaultValue: %v", err)
+	}
 	return instance, path
 }
 

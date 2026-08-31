@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log"
 	"strings"
 
@@ -151,6 +152,7 @@ var defaultConfig = &Config{
 	},
 	Power: Power{
 		LegacyMode: false,
+		Reset:      PowerResetAuto,
 	},
 	Telemetry: Telemetry{
 		Enabled:     false,
@@ -180,7 +182,12 @@ var defaultConfig = &Config{
 // SSH paths that applyFirmwareDefaults/applySSHDefaults have just backfilled,
 // and applyDiscoveryDefaults derives the SSDP interface from the mDNS one it
 // resolves earlier in the same helper.
-func checkDefaultValue() {
+//
+// applyPowerDefaults runs last, before Hardware resolution and the persist:
+// unlike every other section here it can fail (a mistyped power.reset is
+// rejected rather than silently coerced), and a rejected config must not
+// have Hardware resolved against it or get written back to disk.
+func checkDefaultValue() error {
 	needsPersist := applyJWTDefaults()
 
 	applyCoreDefaults()
@@ -204,6 +211,10 @@ func checkDefaultValue() {
 	applyTimeSyncDefaults()
 	applyNetworkDefaults()
 
+	if err := applyPowerDefaults(); err != nil {
+		return err
+	}
+
 	instance.Hardware = getHardware()
 
 	// Persist generated values (the JWT secret) and the discovery migration
@@ -211,6 +222,28 @@ func checkDefaultValue() {
 	if needsPersist {
 		persistConfig()
 	}
+	return nil
+}
+
+// applyPowerDefaults normalises power.reset: an absent key defaults to
+// PowerResetAuto, and anything other than the three valid sentinels is
+// rejected outright. This deliberately does not follow the silent-coercion
+// pattern used elsewhere in this file (e.g. applyUsbGadgetDefaults' Ethernet
+// switch): an operator who asks for "line" (reset only, error if unwired)
+// must not have a typo silently degrade to "auto" or "cycle", which can
+// substitute a power cycle — destructive to whatever the host OS was doing
+// — for what they explicitly said should error instead.
+func applyPowerDefaults() error {
+	switch instance.Power.Reset {
+	case "":
+		instance.Power.Reset = PowerResetAuto
+	case PowerResetAuto, PowerResetLine, PowerResetCycle:
+		// operator's explicit, valid choice
+	default:
+		return fmt.Errorf("power.reset: invalid value %q (must be %q, %q or %q)",
+			instance.Power.Reset, PowerResetAuto, PowerResetLine, PowerResetCycle)
+	}
+	return nil
 }
 
 // applyJWTDefaults seeds the signing secret and token lifetime. It reports

@@ -63,7 +63,10 @@ func initialize() {
 		log.Fatalf("Failed to parse configuration: %s", err)
 	}
 
-	checkDefaultValue()
+	if err := checkDefaultValue(); err != nil {
+		//nolint:revive // deep-exit: a rejected config (e.g. an invalid power.reset) leaves no usable configuration for any caller of GetInstance
+		log.Fatalf("Failed to apply configuration defaults: %s", err)
+	}
 
 	if instance.Authentication == "disable" {
 		log.Println("NOTICE: Authentication is disabled! Please ensure your service is secure!")
