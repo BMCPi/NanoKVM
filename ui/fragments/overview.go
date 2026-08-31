@@ -24,16 +24,16 @@ import (
 	"github.com/pi-bmc/nanokvm-app/ui/components"
 )
 
-func overviewFragmentRoutes(g *gin.RouterGroup, d *deps.Deps) {
+func overviewFragmentRoutes(g *gin.RouterGroup, h *handlers) {
 	o := g.Group("/overview")
 
 	o.GET("/server", func(c *gin.Context) {
-		renderFragment(c, components.OverviewServerBody(overviewServerModel(c.Request.Context(), d)))
+		renderFragment(c, components.OverviewServerBody(overviewServerModel(c.Request.Context(), h.d)))
 	})
 	o.GET("/app-update", func(c *gin.Context) {
 		renderFragment(c, components.OverviewAppUpdateBody(overviewAppUpdateModel(c.Request.Context())))
 	})
-	o.POST("/app/update", postOverviewAppUpdate)
+	o.POST("/app/update", h.postOverviewAppUpdate)
 
 	// Bound to the drawer's open event rather than page load; see
 	// overviewActivityCard for why. Reads the same registry and history the
@@ -43,13 +43,13 @@ func overviewFragmentRoutes(g *gin.RouterGroup, d *deps.Deps) {
 	})
 
 	o.GET("/firmware", func(c *gin.Context) {
-		renderFragment(c, components.OverviewHostFirmwareBody(overviewFirmwareModel(c.Request.Context(), d)))
+		renderFragment(c, components.OverviewHostFirmwareBody(overviewFirmwareModel(c.Request.Context(), h.d)))
 	})
 
 	o.GET("/boot-override", func(c *gin.Context) {
-		renderFragment(c, components.OverviewBootOverrideBody(overviewBootOverrideModel(c.Request.Context(), d)))
+		renderFragment(c, components.OverviewBootOverrideBody(overviewBootOverrideModel(c.Request.Context(), h.d)))
 	})
-	o.POST("/boot-override", postOverviewBootOverride(d))
+	o.POST("/boot-override", h.postOverviewBootOverride)
 }
 
 // oemString reads one string out of the Oem.NanoKVM block.
@@ -140,15 +140,15 @@ func overviewBootOverrideModel(ctx context.Context, d *deps.Deps) components.Ove
 	return stagedBootOverride(ctx, d)
 }
 
-func postOverviewAppUpdate(c *gin.Context) {
+func (h *handlers) postOverviewAppUpdate(c *gin.Context) {
 	// The process context, not the request's: an update replaces the running
 	// binary and then restarts the process, so a browser navigating away must
 	// not abandon it half-installed. See deps.ActionContext.
-	ctx, cancel := deps.FromContext(c).ActionContext(appUpdateTimeout)
+	ctx, cancel := h.d.ActionContext(appUpdateTimeout)
 	defer cancel()
 
 	if err := application.RunUpdate(ctx); err != nil {
-		slog.ErrorContext(c.Request.Context(), "ui: application update failed", slog.Any("err", err))
+		h.log.ErrorContext(c.Request.Context(), "ui: application update failed", slog.Any("err", err))
 		hxToast(c, "error", "Update failed", err.Error())
 		c.Status(http.StatusInternalServerError)
 		return
@@ -170,42 +170,40 @@ func postOverviewAppUpdate(c *gin.Context) {
 // "once" / "continuous" stage the selected target with that persistence,
 // "clear" disables the override regardless of the select. The override is
 // BMC state only — the host firmware reads and applies it at its next boot.
-func postOverviewBootOverride(d *deps.Deps) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		target := c.PostForm("boot-override")
-		mode := c.PostForm("mode")
+func (h *handlers) postOverviewBootOverride(c *gin.Context) {
+	target := c.PostForm("boot-override")
+	mode := c.PostForm("mode")
 
-		enabled := schemas.OnceBootSourceOverrideEnabled
-		switch mode {
-		case "once", "":
-			// Once is the Redfish default when persistence is unspecified.
-		case "continuous":
-			enabled = schemas.ContinuousBootSourceOverrideEnabled
-		case "clear":
-			target, enabled = "None", schemas.DisabledBootSourceOverrideEnabled
-		default:
-			hxToast(c, "error", "Boot override failed", fmt.Sprintf("unknown mode %q", mode))
-			c.Status(http.StatusBadRequest)
-			return
-		}
-
-		if err := redfish.ApplyBootOverride(schemas.BootSource(target), enabled, d.Firmware); err != nil {
-			hxToast(c, "error", "Boot override failed", err.Error())
-			c.Status(http.StatusBadRequest)
-			return
-		}
-
-		if target == "" || target == "None" {
-			hxToast(c, "success", "Boot override cleared", "The host boots from its normal boot order next time.")
-		} else {
-			persistence := "once"
-			if enabled == schemas.ContinuousBootSourceOverrideEnabled {
-				persistence = "persistent"
-			}
-			hxToast(c, "success", "Boot override staged",
-				target+" ("+persistence+") — the host firmware picks it up at its next boot.")
-		}
-		appendTrigger(c, map[string]any{"fw-changed": nil})
-		c.Status(http.StatusOK)
+	enabled := schemas.OnceBootSourceOverrideEnabled
+	switch mode {
+	case "once", "":
+		// Once is the Redfish default when persistence is unspecified.
+	case "continuous":
+		enabled = schemas.ContinuousBootSourceOverrideEnabled
+	case "clear":
+		target, enabled = "None", schemas.DisabledBootSourceOverrideEnabled
+	default:
+		hxToast(c, "error", "Boot override failed", fmt.Sprintf("unknown mode %q", mode))
+		c.Status(http.StatusBadRequest)
+		return
 	}
+
+	if err := redfish.ApplyBootOverride(schemas.BootSource(target), enabled, h.d.Firmware); err != nil {
+		hxToast(c, "error", "Boot override failed", err.Error())
+		c.Status(http.StatusBadRequest)
+		return
+	}
+
+	if target == "" || target == "None" {
+		hxToast(c, "success", "Boot override cleared", "The host boots from its normal boot order next time.")
+	} else {
+		persistence := "once"
+		if enabled == schemas.ContinuousBootSourceOverrideEnabled {
+			persistence = "persistent"
+		}
+		hxToast(c, "success", "Boot override staged",
+			target+" ("+persistence+") — the host firmware picks it up at its next boot.")
+	}
+	appendTrigger(c, map[string]any{"fw-changed": nil})
+	c.Status(http.StatusOK)
 }

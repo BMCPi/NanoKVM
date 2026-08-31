@@ -11,6 +11,7 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
 	"github.com/pi-bmc/nanokvm-app/ui/assets"
 	"github.com/pi-bmc/nanokvm-app/ui/components"
@@ -28,7 +29,8 @@ import (
 func Register(r *gin.Engine, d *deps.Deps) {
 	r.Use(deps.Middleware(d))
 	staticRoutes(r)
-	pageRoutes(r, d)
+	log := logger.Or(d.Log).With("component", "ui")
+	pageRoutes(r, d, log)
 }
 
 // staticRoutes serves the embedded static assets and the component JS bundle.
@@ -58,7 +60,7 @@ func staticRoutes(r *gin.Engine) {
 }
 
 // pageRoutes registers every templ-rendered page.
-func pageRoutes(r *gin.Engine, d *deps.Deps) {
+func pageRoutes(r *gin.Engine, d *deps.Deps, log *slog.Logger) {
 	// Public auth page. ResolveAuth only flags the session; an already
 	// authed visitor is bounced to the dashboard server-side instead of
 	// via a client-side /api/auth/check probe.
@@ -106,7 +108,7 @@ func pageRoutes(r *gin.Engine, d *deps.Deps) {
 		c.Redirect(http.StatusFound, "/dashboard")
 	})
 	protected.GET("/dashboard", func(c *gin.Context) {
-		c.Render(http.StatusOK, render.New(c.Request.Context(), http.StatusOK, pages.Home(homeModel())))
+		c.Render(http.StatusOK, render.New(c.Request.Context(), http.StatusOK, pages.Home(homeModel(log))))
 	})
 	// Legacy routes: the serial console and settings now live on the
 	// dashboard, so these redirect server-side for old links/bookmarks.
@@ -125,16 +127,16 @@ func pageRoutes(r *gin.Engine, d *deps.Deps) {
 	// spec. The raw spec stays public at /redfish/v1/openapi.{yaml,json}
 	// for tooling discovery; the rendered docs page is behind auth so
 	// it shares the dashboard chrome.
-	protected.GET("/docs", apiDocsHandler())
+	protected.GET("/docs", apiDocsHandler(log))
 }
 
 // homeModel builds the dashboard's server-rendered state, so the page paints
 // in its final shape rather than swapping tabs after load.
-func homeModel() pages.HomeModel {
+func homeModel(log *slog.Logger) pages.HomeModel {
 	cfg := config.GetInstance()
 	return pages.HomeModel{
 		HDMIPrimary:    cfg.Console.HDMIPrimary(),
-		ICEServersJSON: iceServersJSON(cfg),
+		ICEServersJSON: iceServersJSON(cfg, log),
 	}
 }
 
@@ -158,7 +160,7 @@ type iceServer struct {
 // Returns "[]" and not "" when nothing is configured -- that is the valid
 // empty value for RTCPeerConnection, and the common case on a LAN where host
 // candidates are sufficient.
-func iceServersJSON(cfg *config.Config) string {
+func iceServersJSON(cfg *config.Config, log *slog.Logger) string {
 	servers := []iceServer{}
 	if cfg.Stun != "" {
 		servers = append(servers, iceServer{URLs: []string{"stun:" + cfg.Stun}})
@@ -172,7 +174,7 @@ func iceServersJSON(cfg *config.Config) string {
 	}
 	b, err := json.Marshal(servers)
 	if err != nil {
-		slog.Error("ui: marshal ice servers", slog.Any("err", err))
+		log.Error("ui: marshal ice servers", slog.Any("err", err))
 		return "[]"
 	}
 	return string(b)
@@ -180,11 +182,11 @@ func iceServersJSON(cfg *config.Config) string {
 
 // apiDocsHandler parses the OpenAPI spec once (sync.Once via the model
 // cache in apidocs.go) and renders the pages.APIDocsPage on every request.
-func apiDocsHandler() gin.HandlerFunc {
+func apiDocsHandler(log *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		model, err := loadAPIDocsModel()
 		if err != nil {
-			slog.ErrorContext(c.Request.Context(), "api docs: load model", slog.Any("err", err))
+			log.ErrorContext(c.Request.Context(), "api docs: load model", slog.Any("err", err))
 			c.String(http.StatusInternalServerError, "API docs unavailable: %v", err)
 			return
 		}

@@ -50,7 +50,7 @@ func firmwareRouter(t *testing.T) (*gin.Engine, *firmware.Controller) {
 
 	r := gin.New()
 	r.Use(deps.Middleware(d))
-	firmwareFragmentRoutes(r.Group("/ui"), d)
+	firmwareFragmentRoutes(r.Group("/ui"), testHandlers(d))
 	return r, ctrl
 }
 

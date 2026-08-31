@@ -48,8 +48,17 @@ func mediaRouter(t *testing.T) (*gin.Engine, string) {
 
 	r := gin.New()
 	r.Use(deps.Middleware(d))
-	mediaFragmentRoutes(r.Group("/ui"), d)
+	mediaFragmentRoutes(r.Group("/ui"), testHandlers(d))
 	return r, mediaDir
+}
+
+// testHandlers wraps d in a *handlers with a discard logger, for the
+// fragment route-registration functions this package's log-touched files
+// (firmware.go, media.go, overview.go, power.go, power_events.go,
+// settings.go) register on now rather than on *deps.Deps directly. Shared
+// with firmware_test.go and settings_test.go.
+func testHandlers(d *deps.Deps) *handlers {
+	return &handlers{d: d, log: slog.New(slog.DiscardHandler)}
 }
 
 // fakeVMGadget stands in for the configfs-backed USB gadget, absent in a test
@@ -80,7 +89,7 @@ func mediaRouterWithGadget(t *testing.T) (*gin.Engine, string) {
 
 	r := gin.New()
 	r.Use(deps.Middleware(d))
-	mediaFragmentRoutes(r.Group("/ui"), d)
+	mediaFragmentRoutes(r.Group("/ui"), testHandlers(d))
 	return r, mediaDir
 }
 

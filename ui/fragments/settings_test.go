@@ -24,7 +24,7 @@ func settingsRouter(t *testing.T) *gin.Engine {
 	d := &deps.Deps{}
 	r := gin.New()
 	r.Use(deps.Middleware(d))
-	settingsFragmentRoutes(r.Group("/ui"), d)
+	settingsFragmentRoutes(r.Group("/ui"), testHandlers(d))
 	return r
 }
 

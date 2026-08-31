@@ -13,7 +13,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/power"
 	"github.com/pi-bmc/nanokvm-app/ui/components"
 )
@@ -27,70 +26,66 @@ var powerActionLabels = map[string]string{
 	"forceoff": "Force off",
 }
 
-func powerFragmentRoutes(g *gin.RouterGroup, d *deps.Deps) {
+func powerFragmentRoutes(g *gin.RouterGroup, h *handlers) {
 	p := g.Group("/power")
 	// The boot-override section is fetched when the menu opens so it shows
 	// what is actually staged — that state also moves from the overview
 	// card, the Redfish API and other sessions. Registered before the
 	// wildcard, and on GET where the action route (POST) cannot shadow it.
-	p.GET("/boot-override", getPowerBootOverride(d))
+	p.GET("/boot-override", h.getPowerBootOverride)
 	// The SSE fragment stream lives in fragments_power_events.go: it answers
 	// a different shape of request (long-lived, text/event-stream) from the
 	// rest of this file's short htmx POSTs, but it is registered alongside
 	// them because it is part of the same navbar power surface.
-	p.GET("/events", getPowerEvents(d))
-	p.POST("/:action", postPowerAction(d))
+	p.GET("/events", h.getPowerEvents)
+	p.POST("/:action", h.postPowerAction)
 }
 
 // getPowerBootOverride renders the power menu's boot-override section from
 // the same staged state the overview card reads — the Boot block of the
 // Redfish system inventory, which is what PATCH /redfish/v1/Systems/1 writes
 // and the host firmware applies at its next boot.
-func getPowerBootOverride(d *deps.Deps) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		renderFragment(c, components.PowerBootOverride(
-			stagedBootOverride(c.Request.Context(), d)))
-	}
+func (h *handlers) getPowerBootOverride(c *gin.Context) {
+	renderFragment(c, components.PowerBootOverride(
+		stagedBootOverride(c.Request.Context(), h.d)))
 }
 
-func postPowerAction(d *deps.Deps) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		action := c.Param("action")
-		label, ok := powerActionLabels[action]
-		if !ok {
-			hxToast(c, "error", "Power action failed", fmt.Sprintf("unknown action %q", action))
-			c.Status(http.StatusBadRequest)
-			return
-		}
-
-		ctrl := d.Power
-
-		// Detached from the request: htmx aborts the in-flight fetch when the
-		// user navigates away, and that must not abandon a reset between its
-		// off and on phases. See deps.ActionContext.
-		ctx, cancel := d.ActionContext(power.ActionTimeout)
-		defer cancel()
-
-		var err error
-		switch action {
-		case "on":
-			err = ctrl.PowerOn(ctx)
-		case "off":
-			err = ctrl.PowerOff(ctx)
-		case "forceoff":
-			err = ctrl.ForceOff(ctx)
-		case "reset":
-			err = ctrl.Reset(ctx)
-		}
-
-		if err != nil {
-			slog.ErrorContext(c.Request.Context(), "ui: power action failed", slog.String("action", action), slog.Any("err", err))
-			hxToast(c, "error", label+" failed", err.Error())
-			c.Status(http.StatusConflict)
-			return
-		}
-
-		hxToast(c, "success", label, "")
-		c.Status(http.StatusOK)
+func (h *handlers) postPowerAction(c *gin.Context) {
+	action := c.Param("action")
+	label, ok := powerActionLabels[action]
+	if !ok {
+		hxToast(c, "error", "Power action failed", fmt.Sprintf("unknown action %q", action))
+		c.Status(http.StatusBadRequest)
+		return
 	}
+
+	ctrl := h.d.Power
+
+	// Detached from the request: htmx aborts the in-flight fetch when the
+	// user navigates away, and that must not abandon a reset between its
+	// off and on phases. See deps.ActionContext.
+	ctx, cancel := h.d.ActionContext(power.ActionTimeout)
+	defer cancel()
+
+	var err error
+	switch action {
+	case "on":
+		err = ctrl.PowerOn(ctx)
+	case "off":
+		err = ctrl.PowerOff(ctx)
+	case "forceoff":
+		err = ctrl.ForceOff(ctx)
+	case "reset":
+		err = ctrl.Reset(ctx)
+	}
+
+	if err != nil {
+		h.log.ErrorContext(c.Request.Context(), "ui: power action failed", slog.String("action", action), slog.Any("err", err))
+		hxToast(c, "error", label+" failed", err.Error())
+		c.Status(http.StatusConflict)
+		return
+	}
+
+	hxToast(c, "success", label, "")
+	c.Status(http.StatusOK)
 }

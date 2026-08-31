@@ -12,6 +12,7 @@ package fragments
 
 import (
 	"encoding/json"
+	"log/slog"
 	"maps"
 	"net/http"
 
@@ -19,9 +20,20 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
 	"github.com/pi-bmc/nanokvm-app/ui/render"
 )
+
+// handlers holds what a route handler in this package's log-touched files
+// (firmware.go, media.go, overview.go, power.go, power_events.go,
+// settings.go) needs: process-lifetime dependencies (through d) and the
+// "ui" component logger, built once in Routes. bios.go and metrics.go have
+// no log sites and keep taking *deps.Deps directly.
+type handlers struct {
+	d   *deps.Deps
+	log *slog.Logger
+}
 
 // Routes mounts every /ui/... endpoint. It hangs off the group that
 // has ResolveAuth applied and does its own auth rejection: RequireAuth's 302
@@ -31,13 +43,15 @@ func Routes(r *gin.RouterGroup, d *deps.Deps) {
 	frag := r.Group("/ui")
 	frag.Use(requireAuthFragment())
 
-	overviewFragmentRoutes(frag, d)
-	powerFragmentRoutes(frag, d)
-	settingsFragmentRoutes(frag, d)
-	mediaFragmentRoutes(frag, d)
+	h := &handlers{d: d, log: logger.Or(d.Log).With("component", "ui")}
+
+	overviewFragmentRoutes(frag, h)
+	powerFragmentRoutes(frag, h)
+	settingsFragmentRoutes(frag, h)
+	mediaFragmentRoutes(frag, h)
 	metricsFragmentRoutes(frag, d)
 	biosFragmentRoutes(frag, d)
-	firmwareFragmentRoutes(frag, d)
+	firmwareFragmentRoutes(frag, h)
 }
 
 // requireAuthFragment answers an unauthenticated fragment request with the

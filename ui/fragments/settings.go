@@ -31,21 +31,21 @@ import (
 	"github.com/pi-bmc/nanokvm-app/ui/components"
 )
 
-func settingsFragmentRoutes(g *gin.RouterGroup, d *deps.Deps) {
+func settingsFragmentRoutes(g *gin.RouterGroup, h *handlers) {
 	s := g.Group("/settings")
 
 	s.GET("/general", func(c *gin.Context) {
 		renderFragment(c, components.SettingsGeneralBody(generalModel()))
 	})
-	s.PATCH("/autoupdate", patchAutoUpdate)
-	s.PATCH("/console", patchConsole)
-	s.PATCH("/timesync", patchTimeSync)
+	s.PATCH("/autoupdate", h.patchAutoUpdate)
+	s.PATCH("/console", h.patchConsole)
+	s.PATCH("/timesync", h.patchTimeSync)
 
 	s.GET("/network", func(c *gin.Context) {
 		renderFragment(c, components.SettingsNetworkBody(networkModel()))
 	})
-	s.PATCH("/network", patchNetwork)
-	s.PATCH("/mdns", patchMDNS)
+	s.PATCH("/network", h.patchNetwork)
+	s.PATCH("/mdns", h.patchMDNS)
 	s.GET("/network/status", func(c *gin.Context) {
 		renderFragment(c, components.SettingsNetworkStatusRows(networkStatus()))
 	})
@@ -53,37 +53,37 @@ func settingsFragmentRoutes(g *gin.RouterGroup, d *deps.Deps) {
 	s.GET("/serial", func(c *gin.Context) {
 		renderFragment(c, components.SettingsSerialBody(serialModel()))
 	})
-	s.PATCH("/serial", patchSerial)
+	s.PATCH("/serial", h.patchSerial)
 
 	s.GET("/hardware", func(c *gin.Context) {
-		renderFragment(c, components.SettingsHardwareBody(hardwareModel(d)))
+		renderFragment(c, components.SettingsHardwareBody(hardwareModel(h.d)))
 	})
-	s.POST("/hardware", postHardware(d))
-	s.PATCH("/gadget", patchGadget(d))
-	s.PATCH("/power", patchPower(d))
+	s.POST("/hardware", h.postHardware)
+	s.PATCH("/gadget", h.patchGadget)
+	s.PATCH("/power", h.patchPower)
 
 	s.GET("/access", func(c *gin.Context) {
-		renderFragment(c, components.SettingsAccessBody(accessModel()))
+		renderFragment(c, components.SettingsAccessBody(h.accessModel()))
 	})
-	s.POST("/access/ssh", postSSHEnabled)
-	s.POST("/access/ssh/keys", postSSHKeys)
-	s.POST("/access/tls", postTLS)
-	s.PATCH("/access/ports", patchWebPorts)
-	s.PATCH("/access/security", patchLoginSecurity)
-	s.PATCH("/access/protocols", patchProtocols)
+	s.POST("/access/ssh", h.postSSHEnabled)
+	s.POST("/access/ssh/keys", h.postSSHKeys)
+	s.POST("/access/tls", h.postTLS)
+	s.PATCH("/access/ports", h.patchWebPorts)
+	s.PATCH("/access/security", h.patchLoginSecurity)
+	s.PATCH("/access/protocols", h.patchProtocols)
 
 	s.GET("/telemetry", func(c *gin.Context) {
 		renderFragment(c, components.SettingsTelemetryBody(telemetryModel()))
 	})
-	s.PATCH("/telemetry", patchTelemetry)
+	s.PATCH("/telemetry", h.patchTelemetry)
 
 	s.GET("/advanced", func(c *gin.Context) {
 		renderFragment(c, components.SettingsAdvancedBody(advancedModel()))
 	})
-	s.PATCH("/logging", patchLogging)
-	s.PATCH("/webrtc", patchWebRTC)
-	s.PATCH("/storage", patchStorage)
-	s.POST("/reboot", postReboot)
+	s.PATCH("/logging", h.patchLogging)
+	s.PATCH("/webrtc", h.patchWebRTC)
+	s.PATCH("/storage", h.patchStorage)
+	s.POST("/reboot", h.postReboot)
 }
 
 // atoiClamp parses a submitted number. A missing, unparseable or out-of-range
@@ -133,7 +133,7 @@ func generalModel() components.SettingsGeneral {
 // patchTimeSync re-reads the whole sync loop via Restart, which stops the
 // previous loop before starting the new one — otherwise turning timesync off
 // would leave the previous loop running and still touching the clock.
-func patchTimeSync(c *gin.Context) {
+func (h *handlers) patchTimeSync(c *gin.Context) {
 	ts := &config.GetInstance().TimeSync
 	ts.Enabled = checked(c, "enabled")
 	ts.Servers = splitList(c.PostForm("servers"))
@@ -152,7 +152,7 @@ func patchTimeSync(c *gin.Context) {
 // tab the next page load lands on, and both views stay reachable either way.
 // The toast says so, because a settings write that appears to do nothing to
 // the current screen is otherwise indistinguishable from one that failed.
-func patchConsole(c *gin.Context) {
+func (h *handlers) patchConsole(c *gin.Context) {
 	view := config.PrimaryViewSerial
 	if c.PostForm("primaryView") == config.PrimaryViewHDMI {
 		view = config.PrimaryViewHDMI
@@ -165,7 +165,7 @@ func patchConsole(c *gin.Context) {
 	renderFragment(c, components.SettingsGeneralBody(generalModel()))
 }
 
-func patchAutoUpdate(c *gin.Context) {
+func (h *handlers) patchAutoUpdate(c *gin.Context) {
 	au := &config.GetInstance().AutoUpdate
 	au.Enabled = checked(c, "enabled")
 	au.Application = checked(c, "application")
@@ -176,7 +176,7 @@ func patchAutoUpdate(c *gin.Context) {
 	config.Save()
 	// The process context, not the request's: the ticker outlives this call
 	// and must only stop at shutdown.
-	autoupdate.Restart(deps.FromContext(c).Ctx) // re-reads config; cancels an existing ticker
+	autoupdate.Restart(h.d.Ctx) // re-reads config; cancels an existing ticker
 
 	hxToast(c, "success", "Settings saved", "Automatic update settings applied.")
 	renderFragment(c, components.SettingsGeneralBody(generalModel()))
@@ -219,7 +219,7 @@ func networkModel() components.SettingsNetwork {
 // the unchanged Discovery.MDNS, and a subsequent config.Save() would write a
 // discovery: key that makes migrateDiscovery skip the legacy block on the
 // next load, permanently discarding whatever the form "saved".
-func patchMDNS(c *gin.Context) {
+func (h *handlers) patchMDNS(c *gin.Context) {
 	md := &config.GetInstance().Discovery.MDNS
 	md.Enabled = checked(c, "enabled")
 	md.Hostname = strings.TrimSpace(c.PostForm("hostname"))
@@ -258,7 +258,7 @@ func serialModel() components.SettingsSerial {
 // The device path is not validated here: an operator moving the console to a
 // different tty is a legitimate change, and the broker already reports an open
 // failure through the console's own connection status.
-func patchSerial(c *gin.Context) {
+func (h *handlers) patchSerial(c *gin.Context) {
 	s := &config.GetInstance().Serial
 	if dev := strings.TrimSpace(c.PostForm("device")); dev != "" {
 		s.Device = dev
@@ -278,7 +278,7 @@ func patchSerial(c *gin.Context) {
 	config.Save()
 	serial.Restart()
 
-	slog.InfoContext(c.Request.Context(), "serial: settings updated via ui",
+	h.log.InfoContext(c.Request.Context(), "serial: settings updated via ui",
 		slog.String("device", s.Device), slog.Int("baudRate", s.BaudRate),
 		slog.Int("dataBits", s.DataBits), slog.String("parity", s.Parity), slog.Int("stopBits", s.StopBits))
 	hxToast(c, "success", "Serial settings saved", "The port was re-opened; reconnect the console.")
@@ -320,7 +320,7 @@ func networkStatus() components.SettingsNetworkStatus {
 // patchNetwork validates against a copy so a rejected value leaves the live
 // config untouched, then restarts the manager to apply the new addressing
 // without a process restart — the same contract as PATCH /api/network/settings.
-func patchNetwork(c *gin.Context) {
+func (h *handlers) patchNetwork(c *gin.Context) {
 	conf := config.GetInstance()
 	next := conf.Network
 
@@ -345,7 +345,7 @@ func patchNetwork(c *gin.Context) {
 	config.Save()
 	network.Restart()
 
-	slog.InfoContext(c.Request.Context(), "network: settings updated via ui",
+	h.log.InfoContext(c.Request.Context(), "network: settings updated via ui",
 		slog.String("eth0Mode", next.Eth0.Mode), slog.Bool("enabled", next.Enabled))
 	hxToast(c, "success", "Network settings saved", "Addressing re-applied.")
 	renderFragment(c, components.SettingsNetworkBody(networkModel()))
@@ -398,28 +398,26 @@ func hardwareModel(d *deps.Deps) components.SettingsHardware {
 // everything here is consumed by build() when the configfs tree is created at
 // startup. Re-enumerating the device under a running host mid-session would
 // also drop the keyboard the operator may be using to watch it happen.
-func patchGadget(d *deps.Deps) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		g := &config.GetInstance().UsbGadget
-		g.Enabled = checked(c, "enabled")
-		g.HID = checked(c, "hid")
-		g.BIOSMode = checked(c, "biosMode")
-		g.WakeupOnWrite = checked(c, "wakeupOnWrite")
-		if v := strings.TrimSpace(c.PostForm("vendorID")); v != "" {
-			g.VendorID = v
-		}
-		if v := strings.TrimSpace(c.PostForm("productID")); v != "" {
-			g.ProductID = v
-		}
-		g.Manufacturer = strings.TrimSpace(c.PostForm("manufacturer"))
-		g.Product = strings.TrimSpace(c.PostForm("product"))
-		g.SerialNumber = strings.TrimSpace(c.PostForm("serialNumber"))
-
-		config.Save()
-
-		hxToast(c, "success", "USB settings saved", restartNote)
-		renderFragment(c, components.SettingsHardwareBody(hardwareModel(d)))
+func (h *handlers) patchGadget(c *gin.Context) {
+	g := &config.GetInstance().UsbGadget
+	g.Enabled = checked(c, "enabled")
+	g.HID = checked(c, "hid")
+	g.BIOSMode = checked(c, "biosMode")
+	g.WakeupOnWrite = checked(c, "wakeupOnWrite")
+	if v := strings.TrimSpace(c.PostForm("vendorID")); v != "" {
+		g.VendorID = v
 	}
+	if v := strings.TrimSpace(c.PostForm("productID")); v != "" {
+		g.ProductID = v
+	}
+	g.Manufacturer = strings.TrimSpace(c.PostForm("manufacturer"))
+	g.Product = strings.TrimSpace(c.PostForm("product"))
+	g.SerialNumber = strings.TrimSpace(c.PostForm("serialNumber"))
+
+	config.Save()
+
+	hxToast(c, "success", "USB settings saved", restartNote)
+	renderFragment(c, components.SettingsHardwareBody(hardwareModel(h.d)))
 }
 
 // patchPower switches how the power pin is driven. Not applied live:
@@ -427,46 +425,42 @@ func patchGadget(d *deps.Deps) gin.HandlerFunc {
 // — "legacyMode and the GPIO pins are fixed at construction from config"), and
 // the controller is built once in main and threaded through deps, so the
 // running instance keeps the old mode until the process restarts.
-func patchPower(d *deps.Deps) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		config.GetInstance().Power.LegacyMode = checked(c, "legacyMode")
-		config.Save()
+func (h *handlers) patchPower(c *gin.Context) {
+	config.GetInstance().Power.LegacyMode = checked(c, "legacyMode")
+	config.Save()
 
-		hxToast(c, "success", "Settings saved", restartNote)
-		renderFragment(c, components.SettingsHardwareBody(hardwareModel(d)))
-	}
+	hxToast(c, "success", "Settings saved", restartNote)
+	renderFragment(c, components.SettingsHardwareBody(hardwareModel(h.d)))
 }
 
 // postHardware sets the gadget functions to the submitted state rather than
 // toggling them: the form carries the state the user wants, and the gadget
 // package no-ops when a value already matches.
-func postHardware(d *deps.Deps) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		gadget := usbgadget.Get()
+func (h *handlers) postHardware(c *gin.Context) {
+	gadget := usbgadget.Get()
 
-		mode := usbgadget.EthernetOff
-		if checked(c, "network") {
-			mode = usbgadget.EthernetNCM
-		}
-		if err := gadget.SetEthernet(mode); err != nil {
-			slog.ErrorContext(c.Request.Context(), "ui: set ethernet failed", slog.String("mode", mode), slog.Any("err", err))
-			hxToast(c, "error", "USB Ethernet unchanged", err.Error())
-		}
-		if err := gadget.SetDisk(checked(c, "disk")); err != nil {
-			slog.ErrorContext(c.Request.Context(), "ui: set disk failed", slog.Any("err", err))
-			hxToast(c, "error", "USB Mass Storage unchanged", err.Error())
-		}
-
-		renderFragment(c, components.SettingsHardwareBody(hardwareModel(d)))
+	mode := usbgadget.EthernetOff
+	if checked(c, "network") {
+		mode = usbgadget.EthernetNCM
 	}
+	if err := gadget.SetEthernet(mode); err != nil {
+		h.log.ErrorContext(c.Request.Context(), "ui: set ethernet failed", slog.String("mode", mode), slog.Any("err", err))
+		hxToast(c, "error", "USB Ethernet unchanged", err.Error())
+	}
+	if err := gadget.SetDisk(checked(c, "disk")); err != nil {
+		h.log.ErrorContext(c.Request.Context(), "ui: set disk failed", slog.Any("err", err))
+		hxToast(c, "error", "USB Mass Storage unchanged", err.Error())
+	}
+
+	renderFragment(c, components.SettingsHardwareBody(hardwareModel(h.d)))
 }
 
 // ── Access ──────────────────────────────────────────────────────────────
 
-func accessModel() components.SettingsAccess {
+func (h *handlers) accessModel() components.SettingsAccess {
 	keys, err := sshsvc.ReadAuthorizedKeys()
 	if err != nil {
-		slog.Warn("ui: read authorized keys", slog.Any("err", err))
+		h.log.Warn("ui: read authorized keys", slog.Any("err", err))
 	}
 	conf := config.GetInstance()
 	return components.SettingsAccess{
@@ -497,7 +491,7 @@ func accessModel() components.SettingsAccess {
 // A failure (the port is taken, say) rolls the whole submission back, and
 // because the response is the panel re-read from config, the controls snap back
 // on their own rather than showing a state the listener never reached.
-func postSSHEnabled(c *gin.Context) {
+func (h *handlers) postSSHEnabled(c *gin.Context) {
 	conf := config.GetInstance()
 	previous := conf.SSH
 
@@ -507,25 +501,25 @@ func postSSHEnabled(c *gin.Context) {
 
 	if err := sshsvc.Restart(); err != nil {
 		conf.SSH = previous
-		slog.ErrorContext(c.Request.Context(), "ui: apply SSH state", slog.Any("err", err))
+		h.log.ErrorContext(c.Request.Context(), "ui: apply SSH state", slog.Any("err", err))
 		hxToast(c, "error", "SSH unchanged", err.Error())
 		// Put the listener back the way it was; the restart above left it
 		// stopped, and the rolled-back config is what it should be running.
 		if rerr := sshsvc.Restart(); rerr != nil {
-			slog.ErrorContext(c.Request.Context(), "ui: restore SSH listener", slog.Any("err", rerr))
+			h.log.ErrorContext(c.Request.Context(), "ui: restore SSH listener", slog.Any("err", rerr))
 		}
 	} else if previous != conf.SSH {
 		config.Save()
 		hxToast(c, "success", "SSH settings saved", "")
 	}
 
-	renderFragment(c, components.SettingsAccessBody(accessModel()))
+	renderFragment(c, components.SettingsAccessBody(h.accessModel()))
 }
 
 // patchWebPorts records the listener ports. Not applied live: the HTTP server
 // binds them in main at startup, so changing one here without a restart would
 // leave the UI claiming a port nothing is listening on.
-func patchWebPorts(c *gin.Context) {
+func (h *handlers) patchWebPorts(c *gin.Context) {
 	p := &config.GetInstance().Port
 	p.HTTP = atoiClamp(c.PostForm("httpPort"), p.HTTP, 1)
 	p.HTTPS = atoiClamp(c.PostForm("httpsPort"), p.HTTPS, 1)
@@ -533,13 +527,13 @@ func patchWebPorts(c *gin.Context) {
 	config.Save()
 
 	hxToast(c, "success", "Settings saved", restartNote)
-	renderFragment(c, components.SettingsAccessBody(accessModel()))
+	renderFragment(c, components.SettingsAccessBody(h.accessModel()))
 }
 
 // patchLoginSecurity applies immediately: pkg/auth/brute_force.go and
 // pkg/middleware/jwt.go read these out of config on every attempt rather than
 // caching them, so there is nothing to restart.
-func patchLoginSecurity(c *gin.Context) {
+func (h *handlers) patchLoginSecurity(c *gin.Context) {
 	conf := config.GetInstance()
 	conf.Security.LoginMaxFailures = atoiClamp(c.PostForm("maxFailures"), conf.Security.LoginMaxFailures, 1)
 	// Zero is meaningful here — it disables lockout — so the floor is 0, not 1.
@@ -552,13 +546,13 @@ func patchLoginSecurity(c *gin.Context) {
 	config.Save()
 
 	hxToast(c, "success", "Settings saved", "Login policy applied to new sessions.")
-	renderFragment(c, components.SettingsAccessBody(accessModel()))
+	renderFragment(c, components.SettingsAccessBody(h.accessModel()))
 }
 
 // patchProtocols records the out-of-band interfaces. Neither is applied live:
 // the IPMI listener is started once in main, and the Redfish routes are
 // registered on the router at startup.
-func patchProtocols(c *gin.Context) {
+func (h *handlers) patchProtocols(c *gin.Context) {
 	conf := config.GetInstance()
 	conf.IPMI.Enabled = checked(c, "ipmiEnabled")
 	conf.IPMI.Port = atoiClamp(c.PostForm("ipmiPort"), conf.IPMI.Port, 1)
@@ -567,7 +561,7 @@ func patchProtocols(c *gin.Context) {
 	config.Save()
 
 	hxToast(c, "success", "Settings saved", restartNote)
-	renderFragment(c, components.SettingsAccessBody(accessModel()))
+	renderFragment(c, components.SettingsAccessBody(h.accessModel()))
 }
 
 // ── Telemetry ───────────────────────────────────────────────────────────
@@ -588,7 +582,7 @@ func telemetryModel() components.SettingsTelemetry {
 // meter/tracer providers and the scrape handler once at startup, so none of
 // this takes effect until the process restarts — including the master switch,
 // which is why the toast says so rather than implying the charts will fill in.
-func patchTelemetry(c *gin.Context) {
+func (h *handlers) patchTelemetry(c *gin.Context) {
 	t := &config.GetInstance().Telemetry
 	t.Enabled = checked(c, "enabled")
 	t.ServiceName = strings.TrimSpace(c.PostForm("serviceName"))
@@ -605,28 +599,28 @@ func patchTelemetry(c *gin.Context) {
 	renderFragment(c, components.SettingsTelemetryBody(telemetryModel()))
 }
 
-func postSSHKeys(c *gin.Context) {
+func (h *handlers) postSSHKeys(c *gin.Context) {
 	keys := c.PostForm("sshKey")
 	if err := sshsvc.ValidateSSHKey(keys); err != nil {
 		hxToast(c, "error", "Keys not saved", err.Error())
-		renderFragment(c, components.SettingsAccessBody(accessModel()))
+		renderFragment(c, components.SettingsAccessBody(h.accessModel()))
 		return
 	}
 	if err := sshsvc.WriteAuthorizedKeys(keys); err != nil {
-		slog.ErrorContext(c.Request.Context(), "ui: write authorized keys", slog.Any("err", err))
+		h.log.ErrorContext(c.Request.Context(), "ui: write authorized keys", slog.Any("err", err))
 		hxToast(c, "error", "Keys not saved", err.Error())
-		renderFragment(c, components.SettingsAccessBody(accessModel()))
+		renderFragment(c, components.SettingsAccessBody(h.accessModel()))
 		return
 	}
 
 	hxToast(c, "success", "Authorized keys saved", "")
-	renderFragment(c, components.SettingsAccessBody(accessModel()))
+	renderFragment(c, components.SettingsAccessBody(h.accessModel()))
 }
 
 // postTLS rewrites the persisted proto and restarts the service, which is the
 // only way the new listener takes effect. The response tells htmx to reload
 // the page on the new scheme once the service is back.
-func postTLS(c *gin.Context) {
+func (h *handlers) postTLS(c *gin.Context) {
 	enable := checked(c, "enabled")
 
 	var err error
@@ -636,9 +630,9 @@ func postTLS(c *gin.Context) {
 		err = apivm.DisableTLS()
 	}
 	if err != nil {
-		slog.ErrorContext(c.Request.Context(), "ui: set TLS", slog.Any("err", err))
+		h.log.ErrorContext(c.Request.Context(), "ui: set TLS", slog.Any("err", err))
 		hxToast(c, "error", "TLS unchanged", err.Error())
-		renderFragment(c, components.SettingsAccessBody(accessModel()))
+		renderFragment(c, components.SettingsAccessBody(h.accessModel()))
 		return
 	}
 
@@ -647,7 +641,7 @@ func postTLS(c *gin.Context) {
 		scheme = "https"
 	}
 	hxToast(c, "info", "Restarting service", "Reconnect over "+scheme+".")
-	renderFragment(c, components.SettingsAccessBody(accessModel()))
+	renderFragment(c, components.SettingsAccessBody(h.accessModel()))
 
 	// Exit after the response has flushed and let init respawn us.
 	//
@@ -686,7 +680,7 @@ func advancedModel() components.SettingsAdvanced {
 // it would pre-filter bridged entries while leaving slog call sites untouched.)
 // An unrecognised level is rejected rather than defaulting, because silently
 // logging at a different level than the one displayed is worse than an error.
-func patchLogging(c *gin.Context) {
+func (h *handlers) patchLogging(c *gin.Context) {
 	lvl := strings.ToLower(strings.TrimSpace(c.PostForm("level")))
 	if err := logger.SetLevel(lvl); err != nil {
 		hxToast(c, "error", "Log level unchanged", "Unrecognised level "+lvl+".")
@@ -705,7 +699,7 @@ func patchLogging(c *gin.Context) {
 // negotiates, and handed to the browser as the page's ice-servers data
 // attribute, so a change reaches the next session without a restart — no
 // running session is renegotiated.
-func patchWebRTC(c *gin.Context) {
+func (h *handlers) patchWebRTC(c *gin.Context) {
 	conf := config.GetInstance()
 	conf.Stun = strings.TrimSpace(c.PostForm("stun"))
 	conf.Turn.TurnAddr = strings.TrimSpace(c.PostForm("turnAddr"))
@@ -721,7 +715,7 @@ func patchWebRTC(c *gin.Context) {
 // patchStorage moves where uploaded ISOs are kept. Existing images are not
 // relocated — the directory is read per operation, so the old ones simply stop
 // being listed, and saying so beats appearing to delete them.
-func patchStorage(c *gin.Context) {
+func (h *handlers) patchStorage(c *gin.Context) {
 	dir := strings.TrimSpace(c.PostForm("mediaDir"))
 	if dir == "" {
 		hxToast(c, "error", "Media directory unchanged", "A path is required.")
@@ -738,7 +732,7 @@ func patchStorage(c *gin.Context) {
 
 // postReboot answers before rebooting so the toast reaches the browser; the
 // reboot then takes the connection down with it.
-func postReboot(c *gin.Context) {
+func (h *handlers) postReboot(c *gin.Context) {
 	hxToast(c, "info", "Rebooting", "The BMC will be unreachable for about a minute.")
 	c.Status(http.StatusOK)
 
@@ -749,7 +743,7 @@ func postReboot(c *gin.Context) {
 	// c.Copy().
 	go func() {
 		if err := exec.CommandContext(context.Background(), "reboot").Run(); err != nil {
-			slog.Error("ui: reboot failed", slog.Any("err", err))
+			h.log.Error("ui: reboot failed", slog.Any("err", err))
 		}
 	}()
 }

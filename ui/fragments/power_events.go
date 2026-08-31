@@ -21,7 +21,6 @@ import (
 	"github.com/a-h/templ"
 	"github.com/gin-gonic/gin"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/power"
 	"github.com/pi-bmc/nanokvm-app/ui/components"
 )
@@ -86,93 +85,91 @@ func writePowerEvents(ctx context.Context, w io.Writer, on bool) error {
 // stuck state must refuse with a real error status rather than a 200
 // carrying something other than text/event-stream: EventSource treats that
 // as fatal and never reconnects on its own.
-func getPowerEvents(d *deps.Deps) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		ctrl := d.Power
+func (h *handlers) getPowerEvents(c *gin.Context) {
+	ctrl := h.d.Power
 
-		// Subscribe before reading the initial state: a transition landing
-		// between the two is then queued on changes rather than lost.
-		changes, cancel, err := ctrl.Watch()
-		if err != nil && !errors.Is(err, power.ErrNoEdgeEvents) {
-			c.Status(http.StatusServiceUnavailable)
+	// Subscribe before reading the initial state: a transition landing
+	// between the two is then queued on changes rather than lost.
+	changes, cancel, err := ctrl.Watch()
+	if err != nil && !errors.Is(err, power.ErrNoEdgeEvents) {
+		c.Status(http.StatusServiceUnavailable)
+		return
+	}
+	if cancel != nil {
+		defer cancel()
+	}
+
+	// Refuse before any SSE headers go out, same as streamUnavailable in
+	// api/vm/gpio.go: a momentarily unreadable power LED must look like a
+	// failed request, not an empty-but-healthy stream.
+	pwr, err := ctrl.State(c.Request.Context())
+	if err != nil {
+		c.Status(http.StatusServiceUnavailable)
+		return
+	}
+
+	// Legacy mode: synthesise a change feed by polling.
+	var poll <-chan time.Time
+	if changes == nil {
+		ticker := time.NewTicker(powerEventsLegacyPoll)
+		defer ticker.Stop()
+		poll = ticker.C
+	}
+
+	heartbeat := time.NewTicker(powerEventsHeartbeat)
+	defer heartbeat.Stop()
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	// Defeat proxy response buffering, which would hold events until the
+	// (never-ending) stream closed.
+	c.Header("X-Accel-Buffering", "no")
+
+	ctx := c.Request.Context()
+
+	if err := writePowerEvents(ctx, c.Writer, pwr); err != nil {
+		return
+	}
+	c.Writer.Flush()
+
+	for {
+		select {
+		case <-ctx.Done():
 			return
-		}
-		if cancel != nil {
-			defer cancel()
-		}
 
-		// Refuse before any SSE headers go out, same as streamUnavailable in
-		// api/vm/gpio.go: a momentarily unreadable power LED must look like a
-		// failed request, not an empty-but-healthy stream.
-		pwr, err := ctrl.State(c.Request.Context())
-		if err != nil {
-			c.Status(http.StatusServiceUnavailable)
-			return
-		}
-
-		// Legacy mode: synthesise a change feed by polling.
-		var poll <-chan time.Time
-		if changes == nil {
-			ticker := time.NewTicker(powerEventsLegacyPoll)
-			defer ticker.Stop()
-			poll = ticker.C
-		}
-
-		heartbeat := time.NewTicker(powerEventsHeartbeat)
-		defer heartbeat.Stop()
-
-		c.Header("Content-Type", "text/event-stream")
-		c.Header("Cache-Control", "no-cache")
-		c.Header("Connection", "keep-alive")
-		// Defeat proxy response buffering, which would hold events until the
-		// (never-ending) stream closed.
-		c.Header("X-Accel-Buffering", "no")
-
-		ctx := c.Request.Context()
-
-		if err := writePowerEvents(ctx, c.Writer, pwr); err != nil {
-			return
-		}
-		c.Writer.Flush()
-
-		for {
-			select {
-			case <-ctx.Done():
+		case on, ok := <-changes:
+			if !ok {
 				return
-
-			case on, ok := <-changes:
-				if !ok {
-					return
-				}
-				pwr = on
-				if err := writePowerEvents(ctx, c.Writer, on); err != nil {
-					return
-				}
-				c.Writer.Flush()
-
-			case <-poll:
-				on, err := ctrl.State(ctx)
-				if err != nil {
-					slog.DebugContext(ctx, "power events stream: poll failed", slog.Any("err", err))
-					continue
-				}
-				if on == pwr {
-					continue
-				}
-				pwr = on
-				if err := writePowerEvents(ctx, c.Writer, on); err != nil {
-					return
-				}
-				c.Writer.Flush()
-
-			case <-heartbeat.C:
-				// A comment line: keeps proxies from reaping an idle
-				// connection, and EventSource ignores it.
-				if _, err := io.WriteString(c.Writer, ": ping\n\n"); err != nil {
-					return
-				}
-				c.Writer.Flush()
 			}
+			pwr = on
+			if err := writePowerEvents(ctx, c.Writer, on); err != nil {
+				return
+			}
+			c.Writer.Flush()
+
+		case <-poll:
+			on, err := ctrl.State(ctx)
+			if err != nil {
+				h.log.DebugContext(ctx, "power events stream: poll failed", slog.Any("err", err))
+				continue
+			}
+			if on == pwr {
+				continue
+			}
+			pwr = on
+			if err := writePowerEvents(ctx, c.Writer, on); err != nil {
+				return
+			}
+			c.Writer.Flush()
+
+		case <-heartbeat.C:
+			// A comment line: keeps proxies from reaping an idle
+			// connection, and EventSource ignores it.
+			if _, err := io.WriteString(c.Writer, ": ping\n\n"); err != nil {
+				return
+			}
+			c.Writer.Flush()
 		}
 	}
 }

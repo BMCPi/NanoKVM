@@ -45,15 +45,15 @@ var maxCapsuleUploadBytes int64 = 128 << 20 // 128 MiB
 // fetch tracker until the next reboot.
 const capsuleFetchTimeout = 30 * time.Minute
 
-func firmwareFragmentRoutes(g *gin.RouterGroup, d *deps.Deps) {
+func firmwareFragmentRoutes(g *gin.RouterGroup, h *handlers) {
 	fw := g.Group("/settings/firmware")
 
-	fw.GET("", getFirmwarePanel(d))
-	fw.GET("/status", getFirmwareStatus(d))
-	fw.POST("/capsules", postFirmwareCapsuleUpload(d))
-	fw.POST("/capsules/fetch", postFirmwareCapsuleFetch(d))
-	fw.POST("/capsules/clear", postFirmwareCapsuleClear(d))
-	fw.DELETE("/capsules/:name", deleteFirmwareCapsule(d))
+	fw.GET("", h.getFirmwarePanel)
+	fw.GET("/status", h.getFirmwareStatus)
+	fw.POST("/capsules", h.postFirmwareCapsuleUpload)
+	fw.POST("/capsules/fetch", h.postFirmwareCapsuleFetch)
+	fw.POST("/capsules/clear", h.postFirmwareCapsuleClear)
+	fw.DELETE("/capsules/:name", h.deleteFirmwareCapsule)
 }
 
 // firmwareFetchStatus tracks the single in-flight URL fetch, if any — see the
@@ -135,10 +135,8 @@ func firmwarePanel(d *deps.Deps) components.SettingsFirmware {
 	}
 }
 
-func getFirmwarePanel(d *deps.Deps) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(d)))
-	}
+func (h *handlers) getFirmwarePanel(c *gin.Context) {
+	renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(h.d)))
 }
 
 // getFirmwareStatus answers the poller embedded in the panel while
@@ -146,18 +144,16 @@ func getFirmwarePanel(d *deps.Deps) gin.HandlerFunc {
 // (still polling) panel; once it has settled it raises the outcome toast
 // exactly once and renders the settled panel, which stops polling because
 // firmwarePanel's Staging is now false.
-func getFirmwareStatus(d *deps.Deps) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		snap := firmwareFetchSnapshot()
-		if snap.Done && firmwareFetchMarkReported() {
-			if snap.Err != nil {
-				hxToast(c, "error", "Capsule fetch failed", snap.Err.Error())
-			} else {
-				hxToast(c, "success", "Staged "+snap.Name, "Applies at the host's next boot.")
-			}
+func (h *handlers) getFirmwareStatus(c *gin.Context) {
+	snap := firmwareFetchSnapshot()
+	if snap.Done && firmwareFetchMarkReported() {
+		if snap.Err != nil {
+			hxToast(c, "error", "Capsule fetch failed", snap.Err.Error())
+		} else {
+			hxToast(c, "success", "Staged "+snap.Name, "Applies at the host's next boot.")
 		}
-		renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(d)))
 	}
+	renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(h.d)))
 }
 
 // postFirmwareCapsuleUpload streams the uploaded capsule straight onto the
@@ -168,109 +164,101 @@ func getFirmwareStatus(d *deps.Deps) gin.HandlerFunc {
 // os.TempDir() first, which on this device is the RAM-backed tmpfs overlay.
 // See pkg/utils/multipart_stream.go and api/firmware/firmware.go's identical
 // handler for the JSON API.
-func postFirmwareCapsuleUpload(d *deps.Deps) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		upload, err := utils.StreamMultipartFile(c.Request, maxCapsuleUploadBytes, "file")
-		if err != nil {
-			hxToast(c, "error", "Upload failed", "no file selected")
-			renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(d)))
-			return
-		}
-		defer upload.Close()
-
-		name := filepath.Base(upload.Filename)
-		if name == "" || name == "." || name == "/" {
-			hxToast(c, "error", "Upload failed", "invalid filename")
-			renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(d)))
-			return
-		}
-		written, err := d.Firmware.StageCapsule(name, upload)
-		if err != nil {
-			slog.ErrorContext(c.Request.Context(), "ui: stage capsule failed", slog.String("name", name), slog.Any("err", err))
-			hxToast(c, "error", "Upload failed", err.Error())
-			renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(d)))
-			return
-		}
-
-		// TransferSummary is called with format "" — capsules are never
-		// decompressed (see the package comment), so this only ever reports
-		// the size, never extraction language a capsule doesn't earn.
-		hxToast(c, "success", "Staged "+name,
-			fmt.Sprintf("%s. Applies at the host's next boot.", components.TransferSummary(written, "", 0)))
-		renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(d)))
+func (h *handlers) postFirmwareCapsuleUpload(c *gin.Context) {
+	upload, err := utils.StreamMultipartFile(c.Request, maxCapsuleUploadBytes, "file")
+	if err != nil {
+		hxToast(c, "error", "Upload failed", "no file selected")
+		renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(h.d)))
+		return
 	}
+	defer upload.Close()
+
+	name := filepath.Base(upload.Filename)
+	if name == "" || name == "." || name == "/" {
+		hxToast(c, "error", "Upload failed", "invalid filename")
+		renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(h.d)))
+		return
+	}
+	written, err := h.d.Firmware.StageCapsule(name, upload)
+	if err != nil {
+		h.log.ErrorContext(c.Request.Context(), "ui: stage capsule failed", slog.String("name", name), slog.Any("err", err))
+		hxToast(c, "error", "Upload failed", err.Error())
+		renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(h.d)))
+		return
+	}
+
+	// TransferSummary is called with format "" — capsules are never
+	// decompressed (see the package comment), so this only ever reports
+	// the size, never extraction language a capsule doesn't earn.
+	hxToast(c, "success", "Staged "+name,
+		fmt.Sprintf("%s. Applies at the host's next boot.", components.TransferSummary(written, "", 0)))
+	renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(h.d)))
 }
 
 // postFirmwareCapsuleFetch starts a BMC-initiated capsule download. Rejected
 // immediately (no latch taken) for a bad URL or when a fetch is already
 // running; otherwise the download runs past this request and the poller at
 // GET /settings/firmware/status reports on it until done.
-func postFirmwareCapsuleFetch(d *deps.Deps) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		rawURL := c.PostForm("url")
-		name := filepath.Base(c.PostForm("name"))
+func (h *handlers) postFirmwareCapsuleFetch(c *gin.Context) {
+	rawURL := c.PostForm("url")
+	name := filepath.Base(c.PostForm("name"))
 
-		parsed, err := url.ParseRequestURI(rawURL)
-		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-			hxToast(c, "error", "Fetch failed", "url must be an http or https URL")
-			renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(d)))
-			return
-		}
-		if name == "" || name == "." || name == "/" {
-			name = filepath.Base(parsed.Path)
-		}
-		if name == "" || name == "." || name == "/" {
-			name = "capsule.cap"
-		}
-
-		if firmwareFetchBusy() {
-			hxToast(c, "warning", "A capsule is already being staged", "")
-			c.Status(http.StatusConflict)
-			return
-		}
-		firmwareFetchStart(name)
-
-		// DELIBERATELY DETACHED: the download outlives this request; the
-		// poller at GET /settings/firmware/status reports on it until done.
-		// Bounded by the process context, not the request's, so a shutdown
-		// aborts the transfer instead of being blocked by it — same hazard
-		// postMediaFetch documents.
-		ctx, cancel := d.ActionContext(capsuleFetchTimeout)
-		go func(rawURL, name string) {
-			defer cancel()
-			if err := d.Firmware.StageCapsuleFromURL(ctx, rawURL, name); err != nil {
-				slog.ErrorContext(ctx, "ui: capsule fetch failed", slog.Any("err", err))
-				firmwareFetchFinish(err)
-				return
-			}
-			firmwareFetchFinish(nil)
-		}(rawURL, name)
-
-		renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(d)))
+	parsed, err := url.ParseRequestURI(rawURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		hxToast(c, "error", "Fetch failed", "url must be an http or https URL")
+		renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(h.d)))
+		return
 	}
+	if name == "" || name == "." || name == "/" {
+		name = filepath.Base(parsed.Path)
+	}
+	if name == "" || name == "." || name == "/" {
+		name = "capsule.cap"
+	}
+
+	if firmwareFetchBusy() {
+		hxToast(c, "warning", "A capsule is already being staged", "")
+		c.Status(http.StatusConflict)
+		return
+	}
+	firmwareFetchStart(name)
+
+	// DELIBERATELY DETACHED: the download outlives this request; the
+	// poller at GET /settings/firmware/status reports on it until done.
+	// Bounded by the process context, not the request's, so a shutdown
+	// aborts the transfer instead of being blocked by it — same hazard
+	// postMediaFetch documents.
+	ctx, cancel := h.d.ActionContext(capsuleFetchTimeout)
+	go func(rawURL, name string) {
+		defer cancel()
+		if err := h.d.Firmware.StageCapsuleFromURL(ctx, rawURL, name); err != nil {
+			h.log.ErrorContext(ctx, "ui: capsule fetch failed", slog.Any("err", err))
+			firmwareFetchFinish(err)
+			return
+		}
+		firmwareFetchFinish(nil)
+	}(rawURL, name)
+
+	renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(h.d)))
 }
 
-func postFirmwareCapsuleClear(d *deps.Deps) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if err := d.Firmware.ClearCapsules(); err != nil {
-			hxToast(c, "error", "Clear failed", err.Error())
-			renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(d)))
-			return
-		}
-		hxToast(c, "success", "Queue cleared", "")
-		renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(d)))
+func (h *handlers) postFirmwareCapsuleClear(c *gin.Context) {
+	if err := h.d.Firmware.ClearCapsules(); err != nil {
+		hxToast(c, "error", "Clear failed", err.Error())
+		renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(h.d)))
+		return
 	}
+	hxToast(c, "success", "Queue cleared", "")
+	renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(h.d)))
 }
 
-func deleteFirmwareCapsule(d *deps.Deps) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		name := filepath.Base(c.Param("name"))
-		if err := d.Firmware.RemoveCapsule(name); err != nil {
-			hxToast(c, "error", "Remove failed", err.Error())
-			renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(d)))
-			return
-		}
-		hxToast(c, "success", "Removed "+name, "")
-		renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(d)))
+func (h *handlers) deleteFirmwareCapsule(c *gin.Context) {
+	name := filepath.Base(c.Param("name"))
+	if err := h.d.Firmware.RemoveCapsule(name); err != nil {
+		hxToast(c, "error", "Remove failed", err.Error())
+		renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(h.d)))
+		return
 	}
+	hxToast(c, "success", "Removed "+name, "")
+	renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(h.d)))
 }
