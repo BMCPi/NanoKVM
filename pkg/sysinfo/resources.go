@@ -198,7 +198,9 @@ func readProcStat() (procStat, error) {
 // The cpu fields, in order, are user nice system idle iowait irq softirq steal
 // guest guest_nice. Idle time is idle+iowait: a core blocked on I/O is not
 // doing work, and counting iowait as busy is what makes a quiet BMC that is
-// writing an ISO look pegged.
+// writing an ISO look pegged. guest and guest_nice are excluded from total
+// entirely: the kernel already folds guest time into user and guest_nice into
+// nice (man 5 proc), so summing every field would double-count it.
 //
 // procs_blocked sits below the per-cpu lines, so this cannot stop at the
 // aggregate line the way it used to. The whole file is 441 bytes on this
@@ -207,7 +209,12 @@ func parseProcStat(r io.Reader) (procStat, error) {
 	const (
 		idleField   = 3
 		iowaitField = 4
-		minFields   = 4 // user nice system idle — the shortest line worth trusting
+		guestField  = 8
+		// guestNiceField is guest_nice, the last of the ten documented cpu
+		// fields; a longer line (a future kernel field) still just adds to
+		// total below, same as it always has.
+		guestNiceField = 9
+		minFields      = 4 // user nice system idle — the shortest line worth trusting
 	)
 
 	var (
@@ -233,6 +240,12 @@ func parseProcStat(r io.Reader) (procStat, error) {
 				if convErr != nil {
 					return procStat{}, fmt.Errorf("%s: cpu field %d (%q): %w",
 						procStatPath, i, f, convErr)
+				}
+				// guest and guest_nice are already folded into user/nice by
+				// the kernel (man 5 proc); adding them to total again would
+				// double-count guest time.
+				if i == guestField || i == guestNiceField {
+					continue
 				}
 				out.total += v
 				if i == idleField || i == iowaitField {

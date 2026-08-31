@@ -52,6 +52,26 @@ func TestCPUTimesToleratesShortAndRejectsGarbage(t *testing.T) {
 	}
 }
 
+// guest and guest_nice (the last two cpu fields) are already folded into user
+// and nice by the kernel (man 5 proc); summing all ten fields would count
+// guest time twice.
+const procStatGuestSample = `cpu  1000 20 300 8000 500 10 40 0 50 5
+cpu0 1000 20 300 8000 500 10 40 0 50 5
+`
+
+func TestCPUTimesDoesNotDoubleCountGuest(t *testing.T) {
+	ps, err := parseProcStat(strings.NewReader(procStatGuestSample))
+	if err != nil {
+		t.Fatalf("parseProcStat: %v", err)
+	}
+
+	const wantTotal = 1000 + 20 + 300 + 8000 + 500 + 10 + 40
+	if ps.total != wantTotal {
+		t.Errorf("total = %d, want %d — guest(50)/guest_nice(5) must be excluded, "+
+			"not added on top of the user/nice fields that already include them", ps.total, wantTotal)
+	}
+}
+
 const procMemSample = `MemTotal:         246789 kB
 MemFree:           12345 kB
 MemAvailable:     123456 kB

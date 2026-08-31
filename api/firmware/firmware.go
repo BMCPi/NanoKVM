@@ -61,7 +61,7 @@ func Register(api *gin.RouterGroup, d *deps.Deps) {
 
 	registerCapsules(fw, h, ctrl)
 	registerMedia(fw, ctrl)
-	registerGadget(fw, ctrl)
+	registerGadget(fw, h, ctrl)
 }
 
 // registerCapsules wires capsule staging: what is queued for the host, and the
@@ -326,12 +326,22 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 	})
 }
 
+// presentTimeout bounds Present's EBUSY clear-then-retry loop against lun.0.
+const presentTimeout = 15 * time.Second
+
 // registerGadget wires the USB gadget presentation controls for lun.0 (the
 // capsule volume). Unpresenting hides the volume from the host entirely; it is
 // re-presented automatically around every capsule write.
-func registerGadget(fw *gin.RouterGroup, ctrl *firmware.Controller) {
+func registerGadget(fw *gin.RouterGroup, h *handlers, ctrl *firmware.Controller) {
 	fw.POST("/present", func(c *gin.Context) {
-		if err := ctrl.Present(c.Request.Context()); err != nil {
+		// Detached from the request, like SimpleUpdate's capsule fetch above:
+		// PresentDisk's EBUSY retry loop clears lun.0 before rewriting it, and
+		// a client disconnect mid-loop must not abort after the clear but
+		// before the volume is re-presented, leaving it unpresented. Still
+		// bounded by process shutdown via deps.ActionContext.
+		ctx, cancel := h.d.ActionContext(presentTimeout)
+		defer cancel()
+		if err := ctrl.Present(ctx); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 			return
 		}

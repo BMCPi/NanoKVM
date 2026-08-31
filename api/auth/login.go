@@ -49,6 +49,12 @@ func (h *handlers) Login(c *gin.Context) {
 	}
 
 	if ok := h.d.Auth.CompareAccount(req.Username, req.Password); !ok {
+		// Record the failure before the cancellable delay below: if a client
+		// disconnects during the wait, the ctx.Done branch returns early, and
+		// a failure recorded after that point would never be counted —
+		// defeating the lockout.
+		locked, code, msg := h.d.Auth.RecordLoginFailure(clientIP)
+
 		// CompareAccount (pkg/auth/account.go) returns false uniformly for
 		// "no such user" and "wrong password" — this single branch already
 		// handles both identically, so waiting on ctx-cancellation here the
@@ -60,7 +66,7 @@ func (h *handlers) Login(c *gin.Context) {
 			return
 		}
 
-		if locked, code, msg := h.d.Auth.RecordLoginFailure(clientIP); locked {
+		if locked {
 			rsp.ErrRsp(c, code, msg)
 			return
 		}

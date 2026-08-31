@@ -26,7 +26,7 @@ func (s *Service) ChangePassword(username, plainPassword string) error {
 		return err
 	}
 
-	if err := s.changeRootPassword(s.rootCtx, plainPassword); err != nil {
+	if err := s.changeRootPassword(plainPassword); err != nil {
 		_ = s.DelAccount()
 		return err
 	}
@@ -65,8 +65,8 @@ func (s *Service) IsPasswordUpdated() (bool, error) {
 	return errors.Is(err, bcrypt.ErrMismatchedHashAndPassword), nil
 }
 
-func (s *Service) changeRootPassword(ctx context.Context, password string) error {
-	err := passwd(ctx, password)
+func (s *Service) changeRootPassword(password string) error {
+	err := passwd(password)
 	if err != nil {
 		s.log.Error("failed to change root password", slog.Any("err", err))
 		return err
@@ -76,14 +76,22 @@ func (s *Service) changeRootPassword(ctx context.Context, password string) error
 	return nil
 }
 
-func passwd(ctx context.Context, password string) error {
-	// Bounded well past what a healthy `passwd` takes, but bounded
-	// nonetheless: rewriting /etc/shadow mustn't be interrupted casually, so
-	// this is a generous timeout rather than the request's own (often much
-	// shorter) deadline -- ctx here is the Service's root ctx, not a caller's
-	// request context, precisely so a client disconnecting mid-request can't
-	// cut this off halfway through.
-	execCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+// passwdTimeout bounds the passwd exec. Generous relative to what a healthy
+// `passwd` takes, but a wedged one must not be able to pin the caller's
+// goroutine forever.
+const passwdTimeout = 15 * time.Second
+
+func passwd(password string) error {
+	// Deliberately detached from the Service's rootCtx (and therefore from
+	// SIGTERM), not derived from it: rootCtx is cancelled at shutdown, and if
+	// this exec inherited that cancellation, a shutdown mid-rewrite of
+	// /etc/shadow would kill `passwd` partway through, and ChangePassword's
+	// caller would then roll back the account file via DelAccount() —
+	// reverting auth to the default credentials. context.Background() plus
+	// its own bound gives both properties this needs: bounded, so a wedged
+	// passwd cannot pin the request goroutine, and shutdown-immune, because
+	// interrupting mid-shadow-rewrite is worse than a delayed process exit.
+	execCtx, cancel := context.WithTimeout(context.Background(), passwdTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(execCtx, "passwd", "root")
 
