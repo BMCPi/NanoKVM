@@ -13,9 +13,9 @@ package redfish
 // registry leaves the BMC describing every one of them by guessing a type from
 // the JSON value it holds. What that guess cannot recover:
 //
-//   - an Enumeration is indistinguishable from a String. "Dhcp" is a string,
-//     so EthIp4Mode draws a free-text box rather than the three-value dropdown
-//     the firmware will accept, and any typo stages cleanly and is dropped on
+//   - an Enumeration is indistinguishable from a String. "Automatic" is a
+//     string, so FanMode draws a free-text box rather than the dropdown the
+//     firmware will accept, and any typo stages cleanly and is dropped on
 //     the floor at the next boot;
 //   - bounds do not exist at all. A trip point takes 200C, an IPv4 field takes
 //     forty characters, and both are rejected by the host rather than here;
@@ -76,7 +76,6 @@ type biosCatalogEntry struct {
 // with whitespace beside it as part of the name rather than a separator,
 // precisely for EDK2 titles shaped like this one.
 const (
-	biosMenuEthernet   = "./IPv4 (BMC Managed)"
 	biosMenuFan        = "./Active Cooler"
 	biosMenuSystemTbl  = "./ACPI / Device Tree"
 	biosMenuPCIe       = "./PCI Express"
@@ -85,10 +84,6 @@ const (
 	biosMenuSecureBoot = "./Secure Boot"
 	biosMenuPower      = "./Power Profile"
 )
-
-// ipv4TextLen is the maximum a dotted quad occupies ("255.255.255.255"), which
-// is the maxsize every EthIp4* string question declares.
-const ipv4TextLen = 15
 
 // goconst counts these literals across the whole package and reports them
 // here, at the only non-test file they appear in — the repo's lint config
@@ -105,39 +100,6 @@ const ipv4TextLen = 15
 //
 //nolint:goconst // firmware vocabulary, kept literal to stay diffable against the .uni/.vfr sources
 var biosCatalog = map[string]biosCatalogEntry{
-	// ── EthConfigDxe ────────────────────────────────────────────────────
-	// Applied to the onboard NIC's Ip4Config2 on the next boot. Unmanaged
-	// leaves the NIC's own configuration alone.
-	"EthIp4Mode": {
-		DisplayName: "IPv4 Policy", Type: BiosTypeEnumeration,
-		MenuPath: biosMenuEthernet, Order: 1,
-		Options: []BiosOption{
-			{Value: "Unmanaged", Label: "Unmanaged"},
-			{Value: "Dhcp", Label: "DHCP"},
-			{Value: "Static", Label: "Static"},
-		},
-	},
-	"EthIp4Address": {
-		DisplayName: "Static IP Address", Type: BiosTypeString,
-		MenuPath: biosMenuEthernet, Order: 2, MaxLength: int64p(ipv4TextLen),
-	},
-	"EthIp4SubnetMask": {
-		DisplayName: "Subnet Mask", Type: BiosTypeString,
-		MenuPath: biosMenuEthernet, Order: 3, MaxLength: int64p(ipv4TextLen),
-	},
-	"EthIp4Gateway": {
-		DisplayName: "Default Gateway", Type: BiosTypeString,
-		MenuPath: biosMenuEthernet, Order: 4, MaxLength: int64p(ipv4TextLen),
-	},
-	"EthIp4Dns1": {
-		DisplayName: "DNS Server 1", Type: BiosTypeString,
-		MenuPath: biosMenuEthernet, Order: 5, MaxLength: int64p(ipv4TextLen),
-	},
-	"EthIp4Dns2": {
-		DisplayName: "DNS Server 2", Type: BiosTypeString,
-		MenuPath: biosMenuEthernet, Order: 6, MaxLength: int64p(ipv4TextLen),
-	},
-
 	// ── FanConfigDxe ────────────────────────────────────────────────────
 	"FanMode": {
 		DisplayName: "Fan Control Mode", Type: BiosTypeEnumeration,

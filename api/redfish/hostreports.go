@@ -67,6 +67,27 @@ func hostCollectionPut(kind hostCollectionKind, id string, body map[string]any) 
 	hostStateSave()
 }
 
+// hostCollectionPutPreserving stores (replaces) one member like
+// hostCollectionPut, but carries the named keys forward from the existing
+// member when the new body omits them - for collections where a periodic
+// host report and operator-staged writable properties share the member,
+// so the report cannot wipe a value staged between boots.
+func hostCollectionPutPreserving(kind hostCollectionKind, id string, body map[string]any, keys ...string) {
+	host.mu.Lock()
+	if existing, ok := kind(host)[id]; ok {
+		for _, k := range keys {
+			if _, present := body[k]; !present {
+				if v, had := existing[k]; had {
+					body[k] = v
+				}
+			}
+		}
+	}
+	kind(host)[id] = body
+	host.mu.Unlock()
+	hostStateSave()
+}
+
 // hostCollectionMerge applies a shallow PATCH to one member.
 func hostCollectionMerge(kind hostCollectionKind, id string, patch map[string]any) map[string]any {
 	host.mu.Lock()
@@ -476,19 +497,29 @@ func (s *Service) PostProcessor(c *gin.Context) {
 	}
 	// "CPU" as the fallback stem keeps generated ids in the same shape as the
 	// built-in CPU1 the BMC serves before the host has reported anything.
+	//
+	// The inventory re-POST replaces the member every boot but never carries
+	// the operator-writable pair - the firmware's Processor feature driver
+	// owns those and PATCHes them separately, later in the same boot. Carry
+	// them forward so a value staged between boots survives long enough for
+	// the feature driver's consume pass to read it.
 	id := hostMemberID(processorsOf, body, "CPU", "Id", "Socket", "ProcessorId")
-	hostCollectionPut(processorsOf, id, body)
+	hostCollectionPutPreserving(processorsOf, id, body, "SpeedLimitMHz", "SpeedLocked")
 
 	path := processorsPath + "/" + id
 	c.Header("Location", path)
 	writeHostJSON(c, http.StatusCreated,
-		renderHostMember(body, path, id, processorODataType, "Processor.Processor", "Processor"))
+		renderHostMember(body, path, id, odataTypeProcessor, "Processor.Processor", "Processor"))
 }
 
+// PatchProcessor merges a write into the stored member - the host updating
+// its report, or an operator capping the CPU by PATCHing the standard
+// Processor properties (SpeedLimitMHz, SpeedLocked) that the host's
+// Processor feature driver consumes and applies on its next boot (the
+// direct-resource model the EthernetInterface members use; validation
+// belongs to the host, which clamps into what the silicon supports).
+// Identity keys are not writable.
 func (s *Service) PatchProcessor(c *gin.Context) {
-	if !hostWritable(c) {
-		return
-	}
 	id := c.Param("processor")
 	current, ok := hostCollectionGet(processorsOf, id)
 	if !ok {
@@ -496,16 +527,27 @@ func (s *Service) PatchProcessor(c *gin.Context) {
 		return
 	}
 	if !hostCheckIfMatch(c, renderHostMember(current, processorsPath+"/"+id, id,
-		processorODataType, "Processor.Processor", "Processor")) {
+		odataTypeProcessor, "Processor.Processor", "Processor")) {
 		return
 	}
 	patch, ok := bindHostBody(c)
 	if !ok {
 		return
 	}
+	for _, k := range []string{"Id", "@odata.id", "@odata.type", "@odata.context"} {
+		delete(patch, k)
+	}
+	if len(patch) == 0 {
+		redfishErrorResponse(c, http.StatusBadRequest, "no writable properties in request")
+		return
+	}
 	merged := hostCollectionMerge(processorsOf, id, patch)
+	if merged == nil {
+		redfishErrorResponse(c, http.StatusNotFound, "processor not found: "+id)
+		return
+	}
 	writeHostResource(c, renderHostMember(merged, processorsPath+"/"+id, id,
-		processorODataType, "Processor.Processor", "Processor"))
+		odataTypeProcessor, "Processor.Processor", "Processor"))
 }
 
 func (s *Service) DeleteProcessor(c *gin.Context) {

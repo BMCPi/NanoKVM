@@ -51,6 +51,13 @@ const (
 	// pinned here rather than in the feature-driver table.
 	odataTypeEthernetInterface = "#EthernetInterface.v1_8_0.EthernetInterface"
 
+	// Pinned to the platform's own RedfishProcessorDxe feature driver
+	// (x-UEFI-redfish-Processor.v1_14_0) - the newest Processor version the
+	// edk2-redfish-client converters model, and the version
+	// RpiRedfishSyncDxe stamps on its inventory POST. v1_10_0+ is what
+	// carries SpeedLimitMHz/SpeedLocked, the operator-writable pair.
+	odataTypeProcessor = "#Processor.v1_14_0.Processor"
+
 	// Sensor has no counterpart in RedfishClientPkg — the host does not
 	// consume it, this BMC only publishes it — so it is pinned to the
 	// schema the resource is actually written against rather than to a

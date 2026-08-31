@@ -142,8 +142,8 @@ func Register(r *gin.Engine, d *deps.Deps) {
 		api.GET("/Systems/1/EthernetInterfaces/:nic", service.GetEthernetInterface)
 		api.POST("/Systems/1/EthernetInterfaces", service.PostEthernetInterface)
 		api.DELETE("/Systems/1/EthernetInterfaces/:nic", service.DeleteEthernetInterface)
-		// Operator lane: stages IPv4 configuration onto the EthIp4* Bios
-		// attributes (Bios/Settings) for the host's next boot.
+		// Writes merge into the stored member; the host firmware's
+		// EthernetInterface feature driver consumes them on its next boot.
 		api.PATCH("/Systems/1/EthernetInterfaces/:nic", service.PatchEthernetInterface)
 
 		// Storage — subsystem "1" is the host's own storage (drives the host

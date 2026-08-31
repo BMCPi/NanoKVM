@@ -25,10 +25,6 @@ type Processor struct {
 	Status                *Status                       `json:"Status,omitempty"`
 }
 
-// processorODataType is the schema version every Processor response declares,
-// whether it is the built-in description or one the host published.
-const processorODataType = "#Processor.v1_16_0.Processor"
-
 // processorResource is the BMC's own description of the managed host's CPU,
 // served when the host has not published anything. The board is an aarch64
 // Raspberry Pi by design, so this much is always true; a host that enumerates
@@ -36,7 +32,7 @@ const processorODataType = "#Processor.v1_16_0.Processor"
 func processorResource() Processor {
 	return Processor{
 		Resource: Resource{
-			ODataType:    processorODataType,
+			ODataType:    odataTypeProcessor,
 			ODataID:      processorPath,
 			ODataContext: odataContext("Processor.Processor"),
 			ID:           processorID,
@@ -83,7 +79,7 @@ func (s *Service) GetProcessor(c *gin.Context) {
 
 	if stored, ok := hostCollectionGet(processorsOf, id); ok {
 		writeHostResource(c, renderHostMember(stored, processorsPath+"/"+id, id,
-			processorODataType, "Processor.Processor", "Processor"))
+			odataTypeProcessor, "Processor.Processor", "Processor"))
 		return
 	}
 

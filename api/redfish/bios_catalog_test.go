@@ -5,8 +5,8 @@ package redfish
 //
 // The visible symptom it fixes is a wall of text boxes: with no registry every
 // reported attribute has its type guessed from the JSON value it holds, so
-// "Dhcp" is a String and EthIp4Mode draws a free-text field instead of the
-// three-value dropdown the firmware actually accepts.
+// "Automatic" is a String and FanMode draws a free-text field instead of the
+// dropdown the firmware actually accepts.
 //
 // The invisible one matters more. biosCoerce reads Type off the attribute, so
 // a guessed type carries into the staged object and the host's Bios v1_1_0
@@ -23,12 +23,12 @@ import (
 )
 
 // TestBiosCatalogDescribesUnregisteredEnum is the reported case: the host has
-// reported EthIp4Mode but not published a registry.
+// reported FanMode but not published a registry.
 func TestBiosCatalogDescribesUnregisteredEnum(t *testing.T) {
 	resetHostState(t)
-	mergeHostBiosAttributes(map[string]any{attrEthIP4Mode: "Dhcp"})
+	mergeHostBiosAttributes(map[string]any{"FanMode": "Automatic"})
 
-	a := attrByName(t, BiosSnapshot(), attrEthIP4Mode)
+	a := attrByName(t, BiosSnapshot(), "FanMode")
 
 	if a.Type != BiosTypeEnumeration {
 		t.Errorf("type = %q, want %q — a String renders a text box, not a dropdown",
@@ -40,9 +40,9 @@ func TestBiosCatalogDescribesUnregisteredEnum(t *testing.T) {
 	if a.Registered {
 		t.Error("Registered = true; the host published no registry")
 	}
-	want := []string{"Unmanaged", "Dhcp", "Static"}
+	want := []string{"Automatic", "FixedSpeed", "CustomTripPoints"}
 	if got := optionValues(a); !equalStrings(got, want) {
-		t.Errorf("options = %v, want %v (EthConfigDxeMap.uni)", got, want)
+		t.Errorf("options = %v, want %v (FanConfigDxeMap.uni)", got, want)
 	}
 	if a.MenuPath == unregisteredMenuPath {
 		t.Errorf("menu = %q; a described attribute does not belong in the leftovers bucket",
@@ -136,38 +136,38 @@ func TestBiosCatalogTypesTheStagedObject(t *testing.T) {
 // Length bounds are the third thing a registry-less host gives the BMC no way
 // to know, and the one an operator hits by pasting.
 func TestBiosCatalogEnforcesStringLength(t *testing.T) {
-	const addr = attrEthIP4Address
+	const order = "BlBootOrder"
 
 	resetHostState(t)
-	mergeHostBiosAttributes(map[string]any{addr: "10.0.0.2"})
+	mergeHostBiosAttributes(map[string]any{order: "f41"})
 
-	res := StageBiosAttributes([]string{addr},
-		map[string]string{addr: "10.0.0.2 (was 10.0.0.1)"})
+	res := StageBiosAttributes([]string{order},
+		map[string]string{order: "f41 (was 41f)"})
 
-	if res.Errors[addr] == "" {
-		t.Error("a 24-character value was accepted; the question's maxsize is 15")
+	if res.Errors[order] == "" {
+		t.Error("a 13-character value was accepted; the question's maxsize is 11")
 	}
 }
 
 // Enforcement is the other half of describing an attribute: a value the
 // firmware would reject should be rejected here, next to the field.
 func TestBiosCatalogRejectsValuesTheFirmwareWouldNot(t *testing.T) {
-	const mode, numeric = attrEthIP4Mode, "FanTrip1C"
+	const mode, numeric = "FanMode", "FanTrip1C"
 
 	resetHostState(t)
 	mergeHostBiosAttributes(map[string]any{
-		mode:    "Unmanaged",
+		mode:    "Automatic",
 		numeric: float64(50),
 	})
 
 	res := StageBiosAttributes(
 		[]string{mode, numeric},
-		// Lowercase "dhcp" is not the vocabulary; 200C is past the 90 maximum.
-		map[string]string{mode: "dhcp", numeric: "200"},
+		// Lowercase "automatic" is not the vocabulary; 200C is past the 90 maximum.
+		map[string]string{mode: "automatic", numeric: "200"},
 	)
 
 	if res.Errors[mode] == "" {
-		t.Error(`"dhcp" was accepted; EthConfigDxe only reads Unmanaged/Dhcp/Static`)
+		t.Error(`"automatic" was accepted; FanConfigDxe only reads the cataloged spellings`)
 	}
 	if res.Errors[numeric] == "" {
 		t.Error("200 was accepted; the trip point maximum is 90")
@@ -226,20 +226,20 @@ func TestBiosCatalogFillsGapsTheRegistryLeft(t *testing.T) {
   "Id": "BiosAttributeRegistry.v1_0_0",
   "RegistryEntries": {
     "Attributes": [
-      {"AttributeName": "EthIp4Mode", "DisplayName": "IPv4 Source",
-       "Type": "Enumeration", "MenuPath": "./Network"}
+      {"AttributeName": "FanMode", "DisplayName": "Cooling Policy",
+       "Type": "Enumeration", "MenuPath": "./Cooling"}
     ]
   }
 }`)
-	mergeHostBiosAttributes(map[string]any{attrEthIP4Mode: "Static"})
+	mergeHostBiosAttributes(map[string]any{"FanMode": "FixedSpeed"})
 
-	a := attrByName(t, BiosSnapshot(), attrEthIP4Mode)
+	a := attrByName(t, BiosSnapshot(), "FanMode")
 
 	if len(a.Options) == 0 {
 		t.Fatal("no options: an Enumeration with an empty value list falls back to " +
 			"free text, so the registry naming it bought nothing")
 	}
-	if a.DisplayName != "IPv4 Source" {
+	if a.DisplayName != "Cooling Policy" {
 		t.Errorf("display name = %q; the registry's name was replaced", a.DisplayName)
 	}
 	if !a.Cataloged {
@@ -251,7 +251,7 @@ func TestBiosCatalogFillsGapsTheRegistryLeft(t *testing.T) {
 // host said, the same way the NIC collection stays empty until a report lands.
 func TestBiosCatalogInventsNoRows(t *testing.T) {
 	resetHostState(t)
-	mergeHostBiosAttributes(map[string]any{attrEthIP4Mode: "Dhcp"})
+	mergeHostBiosAttributes(map[string]any{"FanMode": "Automatic"})
 
 	v := BiosSnapshot()
 	if len(v.Attributes) != 1 {
@@ -345,9 +345,8 @@ func TestBiosCatalogCoversEveryPlatformFormset(t *testing.T) {
 	//
 	// rpi5-uefi-build: Platform/RaspberryPi{,/RPi5}/Drivers/*/(*Map.uni)
 	want := []string{
-		// EthConfigDxe
-		"EthIp4Mode", "EthIp4Address", "EthIp4SubnetMask",
-		"EthIp4Gateway", "EthIp4Dns1", "EthIp4Dns2",
+		// EthConfigDxe publishes x-UEFI-redfish-EthernetInterface config
+		// language now, not Bios attributes — nothing of it belongs here.
 		// FanConfigDxe
 		"FanMode", "FanFixedLevel", "FanTrip1C", "FanTrip2C", "FanTrip3C", "FanTrip4C",
 		// RpiPlatformDxe
@@ -415,7 +414,7 @@ func equalStrings(a, b []string) bool {
 func TestBiosCatalogMenusReachTheRail(t *testing.T) {
 	resetHostState(t)
 	mergeHostBiosAttributes(map[string]any{
-		attrEthIP4Mode:    "Dhcp",
+		"FanMode":         "Automatic",
 		"SystemTableMode": "Acpi",
 		"AcpiSdLimitUhs":  true,
 	})
@@ -430,7 +429,7 @@ func TestBiosCatalogMenusReachTheRail(t *testing.T) {
 		label string
 		count int
 	}{
-		{"./IPv4 (BMC Managed)", "IPv4 (BMC Managed)", 1},
+		{"./Active Cooler", "Active Cooler", 1},
 		{"./ACPI / Device Tree", "ACPI / Device Tree", 2},
 	} {
 		mn, ok := byPath[tc.path]

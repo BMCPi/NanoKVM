@@ -147,7 +147,9 @@ func TestHostWritesRejectedFromLAN(t *testing.T) {
 		{http.MethodDelete, "/redfish/v1/Systems/1/EthernetInterfaces/eth1"},
 		{http.MethodPost, "/redfish/v1/Systems/1/Memory"},
 		{http.MethodPost, "/redfish/v1/Systems/1/Processors"},
-		{http.MethodPatch, "/redfish/v1/Systems/1/Processors/CPU1"},
+		// PATCH on a processor member is deliberately absent: like the
+		// EthernetInterface members, it is the operator's lane for the
+		// standard writable properties (SpeedLimitMHz/SpeedLocked).
 		{http.MethodDelete, "/redfish/v1/Systems/1/Processors/CPU1"},
 		{http.MethodPost, "/redfish/v1/Systems/1/Storage/1/Drives"},
 		{http.MethodPatch, "/redfish/v1/Systems/1/Bios"},
