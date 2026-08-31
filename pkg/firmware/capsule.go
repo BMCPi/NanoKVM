@@ -202,7 +202,7 @@ func (c *Controller) createVolumeLocked() error {
 	_ = os.Remove(tmp)
 	defer os.Remove(tmp)
 
-	slog.Info("firmware: creating capsule volume", slog.Int64("sizeMB", c.capsuleSize/(1024*1024)), slog.String("path", c.capsulePath))
+	c.log.Info("firmware: creating capsule volume", slog.Int64("sizeMB", c.capsuleSize/(1024*1024)), slog.String("path", c.capsulePath))
 
 	d, err := diskfs.Create(tmp, c.capsuleSize, diskfs.SectorSizeDefault)
 	if err != nil {
@@ -220,8 +220,8 @@ func (c *Controller) createVolumeLocked() error {
 	if err := os.Rename(tmp, c.capsulePath); err != nil {
 		return fmt.Errorf("install capsule volume: %w", err)
 	}
-	syncVolume(c.capsulePath)
-	slog.Info("firmware: capsule volume ready", slog.String("path", c.capsulePath), slog.String("dir", capsuleDir))
+	syncVolume(c.log, c.capsulePath)
+	c.log.Info("firmware: capsule volume ready", slog.String("path", c.capsulePath), slog.String("dir", capsuleDir))
 	return nil
 }
 
@@ -442,7 +442,7 @@ func (c *Controller) withVolume(write bool, fn func(filesystem.FileSystem) error
 			}
 			defer func() {
 				if err := c.presentVolume(); err != nil {
-					slog.Warn("firmware: re-present after write failed", slog.Any("err", err))
+					c.log.Warn("firmware: re-present after write failed", slog.Any("err", err))
 				}
 			}()
 		}
@@ -458,10 +458,10 @@ func (c *Controller) withVolume(write bool, fn func(filesystem.FileSystem) error
 	}
 	defer func() {
 		if err := d.Close(); err != nil {
-			slog.Warn("firmware: close capsule volume failed", slog.Any("err", err))
+			c.log.Warn("firmware: close capsule volume failed", slog.Any("err", err))
 		}
 		if write {
-			syncVolume(c.capsulePath)
+			syncVolume(c.log, c.capsulePath)
 		}
 	}()
 
@@ -569,7 +569,7 @@ func (c *Controller) StageCapsule(name string, r io.Reader) (int64, error) {
 			_ = fs.Remove(target)
 			return fmt.Errorf("write %s: %w", target, err)
 		}
-		slog.Info("firmware: staged capsule", slog.String("path", target), slog.Int64("bytes", written))
+		c.log.Info("firmware: staged capsule", slog.String("path", target), slog.Int64("bytes", written))
 		return nil
 	})
 	if err != nil {
@@ -598,7 +598,7 @@ func (c *Controller) RemoveCapsule(name string) error {
 			}
 			return fmt.Errorf("remove %s: %w", target, err)
 		}
-		slog.Info("firmware: removed staged capsule", slog.String("path", target))
+		c.log.Info("firmware: removed staged capsule", slog.String("path", target))
 		return nil
 	})
 }
@@ -627,7 +627,7 @@ func (c *Controller) ClearCapsules() error {
 			}
 			removed++
 		}
-		slog.Info("firmware: cleared staged capsules", slog.Int("count", removed))
+		c.log.Info("firmware: cleared staged capsules", slog.Int("count", removed))
 		return nil
 	})
 }
@@ -649,14 +649,14 @@ func isFATNotFound(err error) bool {
 // between staging a capsule and the host's reboot cannot lose it. Only this
 // one file is synced — f_mass_storage reads the same inode through the same
 // page cache, so nothing global is needed for the host to see fresh bytes.
-func syncVolume(volumePath string) {
+func syncVolume(log *slog.Logger, volumePath string) {
 	f, err := os.Open(volumePath)
 	if err != nil {
-		slog.Warn("firmware: open capsule volume to sync failed", slog.Any("err", err))
+		log.Warn("firmware: open capsule volume to sync failed", slog.Any("err", err))
 		return
 	}
 	defer f.Close()
 	if err := f.Sync(); err != nil {
-		slog.Warn("firmware: sync capsule volume failed", slog.Any("err", err))
+		log.Warn("firmware: sync capsule volume failed", slog.Any("err", err))
 	}
 }

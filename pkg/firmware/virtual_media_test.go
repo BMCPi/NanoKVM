@@ -11,6 +11,7 @@ package firmware
 // eject a crash interrupted.
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -33,7 +34,7 @@ func mediaController(t *testing.T) (*Controller, *fakeVMGadget, string) {
 	dir := t.TempDir()
 	cfg := &config.Config{}
 	cfg.Firmware.MediaDir = dir
-	c := NewController(cfg)
+	c := NewController(cfg, slog.New(slog.DiscardHandler))
 	g := &fakeVMGadget{}
 	c.SetVMGadgetForTest(g)
 	return c, g, dir
@@ -134,7 +135,7 @@ func TestEphemeralContractSurvivesRestart(t *testing.T) {
 	// New controller, same media dir and same gadget state: a restart.
 	cfg := &config.Config{}
 	cfg.Firmware.MediaDir = dir
-	c2 := NewController(cfg)
+	c2 := NewController(cfg, slog.New(slog.DiscardHandler))
 	c2.SetVMGadgetForTest(g)
 
 	st := c2.GetVirtualMediaState()

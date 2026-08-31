@@ -164,7 +164,7 @@ func initialize(ctx context.Context) {
 	// them (IPMI, the auto-update ticker, the HTTP API and UI via deps.Deps).
 	cfg := config.GetInstance()
 	powerCtrl = power.NewController(cfg.Hardware, cfg.Power, rootLog.With("component", "power"))
-	fwCtrl = firmware.NewController(cfg)
+	fwCtrl = firmware.NewController(cfg, rootLog.With("component", "firmware"))
 	videoHub = newVideoHub(cfg)
 
 	// Restore the persisted host state (staged boot override, host-reported

@@ -31,6 +31,7 @@ import (
 	"sync"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 )
 
 // Status describes the current state of the firmware controller.
@@ -63,16 +64,19 @@ type Controller struct {
 
 	vmState VirtualMediaState // current virtual media insertion state
 	gadget  VMGadget          // test seam; nil means the usbgadget singleton
+
+	log *slog.Logger
 }
 
 // NewController builds the firmware Controller from config. Called once by
 // cmd/server/main.go; the returned Controller is then threaded to every
 // consumer via pkg/deps instead of a package-level singleton.
-func NewController(cfg *config.Config) *Controller {
+func NewController(cfg *config.Config, log *slog.Logger) *Controller {
 	return &Controller{
 		capsulePath: cfg.Firmware.CapsulePath,
 		capsuleSize: capsuleVolumeBytes(cfg.Firmware.CapsuleSizeMB),
 		mediaDir:    cfg.Firmware.MediaDir,
+		log:         logger.Or(log),
 	}
 }
 
@@ -92,7 +96,7 @@ func (c *Controller) Init() error {
 		return err
 	}
 	if err := c.presentVolume(); err != nil {
-		slog.Warn("firmware: USB gadget present failed (may not be available in this environment)", slog.Any("err", err))
+		c.log.Warn("firmware: USB gadget present failed (may not be available in this environment)", slog.Any("err", err))
 	}
 	return nil
 }
@@ -116,7 +120,7 @@ func (c *Controller) GetStatus() Status {
 	if caps, err := c.listCapsulesLocked(); err == nil {
 		st.Capsules = caps
 	} else if st.VolumeReady {
-		slog.Warn("firmware: list capsules for status failed", slog.Any("err", err))
+		c.log.Warn("firmware: list capsules for status failed", slog.Any("err", err))
 	}
 	return st
 }

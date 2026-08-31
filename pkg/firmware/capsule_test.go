@@ -3,6 +3,7 @@ package firmware
 import (
 	"bytes"
 	"encoding/binary"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +20,7 @@ func newTestController(t *testing.T) *Controller {
 	return &Controller{
 		capsulePath: filepath.Join(t.TempDir(), "capsules.img"),
 		capsuleSize: capsuleVolumeBytes(capsuleMinSizeMB),
+		log:         slog.New(slog.DiscardHandler),
 	}
 }
 

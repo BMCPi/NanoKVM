@@ -236,7 +236,7 @@ func (c *Controller) SaveMediaFile(name string, r io.Reader) (int64, error) {
 		_ = os.Remove(tmpPath)
 		return n, fmt.Errorf("install media file: %w", err)
 	}
-	slog.Info("firmware: saved media file", slog.String("name", name), slog.Int64("bytes", n))
+	c.log.Info("firmware: saved media file", slog.String("name", name), slog.Int64("bytes", n))
 	return n, nil
 }
 
@@ -306,7 +306,7 @@ func (c *Controller) insertStagedMedia(name string, ephemeral bool) error {
 		if err := os.WriteFile(marker, nil, 0o600); err != nil {
 			// Degrade to persistence rather than promising a deletion the
 			// next process (or the sweep) would know nothing about.
-			slog.Warn("firmware: cannot mark media ephemeral; file will persist after eject", slog.String("name", name), slog.Any("err", err))
+			c.log.Warn("firmware: cannot mark media ephemeral; file will persist after eject", slog.String("name", name), slog.Any("err", err))
 			ephemeral = false
 		}
 	} else {
@@ -316,7 +316,7 @@ func (c *Controller) insertStagedMedia(name string, ephemeral bool) error {
 	}
 
 	c.vmState = VirtualMediaState{Inserted: true, ImageName: name, ImageSize: info.Size(), Ephemeral: ephemeral}
-	slog.Info("firmware: inserted virtual media via lun.1", slog.String("name", name), slog.Int64("bytes", info.Size()), slog.Bool("ephemeral", ephemeral))
+	c.log.Info("firmware: inserted virtual media via lun.1", slog.String("name", name), slog.Int64("bytes", info.Size()), slog.Bool("ephemeral", ephemeral))
 	return nil
 }
 
@@ -339,7 +339,7 @@ func (c *Controller) EjectVirtualMedia() error {
 
 	c.vmState = VirtualMediaState{}
 	c.removeEphemeralLocked(prev)
-	slog.Info("firmware: ejected virtual media", slog.String("name", prev.ImageName))
+	c.log.Info("firmware: ejected virtual media", slog.String("name", prev.ImageName))
 	return nil
 }
 
@@ -357,13 +357,13 @@ func (c *Controller) removeEphemeralLocked(prev VirtualMediaState) {
 			err = os.Remove(path)
 		}
 		if err != nil && !os.IsNotExist(err) {
-			slog.Warn("firmware: delete ephemeral media failed", slog.String("name", prev.ImageName), slog.Any("err", err))
+			c.log.Warn("firmware: delete ephemeral media failed", slog.String("name", prev.ImageName), slog.Any("err", err))
 			return // keep the marker so the sweep can finish the job
 		}
-		slog.Info("firmware: deleted ephemeral media", slog.String("name", prev.ImageName))
+		c.log.Info("firmware: deleted ephemeral media", slog.String("name", prev.ImageName))
 	}
 	if err := os.Remove(c.ephemeralMarkerPath(prev.ImageName)); err != nil && !os.IsNotExist(err) {
-		slog.Warn("firmware: clear ephemeral marker failed", slog.String("name", prev.ImageName), slog.Any("err", err))
+		c.log.Warn("firmware: clear ephemeral marker failed", slog.String("name", prev.ImageName), slog.Any("err", err))
 	}
 }
 
@@ -396,11 +396,11 @@ func (c *Controller) sweepEphemeralMediaLocked() {
 			err = os.Remove(path)
 		}
 		if err != nil && !os.IsNotExist(err) {
-			slog.Warn("firmware: sweep ephemeral media failed", slog.String("name", name), slog.Any("err", err))
+			c.log.Warn("firmware: sweep ephemeral media failed", slog.String("name", name), slog.Any("err", err))
 			continue // keep the marker; retry next startup
 		}
 		_ = os.Remove(marker)
-		slog.Info("firmware: swept leftover ephemeral media", slog.String("name", name))
+		c.log.Info("firmware: swept leftover ephemeral media", slog.String("name", name))
 	}
 }
 
@@ -442,21 +442,21 @@ func (c *Controller) SaveMediaISO(name string, r io.Reader) (string, int64, erro
 		return "", 0, err
 	}
 
-	if err := buildHybridImage(isoPath, imgPath); err != nil {
+	if err := buildHybridImage(c.log, isoPath, imgPath); err != nil {
 		_ = os.Remove(imgPath)
 		return "", 0, fmt.Errorf("convert iso to hybrid img: %w", err)
 	}
 
 	// Source ISO no longer needed once the hybrid image exists.
 	if err := os.Remove(isoPath); err != nil && !os.IsNotExist(err) {
-		slog.Warn("firmware: could not remove staged ISO", slog.String("path", isoPath), slog.Any("err", err))
+		c.log.Warn("firmware: could not remove staged ISO", slog.String("path", isoPath), slog.Any("err", err))
 	}
 
 	info, err := os.Stat(imgPath)
 	if err != nil {
 		return "", 0, err
 	}
-	slog.Info("firmware: built hybrid image", slog.String("image", imgName), slog.Int64("bytes", info.Size()), slog.String("source", name))
+	c.log.Info("firmware: built hybrid image", slog.String("image", imgName), slog.Int64("bytes", info.Size()), slog.String("source", name))
 	return imgName, info.Size(), nil
 }
 
@@ -465,7 +465,7 @@ func (c *Controller) SaveMediaISO(name string, r io.Reader) (string, int64, erro
 // at LBA 0. The image size and overlay region are derived from the ISO
 // itself by hybridParamsFromISO. This is the pure-Go equivalent of the
 // three-step `dd` recipe documented above.
-func buildHybridImage(isoPath, imgPath string) error {
+func buildHybridImage(log *slog.Logger, isoPath, imgPath string) error {
 	iso, err := os.Open(isoPath)
 	if err != nil {
 		return err
@@ -476,7 +476,7 @@ func buildHybridImage(isoPath, imgPath string) error {
 	if err != nil {
 		return fmt.Errorf("derive hybrid params: %w", err)
 	}
-	slog.Info("firmware: hybrid params",
+	log.Info("firmware: hybrid params",
 		slog.String("iso", filepath.Base(isoPath)),
 		slog.Int64("imageSize", params.ImageSize), slog.Int64("sectorSize", params.SectorSize),
 		slog.Int64("skip", params.OverlaySkipSects), slog.Int64("count", params.OverlayCountSect),
@@ -513,10 +513,10 @@ func buildHybridImage(isoPath, imgPath string) error {
 			return fmt.Errorf("write overlay: %w", err)
 		}
 		if n < overlayLen {
-			slog.Warn("firmware: hybrid overlay short read", slog.Int64("written", n), slog.Int64("expected", overlayLen))
+			log.Warn("firmware: hybrid overlay short read", slog.Int64("written", n), slog.Int64("expected", overlayLen))
 		}
 	} else {
-		slog.Warn("firmware: no overlay partition found; image may not boot as block device", slog.String("iso", filepath.Base(isoPath)))
+		log.Warn("firmware: no overlay partition found; image may not boot as block device", slog.String("iso", filepath.Base(isoPath)))
 	}
 
 	return out.Sync()

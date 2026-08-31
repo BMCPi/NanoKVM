@@ -37,7 +37,7 @@ func (c *Controller) presentVolume() error {
 	// record disappear exactly when a client disconnected mid-operation —
 	// while the gadget stayed presented.
 	telemetry.FirmwarePresented(context.Background(), true)
-	slog.Info("firmware: presented capsule volume via USB gadget", slog.String("path", c.capsulePath))
+	c.log.Info("firmware: presented capsule volume via USB gadget", slog.String("path", c.capsulePath))
 	return nil
 }
 
@@ -54,7 +54,7 @@ func (c *Controller) unpresentVolume() error {
 	c.presented = false
 	// See presentVolume for why this is not a caller's context.
 	telemetry.FirmwarePresented(context.Background(), false)
-	slog.Info("firmware: unpresented USB gadget")
+	c.log.Info("firmware: unpresented USB gadget")
 	return nil
 }
 
