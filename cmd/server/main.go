@@ -51,8 +51,7 @@ var (
 )
 
 var (
-	ipmiServer    *ipmi.Server
-	mdnsResponder *discovery.Responder
+	ipmiServer *ipmi.Server
 
 	// powerCtrl and fwCtrl are the composition root's controllers, built once
 	// in initialize() and shared by run() (via deps.Deps) and the IPMI server.
@@ -210,11 +209,12 @@ func initialize(ctx context.Context) {
 
 	// Start the discovery responders (mDNS hostname/service records, SSDP).
 	// Replaces avahi-daemon; the watcher brings them up once eth0 has an
-	// address.
-	if r, err := discovery.Start(); err != nil {
+	// address. No pointer is kept here: a settings-driven discovery.Restart()
+	// can swap in a different instance as the package singleton later, so
+	// shutdown goes through discovery.Stop() (which always targets whatever
+	// is current) rather than a pointer that could go stale.
+	if _, err := discovery.Start(); err != nil {
 		slog.ErrorContext(ctx, "discovery start failed", slog.Any("err", err))
-	} else {
-		mdnsResponder = r
 	}
 }
 
@@ -481,9 +481,7 @@ func disposeAll() {
 	sshd.Stop()
 	timesync.Stop()
 	network.Stop()
-	if mdnsResponder != nil {
-		mdnsResponder.Stop()
-	}
+	discovery.Stop()
 	if ipmiServer != nil {
 		ipmiServer.Stop()
 	}

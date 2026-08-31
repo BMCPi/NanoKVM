@@ -73,3 +73,57 @@ func TestStartIsANoopWhenBothProtocolsDisabled(t *testing.T) {
 		t.Fatal("Start() returned a non-nil Responder with both protocols disabled")
 	}
 }
+
+// TestStopFencesAgainstARacingStart is the regression test for a watcher
+// tick racing Stop(): the tick reads mu, releases it, and is about to call
+// start() when a concurrent Restart() retires this Responder out from under
+// it. Without the stopped fence, the tick's start() would reacquire mu and
+// bind a fresh responder nobody owns — leaked forever, since the watcher's
+// next loop selects stopCh and returns. mdnsEnabled is true here so a
+// missing fence would attempt a real socket bind, not just skip a no-op.
+func TestStopFencesAgainstARacingStart(t *testing.T) {
+	r := &Responder{
+		mdnsEnabled: true,
+		hostname:    "fixed",
+		stopCh:      make(chan struct{}),
+	}
+
+	r.Stop()
+
+	// Simulate the racing watcher tick's start() call landing after Stop()
+	// has already retired r.
+	if err := r.start(); err != nil {
+		t.Fatalf("start() after Stop() returned an error: %v", err)
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.mdnsR != nil || r.ssdpR != nil {
+		t.Fatal("start() bound a responder on an already-stopped Responder")
+	}
+}
+
+// TestSSDPHostPortOmitsOnlyTheSchemeDefault is the regression test for the
+// SSDP Location/AL URL silently dropping a non-default port (finding: an
+// https deployment on the shipped 8443 default advertised a bare host, so a
+// discovery client dialing it landed on 443 and found nothing).
+func TestSSDPHostPortOmitsOnlyTheSchemeDefault(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  config.Config
+		want string
+	}{
+		{"https on the shipped non-default port", config.Config{Proto: "https", Port: config.Port{Https: 8443}}, "10.42.0.19:8443"},
+		{"https on the scheme default is bare", config.Config{Proto: "https", Port: config.Port{Https: 443}}, "10.42.0.19"},
+		{"http on a non-default port", config.Config{Proto: "http", Port: config.Port{Http: 8080}}, "10.42.0.19:8080"},
+		{"http on the scheme default is bare", config.Config{Proto: "http", Port: config.Port{Http: 80}}, "10.42.0.19"},
+		{"zero port is treated as unset, stays bare", config.Config{Proto: "https", Port: config.Port{Https: 0}}, "10.42.0.19"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ssdpHostPort(&tc.cfg, "10.42.0.19"); got != tc.want {
+				t.Errorf("ssdpHostPort(%+v) = %q, want %q", tc.cfg, got, tc.want)
+			}
+		})
+	}
+}

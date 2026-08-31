@@ -64,6 +64,18 @@ type Responder struct {
 	names         []string // currently advertised mDNS names (e.g. "nanokvm.local")
 	lastSig       string   // hostname + interface addresses at the last (re)start
 
+	// stopped fences startLocked once Stop has run. Without it, a watcher
+	// tick can read mu, release it, and race a concurrent Restart(): Stop()
+	// closes stopCh and nils/tears down both responders, then the tick's
+	// already-in-flight start() reacquires mu and binds fresh sockets onto
+	// this now-retired Responder. Nothing owns them afterwards — the
+	// watcher's next iteration selects stopCh and returns, leaking a bound
+	// mDNS socket, a bound SSDP socket, and the dnssd goroutine for the rest
+	// of the process's life. Checking stopped as the first thing inside
+	// startLocked (same mutex Stop uses to set it) closes that gap: whichever
+	// of Stop/start wins the mu race, the other observes its result.
+	stopped bool
+
 	stopCh   chan struct{}
 	stopOnce sync.Once
 }
@@ -158,6 +170,7 @@ func (r *Responder) Stop() {
 	r.mu.Lock()
 	mr, sr := r.mdnsR, r.ssdpR
 	r.mdnsR, r.ssdpR = nil, nil
+	r.stopped = true
 	r.mu.Unlock()
 
 	// Both Stop methods dereference their receiver's fields without a nil
@@ -178,6 +191,12 @@ func (r *Responder) start() error {
 }
 
 func (r *Responder) startLocked() error {
+	// A retired Responder must never bind another socket — see the stopped
+	// field's doc comment for the leak this closes.
+	if r.stopped {
+		return nil
+	}
+
 	// Stop whatever is currently running first (this doubles as Restart).
 	if r.mdnsR != nil {
 		r.mdnsR.Stop()
@@ -267,7 +286,7 @@ func (r *Responder) startSSDPLocked(cfg *config.Config) error {
 		return fmt.Errorf("ssdp: %w", err)
 	}
 
-	location := fmt.Sprintf("%s://%s/redfish/v1/", cfg.Proto, addr)
+	location := fmt.Sprintf("%s://%s/redfish/v1/", cfg.Proto, ssdpHostPort(cfg, addr))
 	sr := ssdp.New(ssdp.Config{
 		Iface:    r.ssdpIfaceName,
 		UUID:     identity.BMCUUID(),
@@ -281,6 +300,24 @@ func (r *Responder) startSSDPLocked(cfg *config.Config) error {
 	r.ssdpR = sr
 	log.Infof("discovery: ssdp advertising %s on %s", location, ifaceDesc(r.ssdpIfaceName))
 	return nil
+}
+
+// ssdpHostPort returns addr, or "addr:port" when cfg's listening port for its
+// own Proto is not that scheme's default (443 for https, 80 for http). A
+// Redfish discovery client dials the Location/AL URL exactly as advertised —
+// cmd/server listens on 8443, not 443, in the shipped config, so an omitted
+// port there would send every such client to a closed port. The default
+// port is still omitted, matching how a browser or curl treats a bare
+// https:// URL, rather than needlessly spelling out ":443".
+func ssdpHostPort(cfg *config.Config, addr string) string {
+	port, schemeDefault := cfg.Port.Https, 443
+	if cfg.Proto != "https" {
+		port, schemeDefault = cfg.Port.Http, 80
+	}
+	if port == 0 || port == schemeDefault {
+		return addr
+	}
+	return net.JoinHostPort(addr, strconv.Itoa(port))
 }
 
 // redfishMinor parses the minor component out of identity.RedfishProtocolVersion
@@ -504,4 +541,26 @@ func Restart() {
 	if _, err := Start(); err != nil {
 		log.Warnf("discovery: restart: %v", err)
 	}
+}
+
+// Stop tears down the current singleton responder, if any, and clears it.
+//
+// main holds no responder pointer of its own for exactly this reason: Start()
+// returns one, but a settings-driven Restart() later swaps in a different
+// instance as the package singleton without main ever learning about it. A
+// pointer held from the original Start() would then call Stop() on an
+// already-retired Responder at shutdown — a correctly-behaving no-op that
+// nonetheless leaves the real, live responder running, so it exits without
+// sending its DNS-SD goodbyes or ssdp:byebye. Those must go out before the
+// process closes, or discovery caches keep advertising a dead BMC for the
+// full max-age. Routing shutdown through the singleton here, instead of a
+// remembered pointer, is what keeps that guarantee true across any number of
+// Restarts. Safe to call when nothing was ever started.
+func Stop() {
+	mu.Lock()
+	r := current
+	current = nil
+	mu.Unlock()
+
+	r.Stop() // nil-safe
 }
