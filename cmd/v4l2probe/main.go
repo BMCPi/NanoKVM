@@ -104,7 +104,9 @@ func main() {
 		log.Fatalf("unknown codec %q", *codec)
 	}
 
-	capt, err := v4l2.Open()
+	// nil: this bench tool never calls logger.Init, so Open falls back to
+	// slog's default handler (unleveled text to stderr) via logger.Or.
+	capt, err := v4l2.Open(nil)
 	if err != nil {
 		log.Fatalf("open: %v", err)
 	}

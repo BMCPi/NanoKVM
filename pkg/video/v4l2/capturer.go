@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 	"github.com/pi-bmc/nanokvm-app/pkg/video"
 	"github.com/pi-bmc/nanokvm-app/pkg/video/lt6911"
 )
@@ -52,6 +53,8 @@ const (
 type Capturer struct {
 	mu sync.Mutex
 
+	log *slog.Logger
+
 	fd   int
 	bufs [][]byte
 
@@ -90,8 +93,9 @@ var _ video.Capturer = (*Capturer)(nil)
 // reason to fail here. EDID provisioning happens after the device is found,
 // through the kernel's VIDIOC_G/S_EDID — the bridge's i2c bus is entirely
 // kernel-owned now, so userspace never touches /dev/i2c-4 at all.
-func Open() (*Capturer, error) {
+func Open(log *slog.Logger) (*Capturer, error) {
 	c := &Capturer{
+		log:    logger.Or(log),
 		fd:     -1,
 		frames: make(chan video.Frame, frameQueue),
 		states: make(chan video.State, 1),
@@ -119,12 +123,12 @@ func Open() (*Capturer, error) {
 	// failure, never fatal — a bridge with no EDID still locks whatever
 	// the host decides to send.
 	if cur, err := c.EDID(); err != nil {
-		slog.Warn("v4l2: bridge EDID check skipped", slog.Any("err", err))
+		c.log.Warn("v4l2: bridge EDID check skipped", slog.Any("err", err))
 	} else if !lt6911.ValidEDID(cur) {
 		if err := c.SetEDID(lt6911.DefaultEDID()); err != nil {
-			slog.Warn("v4l2: bridge EDID programming failed", slog.Any("err", err))
+			c.log.Warn("v4l2: bridge EDID programming failed", slog.Any("err", err))
 		} else {
-			slog.Info("v4l2: bridge EDID was blank or invalid, programmed the default")
+			c.log.Info("v4l2: bridge EDID was blank or invalid, programmed the default")
 		}
 	}
 
@@ -228,7 +232,7 @@ func (c *Capturer) closeDevices() {
 	// delete_module fails on a module still in use.
 	if len(c.ownedModules) > 0 {
 		if err := unloadPipelineModules(c.ownedModules); err != nil {
-			slog.Warn("v4l2: module unload failed", slog.Any("err", err))
+			c.log.Warn("v4l2: module unload failed", slog.Any("err", err))
 		}
 		c.ownedModules = nil
 	}
@@ -609,7 +613,7 @@ func (c *Capturer) effectiveBitrate(bitrate int) int {
 func (c *Capturer) publishErr(err error) {
 	// Logged as well as published: the published form reaches the UI as
 	// "not streaming", which looks the same as an idle host.
-	slog.Error("v4l2: pipeline error", slog.Any("err", err))
+	c.log.Error("v4l2: pipeline error", slog.Any("err", err))
 
 	st := c.State()
 	st.Err = err.Error()
