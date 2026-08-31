@@ -9,6 +9,7 @@ linters:
     - bodyclose
     - copyloopvar
     - cyclop
+    - depguard
     - dogsled
     - dupl
     - durationcheck
@@ -16,6 +17,7 @@ linters:
     - errname
     - errorlint
     - exhaustive
+    - forbidigo
     - forcetypeassert
     - gocognit
     - goconst
@@ -49,6 +51,14 @@ linters:
     cyclop:
       max-complexity: 37
       package-average: 34
+    depguard:
+      rules:
+        no-logrus:
+          files:
+            - "!**/pkg/logger/**"
+          deny:
+            - pkg: github.com/sirupsen/logrus
+              desc: log with log/slog; pkg/logger bridges dependencies that still use logrus
     dupl:
       threshold: 200
     errorlint:
@@ -59,6 +69,14 @@ linters:
       asserts: false
     exhaustive:
       default-signifies-exhaustive: true
+    forbidigo:
+      forbid:
+        # No trailing `\(`: forbidigo (ashanbrown/forbidigo v2) only visits
+        # ast.SelectorExpr/ast.Ident nodes, so the matched text for a call
+        # is "slog.Default" with no parens — a pattern requiring "(" can
+        # never match.
+        - pattern: 'slog\.Default'
+          msg: inject a *slog.Logger (see docs/superpowers/specs/2026-08-31-slog-di-design.md); slog.Default is for pkg/logger and the documented exceptions only
     gocognit:
       min-complexity: 98
     goconst:
@@ -172,6 +190,9 @@ linters:
       - linters:
           - goheader
         path-except: zz_generated\.deepcopy\.go
+      - linters:
+          - forbidigo
+        path: (pkg/logger/|pkg/config/|cmd/server/main\.go)
     paths:
       # templ-generated Go anywhere in the tree (layouts, pages, components).
       - _templ\.go$

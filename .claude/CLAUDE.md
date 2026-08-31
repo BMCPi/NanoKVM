@@ -23,6 +23,15 @@ Go BMC/KVM server for NanoKVM hardware (riscv64 target). Gin HTTP + templ server
 
 - On-device `/tmp` is a ~30MB RAM overlay — never route uploads/ISOs through `os.TempDir()`; use `pkg/utils` streaming helpers (`StreamMultipartFile`, `FetchURL`)
 
+## Logging
+
+- log/slog only (depguard blocks logrus outside pkg/logger). Loggers are
+  injected: handlers use their struct's `h.log`, subsystems their `s.log`,
+  helpers a `log` parameter. Never `slog.Default()`/package-level `slog.X`
+  in first-party code (forbidigo), and never build a logger at package init.
+- pkg/config, pkg/logger, cmd/rpiboot, cmd/v4l2probe are the documented
+  exceptions. Details: docs/superpowers/specs/2026-08-31-slog-di-design.md.
+
 ## Subsystem designs
 
 @discovery-design.md
