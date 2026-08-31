@@ -16,7 +16,8 @@ Go BMC/KVM server for NanoKVM hardware (riscv64 target). Gin HTTP + templ server
 
 ## Layout
 
-- `cmd/` entrypoints (server, rpiboot) · `api/` HTTP handlers · `pkg/` domain packages · `ui/` templ pages/components/fragments
+- `cmd/` entrypoints (server, rpiboot) · `api/` HTTP handlers · `ui/` templ pages/components/fragments
+- `pkg/` domain packages, nested by purpose: `app/` (application, auth, autoupdate, firmware, network, timesync) · `device/` (bmcsensor, hid, optee, power, serial, usbgadget, video) · `protocol/` (discovery, identity, ipmi, redfish, shell, ssh) · `platform/` (ctxutil, memlimit, middleware, ring, streamio, sysinfo, telemetry) · flat: `config`, `deps`, `logger`, `proto` (see .claude/docs/package-layout.md)
 - UI components vendored via shadcn-templ (`components.json`); add new ones with `shadcn-templ add <name>`
 
 ## Device constraints

@@ -125,13 +125,13 @@ manager.
 Functions that log take a `*slog.Logger` parameter (first parameter after
 `ctx` where one exists). Callers thread it from their own injected logger.
 
-- `pkg/utils`: each logging helper gains the param (`FetchURL`, cert
+- `pkg/platform/streamio` (formerly `pkg/utils`): each logging helper gains the param (`FetchURL`, cert
   generation, GOMEMLIMIT setup, …). Callers are subsystems/handlers that
   already hold a logger.
-- `pkg/auth`: becomes a service struct — it already carries state
+- `pkg/app/auth`: becomes a service struct — it already carries state
   (brute-force tracking, account file); the struct absorbs the logger and
   the api/auth + middleware callers hold the service.
-- `pkg/application`, `pkg/proto`, `pkg/platform/sysinfo`, `pkg/platform/middleware`: logger
+- `pkg/app/application`, `pkg/proto`, `pkg/platform/sysinfo`, `pkg/platform/middleware`: logger
   parameter (middleware constructors return the `gin.HandlerFunc` closing
   over it).
 - A function whose only logging is incidental debug output may instead drop
