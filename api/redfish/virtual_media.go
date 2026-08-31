@@ -137,7 +137,19 @@ func (s *Service) insertMediaStream(c *gin.Context) {
 	}
 	defer remote.Close()
 
-	if err := stageAndInsert(s.Firmware, name, remote); err != nil {
+	// Sniff for gzip/xz/zstd and inflate on the fly; an uncompressed ISO
+	// passes through unchanged. The wire cap above bounds what the remote can
+	// send; LimitDecompressedReader re-bounds the same budget on the
+	// inflated side, since a compressed body can expand far past it.
+	dr, format, err := utils.DecompressingReader(remote)
+	if err != nil {
+		redfishErrorResponse(c, http.StatusBadRequest, "decompress failed: "+err.Error())
+		return
+	}
+	defer dr.Close()
+	name = utils.StripCompressionSuffix(name, format)
+
+	if err := stageAndInsert(s.Firmware, name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes)); err != nil {
 		redfishErrorResponse(c, err.status, err.msg)
 		return
 	}
@@ -180,7 +192,21 @@ func (s *Service) insertMediaUpload(c *gin.Context) {
 
 	name := mediaFilename(meta.Image, upload.Filename)
 
-	n, err := s.Firmware.SaveMediaFile(name, upload)
+	// Sniff for gzip/xz/zstd ahead of the trailing InsertMediaRequestBody
+	// rename below, which can still override this name afterward; an
+	// uncompressed image passes through unchanged. maxMediaUploadBytes
+	// already bounds the wire via StreamMultipartFile above —
+	// LimitDecompressedReader re-bounds the same budget on the inflated
+	// side, since a compressed part can expand far past it.
+	dr, format, err := utils.DecompressingReader(upload)
+	if err != nil {
+		redfishErrorResponse(c, http.StatusBadRequest, "decompress failed: "+err.Error())
+		return
+	}
+	defer dr.Close()
+	name = utils.StripCompressionSuffix(name, format)
+
+	n, err := s.Firmware.SaveMediaFile(name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes))
 	if err != nil {
 		redfishErrorResponse(c, http.StatusInternalServerError, "save media failed: "+err.Error())
 		return

@@ -75,6 +75,16 @@ func mediaFetchStart(name string) {
 	mediaFetchState = mediaFetchStatus{Active: true, Name: name}
 }
 
+// mediaFetchSetName updates the name shown by the progress poller once
+// decompression has sniffed the real format — the name chosen before the
+// fetch started (from ?name= or the URL's basename) can't yet reflect a
+// compression suffix DecompressingReader hasn't seen bytes for.
+func mediaFetchSetName(name string) {
+	mediaFetchMu.Lock()
+	mediaFetchState.Name = name
+	mediaFetchMu.Unlock()
+}
+
 func mediaFetchSetTotal(total int64) {
 	if total <= 0 {
 		return
@@ -189,7 +199,22 @@ func postMediaUpload(d *deps.Deps) gin.HandlerFunc {
 			mediaRenderAdd(c, d)
 			return
 		}
-		if _, err := d.Firmware.SaveMediaFile(name, upload); err != nil {
+
+		// Sniff for gzip/xz/zstd and inflate on the fly; an uncompressed ISO
+		// passes through unchanged. maxMediaUploadBytes already bounds the
+		// wire via StreamMultipartFile above — LimitDecompressedReader
+		// re-bounds the same budget on the inflated side, since a
+		// compressed part can expand far past it.
+		dr, format, err := utils.DecompressingReader(upload)
+		if err != nil {
+			hxToast(c, "error", "Upload failed", "decompress failed: "+err.Error())
+			mediaRenderAdd(c, d)
+			return
+		}
+		defer dr.Close()
+		name = utils.StripCompressionSuffix(name, format)
+
+		if _, err := d.Firmware.SaveMediaFile(name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes)); err != nil {
 			log.Errorf("ui: save media file %q failed: %v", name, err)
 			hxToast(c, "error", "Upload failed", err.Error())
 			mediaRenderAdd(c, d)
@@ -253,8 +278,27 @@ func postMediaFetch(d *deps.Deps) gin.HandlerFunc {
 			defer remote.Close()
 			mediaFetchSetTotal(remote.ContentLength)
 
-			reader := &countingReader{r: remote, onRead: mediaFetchAddProgress}
-			if _, err := d.Firmware.SaveMediaFile(name, reader); err != nil {
+			// The progress counter wraps the raw wire reader, before
+			// decompression, so Loaded stays comparable to Total (the
+			// remote's declared Content-Length, which describes the
+			// compressed download — not whatever it inflates to).
+			counted := &countingReader{r: remote, onRead: mediaFetchAddProgress}
+
+			// Sniff for gzip/xz/zstd and inflate on the fly; an uncompressed
+			// ISO passes through unchanged. maxMediaUploadBytes already
+			// bounds the wire via FetchURL above — LimitDecompressedReader
+			// re-bounds the same budget on the inflated side, since a
+			// compressed body can expand far past it.
+			dr, format, err := utils.DecompressingReader(counted)
+			if err != nil {
+				mediaFetchFinish(err)
+				return
+			}
+			defer dr.Close()
+			name = utils.StripCompressionSuffix(name, format)
+			mediaFetchSetName(name)
+
+			if _, err := d.Firmware.SaveMediaFile(name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes)); err != nil {
 				log.Errorf("ui: save fetched media %q failed: %v", name, err)
 				mediaFetchFinish(err)
 				return

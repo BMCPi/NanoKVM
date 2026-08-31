@@ -197,7 +197,21 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 		defer upload.Close()
 
 		name := filepath.Base(upload.Filename)
-		n, err := ctrl.SaveMediaFile(name, upload)
+
+		// Sniff for gzip/xz/zstd and inflate on the fly; an uncompressed ISO
+		// passes through unchanged. maxMediaUploadBytes already bounds the
+		// wire via StreamMultipartFile above — LimitDecompressedReader
+		// re-bounds the same budget on the inflated side, since a compressed
+		// part can expand far past it.
+		dr, format, err := utils.DecompressingReader(upload)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "decompress failed: " + err.Error()})
+			return
+		}
+		defer dr.Close()
+		name = utils.StripCompressionSuffix(name, format)
+
+		n, err := ctrl.SaveMediaFile(name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -238,7 +252,21 @@ func registerMedia(fw *gin.RouterGroup, ctrl *firmware.Controller) {
 			return
 		}
 		defer remote.Close()
-		n, err := ctrl.SaveMediaFile(name, remote)
+
+		// Sniff for gzip/xz/zstd and inflate on the fly; an uncompressed ISO
+		// passes through unchanged. maxMediaUploadBytes already bounds the
+		// wire via FetchURL above — LimitDecompressedReader re-bounds the
+		// same budget on the inflated side, since a compressed body can
+		// expand far past it.
+		dr, format, err := utils.DecompressingReader(remote)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "decompress failed: " + err.Error()})
+			return
+		}
+		defer dr.Close()
+		name = utils.StripCompressionSuffix(name, format)
+
+		n, err := ctrl.SaveMediaFile(name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

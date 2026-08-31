@@ -17,6 +17,7 @@ var supportedBootSources = []schemas.BootSource{
 	schemas.NoneBootSource,
 	schemas.PxeBootSource,
 	schemas.HddBootSource,
+	schemas.UsbBootSource,
 	schemas.CdBootSource,
 	schemas.BiosSetupBootSource,
 	schemas.UefiHTTPBootSource,
