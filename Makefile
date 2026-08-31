@@ -13,7 +13,7 @@ KVM_USER ?= admin
 KVM_PASS ?= admin
 # Transport obfuscation key, extracted from its single source of truth so a
 # key rotation cannot silently break deploys (guarded in the deploy recipe).
-KVM_SECRET := $(shell sed -n 's/^const SecretKey = "\(.*\)"$$/\1/p' pkg/utils/encrypt.go)
+KVM_SECRET := $(shell sed -n 's/^const SecretKey = "\(.*\)"$$/\1/p' pkg/app/auth/encrypt.go)
 
 .PHONY: help templ app all clean snapshot deploy sensord
 
