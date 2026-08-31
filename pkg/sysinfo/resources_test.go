@@ -79,9 +79,9 @@ Buffers:            4567 kB
 `
 
 func TestMemoryUsesAvailableNotFree(t *testing.T) {
-	total, avail, err := parseMemInfo(strings.NewReader(procMemSample))
+	total, avail, err := utils.ParseMemInfo(strings.NewReader(procMemSample))
 	if err != nil {
-		t.Fatalf("parseMemInfo: %v", err)
+		t.Fatalf("ParseMemInfo: %v", err)
 	}
 	if total != 246789 {
 		t.Errorf("total = %d kB, want 246789", total)
@@ -97,8 +97,8 @@ func TestMemoryUsesAvailableNotFree(t *testing.T) {
 // an error, not a percentage derived from MemFree that reads far too high.
 func TestMemoryRefusesWithoutMemAvailable(t *testing.T) {
 	old := "MemTotal:  246789 kB\nMemFree:    12345 kB\n"
-	if _, _, err := parseMemInfo(strings.NewReader(old)); err == nil {
-		t.Error("parseMemInfo accepted a meminfo with no MemAvailable")
+	if _, _, err := utils.ParseMemInfo(strings.NewReader(old)); err == nil {
+		t.Error("ParseMemInfo accepted a meminfo with no MemAvailable")
 	}
 }
 
@@ -398,7 +398,7 @@ func TestParsersDoNotAllocateOversizedBuffers(t *testing.T) {
 		run  func(r *strings.Reader)
 	}{
 		{"procStat", procStatBlockedSample, func(r *strings.Reader) { _, _ = parseProcStat(r) }},
-		{"memInfo", procMemSample, func(r *strings.Reader) { _, _, _ = parseMemInfo(r) }},
+		{"memInfo", procMemSample, func(r *strings.Reader) { _, _, _ = utils.ParseMemInfo(r) }},
 	} {
 		r := strings.NewReader(tc.in)
 		got := allocBytesPerOp(func() {

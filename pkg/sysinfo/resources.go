@@ -32,6 +32,8 @@ import (
 	"sync"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 )
 
 const (
@@ -277,68 +279,17 @@ func parseProcStat(r io.Reader) (procStat, error) {
 	return out, nil
 }
 
-// readMemInfo reads MemTotal and MemAvailable from /proc/meminfo, in kB.
+// readMemInfo reads MemTotal and MemAvailable from /proc/meminfo, in kB. The
+// parser itself (MemAvailable-over-MemFree, error rather than a fallback
+// when it's absent — see its doc comment) lives in pkg/utils, shared with
+// InitGoMemLimit's total-only reading.
 func readMemInfo() (totalKB, availKB uint64, err error) {
 	f, err := os.Open(procMemInfoPath)
 	if err != nil {
 		return 0, 0, err
 	}
 	defer f.Close()
-	return parseMemInfo(f)
-}
-
-// parseMemInfo pulls MemTotal and MemAvailable out of /proc/meminfo.
-//
-// MemAvailable rather than MemFree, and an error rather than a fallback when it
-// is absent. MemFree excludes the page cache, so on a machine that has just
-// streamed an ISO it reports almost nothing free while almost all of it is
-// reclaimable — a graph pinned at 95% that means nothing is worse than no
-// graph. MemAvailable has been in the kernel since 3.14; the device is far
-// newer, so its absence means procfs is not what we think it is.
-func parseMemInfo(r io.Reader) (totalKB, availKB uint64, err error) {
-	var haveTotal, haveAvail bool
-
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, scanBufSize), scanBufMax)
-	for sc.Scan() {
-		key, rest, ok := strings.Cut(sc.Text(), ":")
-		if !ok {
-			continue
-		}
-		switch key {
-		case "MemTotal":
-			totalKB, haveTotal = parseKB(rest), true
-		case "MemAvailable":
-			availKB, haveAvail = parseKB(rest), true
-		default:
-			continue
-		}
-		if haveTotal && haveAvail {
-			break
-		}
-	}
-	if err := sc.Err(); err != nil {
-		return 0, 0, err
-	}
-	if !haveTotal || !haveAvail {
-		return 0, 0, fmt.Errorf("%s: want MemTotal and MemAvailable, got total=%v available=%v",
-			procMemInfoPath, haveTotal, haveAvail)
-	}
-	return totalKB, availKB, nil
-}
-
-// parseKB reads the "  246789 kB" tail of a meminfo line. An unparseable value
-// reads as zero, which the caller's total>0 guard turns into "no reading".
-func parseKB(s string) uint64 {
-	fields := strings.Fields(s)
-	if len(fields) == 0 {
-		return 0
-	}
-	v, err := strconv.ParseUint(fields[0], 10, 64)
-	if err != nil {
-		return 0
-	}
-	return v
+	return utils.ParseMemInfo(f)
 }
 
 // diskUsage is the statfs result in the shape Usage wants. Sizes are unsigned

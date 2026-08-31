@@ -27,15 +27,8 @@ import (
 func initHostSensorMetrics() {
 	m := otel.Meter("github.com/pi-bmc/nanokvm-app")
 
-	var err error
-	gauge := func(name, desc, unit string) metric.Float64ObservableGauge {
-		g, e := m.Float64ObservableGauge(name,
-			metric.WithDescription(desc), metric.WithUnit(unit))
-		if e != nil {
-			err = e
-		}
-		return g
-	}
+	gf := &gaugeFactory{m: m}
+	gauge := gf.float64Gauge
 
 	// No unit in the names: the exporter appends one from WithUnit (see
 	// resources.go). "Cel" becomes _celsius, "%" becomes _percent.
@@ -73,8 +66,8 @@ func initHostSensorMetrics() {
 	reporting := gauge("nanokvm_host_sensor_reporting",
 		"1 while the managed host is pushing sensor records, 0 when it has gone quiet", "")
 
-	if err != nil {
-		pkgLog().Warn("telemetry: host sensor instrument creation", slog.Any("err", err))
+	if gf.err != nil {
+		pkgLog().Warn("telemetry: host sensor instrument creation", slog.Any("err", gf.err))
 		return
 	}
 
@@ -85,7 +78,7 @@ func initHostSensorMetrics() {
 		return 0
 	}
 
-	_, err = m.RegisterCallback(func(_ context.Context, o metric.Observer) error {
+	_, err := m.RegisterCallback(func(_ context.Context, o metric.Observer) error {
 		reading, readErr := bmcsensor.Default().Read()
 		live := readErr == nil && !reading.Stale
 		o.ObserveFloat64(reporting, bool01(live))
@@ -98,8 +91,7 @@ func initHostSensorMetrics() {
 		}
 		if reading.FanValid() {
 			o.ObserveFloat64(fanDuty, float64(reading.FanDutyPct))
-			// Zero means the host has no tach capture, not a stalled fan.
-			if reading.FanRPM > 0 {
+			if reading.FanRPMValid() {
 				o.ObserveFloat64(fanRPM, float64(reading.FanRPM))
 			}
 		}

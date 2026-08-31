@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 )
 
 // Macro execution. A macro is a list of steps; each step asserts a report
@@ -99,30 +101,16 @@ func (c *Controller) RunMacro(ctx context.Context, steps []Step) error {
 		if err := c.KeyReport(step.Modifier, step.Keys); err != nil {
 			return fmt.Errorf("macro step %d: %w", i+1, err)
 		}
-		if err := sleepCtx(ctx, stepHold); err != nil {
+		if err := utils.SleepCtx(ctx, stepHold); err != nil {
 			return err
 		}
 
 		if err := c.KeyReport(0, nil); err != nil {
 			return fmt.Errorf("macro step %d release: %w", i+1, err)
 		}
-		if err := sleepCtx(ctx, step.Delay); err != nil {
+		if err := utils.SleepCtx(ctx, step.Delay); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func sleepCtx(ctx context.Context, d time.Duration) error {
-	if d <= 0 {
-		return nil
-	}
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-t.C:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
 }

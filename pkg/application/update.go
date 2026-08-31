@@ -16,6 +16,10 @@ const (
 	maxTries = 3
 )
 
+// RestartDelay is the wait after a successful update response before the
+// service actually restarts, giving the response time to flush.
+const RestartDelay = 1 * time.Second
+
 // RunUpdate downloads and installs the latest application release. Acquires
 // the global update lock so concurrent runs (HTTP trigger + auto-update
 // ticker) can't collide. On success the service restart is initiated by the
@@ -67,6 +71,24 @@ func RunOfflineUpdate(log *slog.Logger, stage func(cacheDir string) (string, err
 func RestartService(log *slog.Logger) {
 	log.Info("restart requested; exiting for init to respawn")
 	_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
+}
+
+// RestartAfter waits delay, or until doneCtx is done, whichever comes first,
+// then restarts the service. It is the shared tail of an update handler's
+// choreography: write the success response, then call this — either
+// synchronously, so the response finishes writing before the handler
+// returns, or in its own goroutine, so the handler can return immediately
+// after writing. doneCtx is watched instead of a bare Sleep: at shutdown
+// there is no point restarting a service the process is already tearing
+// down, and a bare Sleep would hold the caller past that point for no
+// benefit.
+func RestartAfter(doneCtx context.Context, delay time.Duration, log *slog.Logger) {
+	select {
+	case <-time.After(delay):
+	case <-doneCtx.Done():
+		return
+	}
+	RestartService(log)
 }
 
 // LatestVersion returns the latest available release version string (or

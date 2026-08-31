@@ -166,19 +166,10 @@ func (h *handlers) postOverviewAppUpdate(c *gin.Context) {
 	c.Status(http.StatusOK)
 
 	// DELIBERATELY DETACHED: the restart must outlive this request; the
-	// response has to flush before the service goes down. The delay watches
-	// h.d.Ctx instead of a bare Sleep: at shutdown there is no point
-	// restarting a service the process is already tearing down.
-	log := h.log
-	shutdownCtx := h.d.Ctx
-	go func() {
-		select {
-		case <-time.After(1 * time.Second):
-		case <-shutdownCtx.Done():
-			return
-		}
-		application.RestartService(log)
-	}()
+	// response has to flush before the service goes down. h.d.Ctx, not the
+	// request's: at shutdown there is no point restarting a service the
+	// process is already tearing down.
+	go application.RestartAfter(h.d.Ctx, application.RestartDelay, h.log)
 }
 
 // postOverviewBootOverride serves both boot-override forms (the overview

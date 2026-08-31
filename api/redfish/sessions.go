@@ -7,9 +7,16 @@ import (
 	"time"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
+	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 
 	"github.com/gin-gonic/gin"
 )
+
+// authFailureDelay is the anti-brute-force wait after a failed session
+// login. A package-level var, not a const, so tests can shrink it — see
+// TestCreateSessionUnblocksOnClientDisconnect in sessions_test.go, which
+// needs it small enough that a real bcrypt compare doesn't dwarf it.
+var authFailureDelay = 2 * time.Second
 
 func (h *handlers) GetSessionService(c *gin.Context) {
 	c.JSON(http.StatusOK, SessionService{
@@ -42,9 +49,7 @@ func (h *handlers) CreateSession(c *gin.Context) {
 		// here does not reopen a username-enumeration timing gap. Ctx-aware
 		// so a client disconnect or server shutdown unblocks this goroutine
 		// instead of pinning it for the full duration.
-		select {
-		case <-time.After(2 * time.Second):
-		case <-c.Request.Context().Done():
+		if err := utils.SleepCtx(c.Request.Context(), authFailureDelay); err != nil {
 			return
 		}
 		redfishErrorResponse(c, http.StatusUnauthorized, "invalid username or password")

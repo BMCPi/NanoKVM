@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 )
 
 // A short rolling history, so the dashboard can show movement rather than only
@@ -54,9 +56,9 @@ type Point struct {
 
 var history = struct {
 	mu      sync.Mutex
-	samples []counterReading
+	samples utils.Ring[counterReading]
 	started bool
-}{}
+}{samples: utils.NewRing[counterReading](historyDepth)}
 
 // StartSampler begins recording history until ctx is cancelled. Safe to call
 // more than once; only the first call starts a sampler. A no-op when telemetry
@@ -114,12 +116,7 @@ func recordSample() {
 	history.mu.Lock()
 	defer history.mu.Unlock()
 
-	history.samples = append(history.samples, reading)
-	if len(history.samples) > historyDepth {
-		// Drop the oldest. Copying a 240-element slice every 15 seconds is
-		// cheaper than the bookkeeping a ring index would add here.
-		history.samples = append(history.samples[:0], history.samples[1:]...)
-	}
+	history.samples.Append(reading)
 }
 
 // History returns the recorded intervals, oldest first. Empty until at least
@@ -127,7 +124,7 @@ func recordSample() {
 // already show.
 func History() []Point {
 	history.mu.Lock()
-	samples := append([]counterReading(nil), history.samples...)
+	samples := history.samples.Snapshot()
 	history.mu.Unlock()
 
 	if len(samples) < 2 {

@@ -91,14 +91,13 @@ func StartResourceSampler(ctx context.Context, log *slog.Logger) {
 }
 
 func recordResourceSample() {
-	// Sampled outside the lock: Sample() opens two files and makes a syscall,
-	// and holding the mutex across that would block every reader of Latest()
-	// on the filesystem.
-	resources.mu.Lock()
-	sampler := &resources.sampler
-	resources.mu.Unlock()
-
-	appendResourceSample(sampler.Sample(), time.Now().Format("15:04"))
+	// No lock needed to reach the sampler: resources.sampler's address is
+	// fixed at package-var initialization (never reassigned), and
+	// ResourceSampler is safe for concurrent use on its own (see its doc
+	// comment) — Sample() opens two files and makes a syscall, and holding
+	// resources.mu across that would block every reader of Latest() on the
+	// filesystem.
+	appendResourceSample(resources.sampler.Sample(), time.Now().Format("15:04"))
 }
 
 // appendResourceSample stores one reading, evicting the oldest once the ring

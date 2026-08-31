@@ -7,7 +7,19 @@ import (
 	"time"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 )
+
+// newTestHistory builds a history ring from readings, oldest first — the
+// shape history.samples now needs (see history.go), in place of the raw
+// slice literal these tests used before.
+func newTestHistory(readings ...counterReading) utils.Ring[counterReading] {
+	r := utils.NewRing[counterReading](historyDepth)
+	for _, c := range readings {
+		r.Append(c)
+	}
+	return r
+}
 
 // TestSnapshotReadsRealExporterNames is the point of the stem matching: the
 // OpenTelemetry Prometheus exporter decorates instrument names with unit and
@@ -107,11 +119,11 @@ func TestNonZeroDropsEmptyBars(t *testing.T) {
 func TestHistoryChartsIntervalsNotTotals(t *testing.T) {
 	history.mu.Lock()
 	saved := history.samples
-	history.samples = []counterReading{
-		{At: time.Now().Add(-30 * time.Second), SerialBytes: 1000, IPMIPackets: 10},
-		{At: time.Now().Add(-15 * time.Second), SerialBytes: 1500, IPMIPackets: 14},
-		{At: time.Now(), SerialBytes: 4000, IPMIPackets: 14},
-	}
+	history.samples = newTestHistory(
+		counterReading{At: time.Now().Add(-30 * time.Second), SerialBytes: 1000, IPMIPackets: 10},
+		counterReading{At: time.Now().Add(-15 * time.Second), SerialBytes: 1500, IPMIPackets: 14},
+		counterReading{At: time.Now(), SerialBytes: 4000, IPMIPackets: 14},
+	)
 	history.mu.Unlock()
 	t.Cleanup(func() {
 		history.mu.Lock()
@@ -140,10 +152,10 @@ func TestHistoryChartsIntervalsNotTotals(t *testing.T) {
 func TestHistoryHandlesCounterReset(t *testing.T) {
 	history.mu.Lock()
 	saved := history.samples
-	history.samples = []counterReading{
-		{At: time.Now().Add(-15 * time.Second), SerialBytes: 9000},
-		{At: time.Now(), SerialBytes: 40},
-	}
+	history.samples = newTestHistory(
+		counterReading{At: time.Now().Add(-15 * time.Second), SerialBytes: 9000},
+		counterReading{At: time.Now(), SerialBytes: 40},
+	)
 	history.mu.Unlock()
 	t.Cleanup(func() {
 		history.mu.Lock()
@@ -165,7 +177,7 @@ func TestHistoryHandlesCounterReset(t *testing.T) {
 func TestHistoryNeedsTwoSamples(t *testing.T) {
 	history.mu.Lock()
 	saved := history.samples
-	history.samples = []counterReading{{At: time.Now(), SerialBytes: 5}}
+	history.samples = newTestHistory(counterReading{At: time.Now(), SerialBytes: 5})
 	history.mu.Unlock()
 	t.Cleanup(func() {
 		history.mu.Lock()

@@ -109,7 +109,7 @@ func TestGofishSessionAuth(t *testing.T) {
 // delay on the failed-credentials branch (see the context/cancellation
 // audit's I8 finding): it must wait on c.Request.Context() alongside the
 // timer, not call time.Sleep unconditionally, or a client that has already
-// gone away still pins the handler goroutine for the full 2s and extends
+// gone away still pins the handler goroutine for the full delay and extends
 // shutdown drain.
 //
 // The comparison is relative rather than against a fixed budget:
@@ -117,10 +117,20 @@ func TestGofishSessionAuth(t *testing.T) {
 // unraced, observed 2s+ under -race in a loaded sandbox), so a hardcoded
 // "must finish within Nms" threshold would be flaky. Both runs below pay
 // that same bcrypt cost; only the cancelled run should skip the extra fixed
-// 2s wait, so its duration should land comfortably below the live-context
-// baseline regardless of how slow bcrypt is on the machine running the test.
+// authFailureDelay wait, so its duration should land comfortably below the
+// live-context baseline regardless of how slow bcrypt is on the machine
+// running the test.
 func TestCreateSessionUnblocksOnClientDisconnect(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+
+	// Shrunk from the 2s production value: this test already pays a real
+	// bcrypt compare on both runs (see above), and the production delay
+	// would make an already-variable cost even more so. authFailureDelay is
+	// a package var for exactly this.
+	saved := authFailureDelay
+	authFailureDelay = 100 * time.Millisecond
+	t.Cleanup(func() { authFailureDelay = saved })
+
 	h := testHandlers()
 	r := gin.New()
 	r.POST(sessionsPath, h.CreateSession)
@@ -143,10 +153,10 @@ func TestCreateSessionUnblocksOnClientDisconnect(t *testing.T) {
 	cancel()
 	cancelled, w := run(cancelCtx)
 
-	t.Logf("baseline=%v cancelled=%v", baseline, cancelled)
-	if want := baseline - time.Second; cancelled >= want {
+	t.Logf("baseline=%v cancelled=%v authFailureDelay=%v", baseline, cancelled, authFailureDelay)
+	if want := baseline - authFailureDelay/2; cancelled >= want {
 		t.Fatalf("client-context cancellation did not skip the anti-brute-force delay: "+
-			"cancelled=%v, want comfortably below baseline-1s=%v (baseline=%v)", cancelled, want, baseline)
+			"cancelled=%v, want comfortably below baseline-authFailureDelay/2=%v (baseline=%v)", cancelled, want, baseline)
 	}
 
 	// On this early-return path the handler must respond nothing extra: no

@@ -39,7 +39,11 @@ func (h *handlers) OfflineUpdate(c *gin.Context) {
 	}
 
 	h.log.DebugContext(c.Request.Context(), "offline update application success")
-	respondAndRestart(h.d.Ctx, c, &rsp, h.log)
+	rsp.OkRsp(c)
+	// The process context, not the request's: the restart must outlive this
+	// request, and the wait it bounds should only skip at shutdown, not on a
+	// browser navigating away.
+	application.RestartAfter(h.d.Ctx, application.RestartDelay, h.log)
 }
 
 // processUpload reads the multipart stream and stages the "file" field

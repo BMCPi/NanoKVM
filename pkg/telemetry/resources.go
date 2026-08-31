@@ -27,15 +27,8 @@ import (
 func initResourceMetrics() {
 	m := otel.Meter("github.com/pi-bmc/nanokvm-app")
 
-	var err error
-	gauge := func(name, desc, unit string) metric.Float64ObservableGauge {
-		g, e := m.Float64ObservableGauge(name,
-			metric.WithDescription(desc), metric.WithUnit(unit))
-		if e != nil {
-			err = e
-		}
-		return g
-	}
+	gf := &gaugeFactory{m: m}
+	gauge := gf.float64Gauge
 
 	// No unit in the name: the exporter is built without otelprom.WithoutUnits
 	// (see telemetry.go), so it appends one from WithUnit — "%" becomes
@@ -65,11 +58,11 @@ func initResourceMetrics() {
 	blocked, e := m.Int64ObservableGauge("nanokvm_bmc_procs_blocked",
 		metric.WithDescription("Tasks in uninterruptible sleep, from /proc/stat procs_blocked"))
 	if e != nil {
-		err = e
+		gf.err = e
 	}
 
-	if err != nil {
-		pkgLog().Warn("telemetry: resource instrument creation", slog.Any("err", err))
+	if gf.err != nil {
+		pkgLog().Warn("telemetry: resource instrument creation", slog.Any("err", gf.err))
 		return
 	}
 
@@ -78,7 +71,7 @@ func initResourceMetrics() {
 	// struct. The Valid flags gate each observation, so a subsystem that could
 	// not be read reports nothing rather than a zero an alert would fire on.
 	const bytesPerMB = 1024 * 1024
-	_, err = m.RegisterCallback(func(_ context.Context, o metric.Observer) error {
+	_, err := m.RegisterCallback(func(_ context.Context, o metric.Observer) error {
 		u := sysinfo.LatestUsage()
 		if u.CPUValid {
 			o.ObserveFloat64(cpu, u.CPUPercent)
