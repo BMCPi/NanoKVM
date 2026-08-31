@@ -23,6 +23,7 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 )
 
@@ -44,19 +45,28 @@ const capsuleStageTimeout = 30 * time.Minute
 // errorKey is the JSON field every failure response in this file uses.
 const errorKey = "error"
 
+// handlers holds what a route handler in this package needs:
+// process-lifetime dependencies (through d) and this package's component
+// logger.
+type handlers struct {
+	d   *deps.Deps
+	log *slog.Logger
+}
+
 // Register mounts the firmware routes on the shared authenticated group.
 func Register(api *gin.RouterGroup, d *deps.Deps) {
+	h := &handlers{d: d, log: logger.Or(d.Log).With("component", "api/firmware")}
 	ctrl := d.Firmware
 	fw := api.Group("/firmware")
 
-	registerCapsules(fw, d, ctrl)
+	registerCapsules(fw, h, ctrl)
 	registerMedia(fw, ctrl)
 	registerGadget(fw, ctrl)
 }
 
 // registerCapsules wires capsule staging: what is queued for the host, and the
 // three ways to change that (upload, fetch from a URL, delete).
-func registerCapsules(fw *gin.RouterGroup, d *deps.Deps, ctrl *firmware.Controller) {
+func registerCapsules(fw *gin.RouterGroup, h *handlers, ctrl *firmware.Controller) {
 	// GET /api/firmware/status — capsule volume state plus what is staged.
 	fw.GET("/status", func(c *gin.Context) {
 		c.JSON(http.StatusOK, ctrl.GetStatus())
@@ -136,11 +146,11 @@ func registerCapsules(fw *gin.RouterGroup, d *deps.Deps, ctrl *firmware.Controll
 
 		// Detached from the request but bounded by the process context, so a
 		// shutdown aborts the transfer. See deps.ActionContext.
-		ctx, cancel := d.ActionContext(capsuleStageTimeout)
+		ctx, cancel := h.d.ActionContext(capsuleStageTimeout)
 		go func(rawURL, name string) {
 			defer cancel()
 			if err := ctrl.StageCapsuleFromURL(ctx, rawURL, name); err != nil {
-				slog.ErrorContext(ctx, "firmware: capsule fetch failed", slog.Any("err", err))
+				h.log.ErrorContext(ctx, "firmware: capsule fetch failed", slog.Any("err", err))
 			}
 		}(req.URL, filepath.Base(req.Name))
 

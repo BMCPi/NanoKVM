@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func (s *Service) Login(c *gin.Context) {
+func (h *handlers) Login(c *gin.Context) {
 	var req proto.LoginReq
 	var rsp proto.Response
 
@@ -63,10 +63,10 @@ func (s *Service) Login(c *gin.Context) {
 		Token: token,
 	})
 
-	slog.DebugContext(c.Request.Context(), "login success", slog.String("username", req.Username))
+	h.log.DebugContext(c.Request.Context(), "login success", slog.String("username", req.Username))
 }
 
-func (s *Service) Logout(c *gin.Context) {
+func (h *handlers) Logout(c *gin.Context) {
 	conf := config.GetInstance()
 
 	if conf.JWT.RevokeTokensOnLogout {
@@ -77,7 +77,7 @@ func (s *Service) Logout(c *gin.Context) {
 	rsp.OkRsp(c)
 }
 
-func (s *Service) GetAccount(c *gin.Context) {
+func (h *handlers) GetAccount(c *gin.Context) {
 	var rsp proto.Response
 
 	account, err := auth.GetAccount()
@@ -89,7 +89,7 @@ func (s *Service) GetAccount(c *gin.Context) {
 	rsp.OkRspWithData(c, &proto.GetAccountRsp{
 		Username: account.Username,
 	})
-	slog.DebugContext(c.Request.Context(), "get account successful")
+	h.log.DebugContext(c.Request.Context(), "get account successful")
 }
 
 // requestIP gets a reliable real IP for brute-force accounting.

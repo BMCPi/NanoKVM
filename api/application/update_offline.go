@@ -22,7 +22,7 @@ var validFilenameRegex = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 // OfflineUpdate installs an uploaded package (multipart field "file") and
 // restarts the service. application.RunOfflineUpdate owns the update lock
 // and the cache lifecycle; this handler only stages the upload.
-func (s *Service) OfflineUpdate(c *gin.Context) {
+func (h *handlers) OfflineUpdate(c *gin.Context) {
 	var rsp proto.Response
 
 	err := application.RunOfflineUpdate(func(cacheDir string) (string, error) {
@@ -30,21 +30,21 @@ func (s *Service) OfflineUpdate(c *gin.Context) {
 		if err != nil {
 			return "", fmt.Errorf("invalid multipart data: %w", err)
 		}
-		return processUpload(reader, cacheDir)
+		return h.processUpload(reader, cacheDir)
 	})
 	if err != nil {
-		slog.ErrorContext(c.Request.Context(), "offline update failed", slog.Any("err", err))
+		h.log.ErrorContext(c.Request.Context(), "offline update failed", slog.Any("err", err))
 		rsp.ErrRsp(c, -1, fmt.Sprintf("update failed: %s", err))
 		return
 	}
 
-	slog.DebugContext(c.Request.Context(), "offline update application success")
+	h.log.DebugContext(c.Request.Context(), "offline update application success")
 	respondAndRestart(c, &rsp)
 }
 
 // processUpload reads the multipart stream and stages the "file" field
 // into destDir, returning the staged path.
-func processUpload(reader *multipart.Reader, destDir string) (string, error) {
+func (h *handlers) processUpload(reader *multipart.Reader, destDir string) (string, error) {
 	var outPath string
 
 	for {
@@ -60,7 +60,7 @@ func processUpload(reader *multipart.Reader, destDir string) (string, error) {
 			continue
 		}
 
-		outPath, err = saveUploadedFile(part, destDir)
+		outPath, err = h.saveUploadedFile(part, destDir)
 		if err != nil {
 			return "", err
 		}
@@ -73,13 +73,13 @@ func processUpload(reader *multipart.Reader, destDir string) (string, error) {
 	return outPath, nil
 }
 
-func saveUploadedFile(part *multipart.Part, destDir string) (string, error) {
+func (h *handlers) saveUploadedFile(part *multipart.Part, destDir string) (string, error) {
 	filename := part.FileName()
 	if filename == "" {
 		return "", fmt.Errorf("no filename provided")
 	}
 
-	if err := validateFilename(filename); err != nil {
+	if err := h.validateFilename(filename); err != nil {
 		return "", err
 	}
 
@@ -97,24 +97,24 @@ func saveUploadedFile(part *multipart.Part, destDir string) (string, error) {
 	return outPath, nil
 }
 
-func validateFilename(filename string) error {
+func (h *handlers) validateFilename(filename string) error {
 	baseName := filepath.Base(filename)
 
 	// Check if the path contains directory components
 	if baseName != filename {
-		slog.Warn("path detected in filename", slog.String("filename", filename))
+		h.log.Warn("path detected in filename", slog.String("filename", filename))
 		return fmt.Errorf("path detected in filename")
 	}
 
 	// Check for path traversal attempts
 	if strings.Contains(filename, "..") {
-		slog.Warn("path traversal attempt", slog.String("filename", filename))
+		h.log.Warn("path traversal attempt", slog.String("filename", filename))
 		return fmt.Errorf("invalid filename: path traversal detected")
 	}
 
 	// Validate filename characters
 	if !validFilenameRegex.MatchString(filename) {
-		slog.Warn("invalid filename characters", slog.String("filename", filename))
+		h.log.Warn("invalid filename characters", slog.String("filename", filename))
 		return fmt.Errorf("invalid filename: contains invalid characters")
 	}
 

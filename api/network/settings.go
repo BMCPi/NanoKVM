@@ -12,7 +12,7 @@ import (
 )
 
 // GetSettings returns the current network configuration.
-func (s *Service) GetSettings(c *gin.Context) {
+func (h *handlers) GetSettings(c *gin.Context) {
 	var rsp proto.Response
 	rsp.OkRspWithData(c, config.GetInstance().Network)
 }
@@ -21,7 +21,7 @@ func (s *Service) GetSettings(c *gin.Context) {
 // fields present in the body change), persists it to /etc/kvm/server.yaml and
 // restarts the network manager so the new addressing is applied immediately,
 // without a process restart.
-func (s *Service) UpdateSettings(c *gin.Context) {
+func (h *handlers) UpdateSettings(c *gin.Context) {
 	var rsp proto.Response
 	var req struct {
 		Enabled *bool `json:"enabled"`
@@ -88,6 +88,6 @@ func (s *Service) UpdateSettings(c *gin.Context) {
 	network.Restart()
 
 	rsp.OkRspWithData(c, conf.Network)
-	slog.InfoContext(c.Request.Context(), "network: settings updated",
+	h.log.InfoContext(c.Request.Context(), "network: settings updated",
 		slog.String("eth0Mode", next.Eth0.Mode), slog.Bool("enabled", next.Enabled))
 }

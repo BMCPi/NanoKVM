@@ -27,10 +27,10 @@ import (
 func Register(r *gin.Engine, d *deps.Deps) {
 	authed := r.Group("/api", middleware.CheckToken())
 
-	auth.Register(r, authed)
+	auth.Register(r, authed, d)
 	application.Register(authed, d)
 	vm.Register(authed, d)
-	network.Register(authed)
+	network.Register(authed, d)
 	redfish.Register(r, d)
 	firmware.Register(authed, d)
 	autoupdate.Register(authed, d)

@@ -8,7 +8,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
-	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/proto"
 )
 
@@ -17,26 +16,12 @@ import (
 // global update lock until the next reboot.
 const appUpdateTimeout = 30 * time.Minute
 
-// Service handles application API requests.
-type Service struct {
-	// Deps is retained for its process-lifetime context. An application
-	// update replaces the running binary and then restarts the process, so it
-	// must not be bound to the request that triggered it. See
-	// deps.ActionContext.
-	Deps *deps.Deps
-}
-
-// NewService creates a new application service.
-func NewService(d *deps.Deps) *Service {
-	return &Service{Deps: d}
-}
-
 // GetVersion reports the running version and the latest release available.
-func (s *Service) GetVersion(c *gin.Context) {
+func (h *handlers) GetVersion(c *gin.Context) {
 	var rsp proto.Response
 
 	current := application.CurrentVersion()
-	slog.DebugContext(c.Request.Context(), "current version", slog.String("version", current))
+	h.log.DebugContext(c.Request.Context(), "current version", slog.String("version", current))
 
 	rsp.OkRspWithData(c, &proto.GetVersionRsp{
 		Current: current,
@@ -46,10 +31,14 @@ func (s *Service) GetVersion(c *gin.Context) {
 
 // Update downloads and installs the latest release, then restarts the
 // service. RunUpdate owns the global update lock.
-func (s *Service) Update(c *gin.Context) {
+func (h *handlers) Update(c *gin.Context) {
 	var rsp proto.Response
 
-	ctx, cancel := s.Deps.ActionContext(appUpdateTimeout)
+	// h.d is retained for its process-lifetime context: an application
+	// update replaces the running binary and then restarts the process, so
+	// it must not be bound to the request that triggered it. See
+	// deps.ActionContext.
+	ctx, cancel := h.d.ActionContext(appUpdateTimeout)
 	defer cancel()
 
 	if err := application.RunUpdate(ctx); err != nil {
@@ -57,7 +46,7 @@ func (s *Service) Update(c *gin.Context) {
 		return
 	}
 
-	slog.DebugContext(c.Request.Context(), "update application success")
+	h.log.DebugContext(c.Request.Context(), "update application success")
 	respondAndRestart(c, &rsp)
 }
 

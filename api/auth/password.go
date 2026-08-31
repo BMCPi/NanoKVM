@@ -13,7 +13,7 @@ import (
 // ChangePassword decrypts the submitted password and delegates the
 // credential change (account file + root shell password, with rollback)
 // to the auth domain.
-func (s *Service) ChangePassword(c *gin.Context) {
+func (h *handlers) ChangePassword(c *gin.Context) {
 	var req proto.ChangePasswordReq
 	var rsp proto.Response
 
@@ -34,11 +34,11 @@ func (s *Service) ChangePassword(c *gin.Context) {
 	}
 
 	rsp.OkRsp(c)
-	slog.DebugContext(c.Request.Context(), "change password success", slog.String("username", req.Username))
+	h.log.DebugContext(c.Request.Context(), "change password success", slog.String("username", req.Username))
 }
 
 // IsPasswordUpdated reports whether the default admin password was changed.
-func (s *Service) IsPasswordUpdated(c *gin.Context) {
+func (h *handlers) IsPasswordUpdated(c *gin.Context) {
 	var rsp proto.Response
 
 	updated, err := auth.IsPasswordUpdated()
