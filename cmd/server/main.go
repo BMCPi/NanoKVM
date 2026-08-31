@@ -173,7 +173,7 @@ func initialize(ctx context.Context) {
 	redfish.LoadHostState()
 
 	if cfg.IPMI.Enabled {
-		srv, err := ipmi.Start(ctx, cfg, powerCtrl, fwCtrl)
+		srv, err := ipmi.Start(ctx, cfg, powerCtrl, fwCtrl, rootLog.With("component", "ipmi"))
 		if err != nil {
 			slog.ErrorContext(ctx, "IPMI server failed to start", slog.Any("err", err))
 		} else {

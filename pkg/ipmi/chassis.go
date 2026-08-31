@@ -23,6 +23,7 @@ import (
 type chassisHAL struct {
 	root  context.Context
 	power powerController
+	log   *slog.Logger
 
 	mu sync.Mutex
 	// bootFlags holds the last full structure a client set. The Redfish
@@ -34,12 +35,12 @@ type chassisHAL struct {
 
 // detach runs op with the action timeout, off the dispatch goroutine.
 func (c *chassisHAL) detach(what string, op func(ctx context.Context) error) {
-	slog.Info("ipmi: chassis action", slog.String("action", what))
+	c.log.Info("ipmi: chassis action", slog.String("action", what))
 	go func() {
 		ctx, cancel := context.WithTimeout(c.root, power.ActionTimeout)
 		defer cancel()
 		if err := op(ctx); err != nil {
-			slog.ErrorContext(ctx, "ipmi: chassis action failed",
+			c.log.ErrorContext(ctx, "ipmi: chassis action failed",
 				slog.String("action", what), slog.Any("err", err))
 		}
 	}()

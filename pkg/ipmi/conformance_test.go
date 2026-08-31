@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 	"net"
 	"testing"
 
@@ -35,6 +36,7 @@ func TestClientConformance(t *testing.T) {
 		firmware: fakeFirmware{status: firmware.Status{VolumeReady: true, VolumeSize: 48 << 20}},
 		broker:   &fakeBroker{},
 		sensors:  fakeSensors{reading: sensorReading(t, 61200, 75)},
+		log:      slog.New(slog.DiscardHandler),
 	})
 	if err != nil {
 		t.Fatalf("start: %v", err)

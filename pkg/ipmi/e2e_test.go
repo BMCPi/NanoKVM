@@ -11,6 +11,7 @@ import (
 	"encoding/binary"
 	"hash/crc32"
 	"io"
+	"log/slog"
 	"net"
 	"sync"
 	"testing"
@@ -156,6 +157,7 @@ func TestEndToEnd(t *testing.T) {
 		firmware: fakeFirmware{status: firmware.Status{VolumeReady: true, Staging: true, VolumeSize: 48 << 20}},
 		broker:   &fakeBroker{},
 		sensors:  fakeSensors{reading: sensorReading(t, 55400, 49)},
+		log:      slog.New(slog.DiscardHandler),
 	})
 	if err != nil {
 		t.Fatalf("start: %v", err)

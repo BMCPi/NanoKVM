@@ -3,6 +3,7 @@ package ipmi
 import (
 	"context"
 	"io"
+	"log/slog"
 
 	"github.com/bougou/go-ipmi/pkg/hal"
 
@@ -41,9 +42,9 @@ type appHAL struct {
 	storage *storageHAL
 }
 
-func newHAL(root context.Context, pw powerController, broker consoleBroker, sensors sensorSource) *appHAL {
+func newHAL(root context.Context, pw powerController, broker consoleBroker, sensors sensorSource, log *slog.Logger) *appHAL {
 	return &appHAL{
-		chassis: &chassisHAL{root: root, power: pw},
+		chassis: &chassisHAL{root: root, power: pw, log: log},
 		console: &consoleHAL{broker: broker},
 		sensors: &sensorHAL{source: sensors},
 		storage: newStorageHAL(),

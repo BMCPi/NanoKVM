@@ -25,6 +25,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/bmcsensor"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 	"github.com/pi-bmc/nanokvm-app/pkg/power"
 	"github.com/pi-bmc/nanokvm-app/pkg/serial"
 	"github.com/pi-bmc/nanokvm-app/pkg/telemetry"
@@ -59,6 +60,7 @@ type Server struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 	addr   net.Addr
+	log    *slog.Logger
 }
 
 // deps is everything the service needs, as interfaces so tests can substitute
@@ -71,13 +73,14 @@ type deps struct {
 	firmware firmwareStatus
 	broker   consoleBroker
 	sensors  sensorSource
+	log      *slog.Logger
 }
 
 // Start creates and starts the IPMI server per cfg.IPMI. ctx is the process
 // root context: IPMI has no per-request context of its own — a command
 // arrives as a datagram and the requester does not stay on the line — so it
 // is what carries telemetry and bounds the detached power sequences.
-func Start(ctx context.Context, cfg *config.Config, powerCtrl *power.Controller, fwCtrl *firmware.Controller) (*Server, error) {
+func Start(ctx context.Context, cfg *config.Config, powerCtrl *power.Controller, fwCtrl *firmware.Controller, log *slog.Logger) (*Server, error) {
 	return startServer(ctx, deps{
 		port:     cfg.IPMI.Port,
 		username: cfg.IPMI.Username,
@@ -86,11 +89,13 @@ func Start(ctx context.Context, cfg *config.Config, powerCtrl *power.Controller,
 		firmware: fwCtrl,
 		broker:   serial.GetBroker(),
 		sensors:  bmcsensor.NewReader(),
+		log:      log,
 	})
 }
 
 func startServer(ctx context.Context, d deps) (*Server, error) {
-	h := newHAL(ctx, d.power, d.broker, d.sensors)
+	log := logger.Or(d.log)
+	h := newHAL(ctx, d.power, d.broker, d.sensors, log)
 
 	// v1.5 stays off: the previous server only ever spoke pre-session v1.5
 	// (Get Channel Auth Capabilities, which the RMCP+ discovery path still
@@ -129,15 +134,15 @@ func startServer(ctx context.Context, d deps) (*Server, error) {
 	srv := server.NewServer(b, conn, server.WithHandlerRegistry(reg))
 
 	serveCtx, cancel := context.WithCancel(ctx)
-	s := &Server{srv: srv, cancel: cancel, done: make(chan struct{}), addr: conn.LocalAddr()}
+	s := &Server{srv: srv, cancel: cancel, done: make(chan struct{}), addr: conn.LocalAddr(), log: log}
 	go func() {
 		defer close(s.done)
 		if err := srv.Serve(serveCtx); err != nil && serveCtx.Err() == nil {
-			slog.ErrorContext(serveCtx, "ipmi serve failed", slog.Any("err", err))
+			log.ErrorContext(serveCtx, "ipmi serve failed", slog.Any("err", err))
 		}
 	}()
 
-	slog.InfoContext(ctx, "ipmi server started", slog.Any("addr", s.addr))
+	log.InfoContext(ctx, "ipmi server started", slog.Any("addr", s.addr))
 	return s, nil
 }
 
@@ -149,7 +154,7 @@ func (s *Server) Stop() {
 	s.cancel()
 	_ = s.srv.Close()
 	<-s.done
-	slog.Info("ipmi server stopped")
+	s.log.Info("ipmi server stopped")
 }
 
 // telemetryMiddleware counts dispatched commands through the existing IPMI
