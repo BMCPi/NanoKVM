@@ -72,8 +72,16 @@ type BiosAttribute struct {
 	ReadOnly bool `json:"readOnly"`
 
 	// Registered is false for an attribute the host reported but did not
-	// describe, whose Type was inferred from its current value.
+	// describe in its AttributeRegistry.
 	Registered bool `json:"registered"`
+
+	// Cataloged is true when part of the description above came from the
+	// BMC's compiled-in platform table rather than from the host — see
+	// bios_catalog.go. It is not the opposite of Registered: a registry that
+	// names an attribute but omits its allowable values leaves both true. A
+	// UI should say so, because the operator is then being shown constraints
+	// the running firmware never asserted.
+	Cataloged bool `json:"cataloged,omitempty"`
 
 	// Current is the live host-reported value; nil when the host has reported
 	// the key only through the registry and never a value for it.
@@ -388,6 +396,10 @@ func BiosSnapshot() BiosView {
 		if p, ok := pending[e.Name]; ok {
 			a.Pending, a.HasPending = p, true
 		}
+		// Top up anything the registry named but did not describe — most
+		// often an Enumeration with no Value[], which would otherwise render
+		// as free text despite the host having declared it an enum.
+		a.Cataloged = applyBiosCatalog(&a)
 		v.Attributes = append(v.Attributes, a)
 	}
 
@@ -408,16 +420,23 @@ func BiosSnapshot() BiosView {
 		cur := live[name]
 		a := BiosAttribute{
 			Name:       name,
-			Type:       biosInferType(cur),
 			MenuPath:   unregisteredMenuPath,
 			Registered: false,
 			Current:    cur,
 		}
 		if p, ok := pending[name]; ok {
 			a.Pending, a.HasPending = p, true
-			if cur == nil {
-				a.Type = biosInferType(p)
+		}
+		// Type is left empty for the catalog to claim: a platform attribute
+		// the host has not described yet is still an attribute this BMC knows
+		// the shape of, and the guess below is only the last resort.
+		a.Cataloged = applyBiosCatalog(&a)
+		if a.Type == "" {
+			inferFrom := cur
+			if inferFrom == nil {
+				inferFrom = a.Pending
 			}
+			a.Type = biosInferType(inferFrom)
 		}
 		v.Attributes = append(v.Attributes, a)
 	}
