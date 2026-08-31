@@ -1,6 +1,4 @@
-package ui
-
-// fragments.go is the htmx surface of the UI: a route group under /ui that
+// Package fragments is the htmx surface of the UI: a route group under /ui that
 // answers HTML fragments instead of the JSON envelope /api returns and the
 // resources /redfish returns. Those two stay untouched — they are the
 // device's public API and have consumers (gofish, bmclib, ipmitool, the
@@ -10,6 +8,7 @@ package ui
 // same way the JSON handlers do, then renders a templ partial from
 // ui/components. The partials are the same functions the full-page render
 // uses, so first paint and every subsequent swap come from one definition.
+package fragments
 
 import (
 	"encoding/json"
@@ -21,13 +20,14 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
+	"github.com/pi-bmc/nanokvm-app/ui/render"
 )
 
-// fragmentRoutes mounts every /ui/... endpoint. It hangs off the group that
+// Routes mounts every /ui/... endpoint. It hangs off the group that
 // has ResolveAuth applied and does its own auth rejection: RequireAuth's 302
 // to /auth/login would be followed transparently by the browser and the
 // login page swapped into whatever target the fragment was bound to.
-func fragmentRoutes(r *gin.RouterGroup, d *deps.Deps) {
+func Routes(r *gin.RouterGroup, d *deps.Deps) {
 	frag := r.Group("/ui")
 	frag.Use(requireAuthFragment())
 
@@ -55,7 +55,7 @@ func requireAuthFragment() gin.HandlerFunc {
 
 // renderFragment writes a templ component as an HTML fragment response.
 func renderFragment(c *gin.Context, component templ.Component) {
-	c.Render(http.StatusOK, newRender(c.Request.Context(), http.StatusOK, component))
+	c.Render(http.StatusOK, render.New(c.Request.Context(), http.StatusOK, component))
 }
 
 // hxToast raises a toast on the client after the response lands. The

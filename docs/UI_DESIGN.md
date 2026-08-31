@@ -256,7 +256,7 @@ and new contributors.
    key/value readout in one rhythm by construction. The settings row family wraps Field/Item with
    the altitude rule stated in source (`settings_menu.templ:711-714`).
 4. **HTMX conventions.** Fragment routes under `/ui` render the *same* templ functions as first
-   paint (`ui/fragments.go:9-12`); event-driven refresh via `HX-Trigger` (`overview.templ:27-29`);
+   paint (`ui/fragments/fragments.go:1-10`); event-driven refresh via `HX-Trigger` (`overview.templ:27-29`);
    lazy panel loads bound to trigger clicks (`settings_menu.templ:191-200`); `hx-disabled-elt` on
    mutating buttons; one central bridge (`htmx.templ:10-63`) wires `hx-confirm` → AlertDialog and
    server toasts so fragments never ship their own glue; auth-aware fragments answer `HX-Redirect`.
@@ -342,7 +342,7 @@ trigger, and logout — all identical ghost buttons.
 | Four dismiss idioms | Virtual media text CLOSE (`virtual_media.templ:88-95`), overview icon-only ✕ (`overview.templ:49-59`), settings "← Back to KVM" (`settings_menu.templ:113-120`), keyboard HIDE |
 | Two title scales, same role | `card.Title` default 18px uppercase in settings vs overridden `text-sm` in overview (`card/card.templ:109`, `overview.templ:107`) — visible simultaneously |
 | Two label grammars | Overview rows whisper (normal-case muted, `status_row.templ:17`); settings value rows shout (xs semibold uppercase, `settings_menu.templ:714`) |
-| Two persistence models | General auto-saves on change, Network batches behind Save. Both *do* toast ("Settings saved", `ui/fragments_settings.go:104,120`) — the gap is that nothing marks which regime a control is in |
+| Two persistence models | General auto-saves on change, Network batches behind Save. Both *do* toast ("Settings saved", `ui/fragments/settings.go:104,120`) — the gap is that nothing marks which regime a control is in |
 | Panel-surface zoo | Adjacent buttons open a dropdown, a push sidebar, a bottom dock, a slide-up drawer, and a modal. Virtual Media is the misfit — its CLOSE button and multi-step upload flows are a dialog wanting out |
 | Universal ALL-CAPS | Buttons, badges, tabs, card titles, dialog titles, menu items, labels all uppercase with tracking — the single token choice that makes the three bars blur |
 | Badge chrome | Zero-padding base classes make status tints hug text like highlighter smears beside padded buttons (`badge/badge.templ:59`) |
@@ -567,7 +567,7 @@ corrected in this document:**
 | --- | --- |
 | "The docs index banner claims 58 components" | No such banner exists; the catalog is exactly 52 |
 | "22 of 29 vendored packages are app-imported" | 21 — `floatingui` is JS-only with no templ importer |
-| "Settings auto-save is silent" | Auto-saved panels *do* raise "Settings saved" toasts (`ui/fragments_settings.go:104,120`); the real finding is only that two persistence regimes coexist unmarked |
+| "Settings auto-save is silent" | Auto-saved panels *do* raise "Settings saved" toasts (`ui/fragments/settings.go:104,120`); the real finding is only that two persistence regimes coexist unmarked |
 
 **Primary sources.** [shadcn-templ docs](https://shadcn-templ.com/docs/components) (all 52 component
 pages plus theming, CLI, installation); this repo at branch `edk2`;

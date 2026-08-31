@@ -1,4 +1,4 @@
-package ui
+package fragments
 
 // fragments_overview.go serves the Server Overview sidebar. Read fragments
 // re-render a card body from live state; mutating fragments answer with a

@@ -1,4 +1,4 @@
-package ui
+package fragments
 
 // fragments_bios_test.go covers the layer this file owns: turning an
 // api/redfish BiosAttribute ("what this attribute is") into a

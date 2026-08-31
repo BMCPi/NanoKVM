@@ -1,4 +1,4 @@
-package ui
+package fragments
 
 // fragments_media_test.go covers the virtual-media upload handler end to end.
 //

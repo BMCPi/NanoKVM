@@ -1,4 +1,4 @@
-package ui
+package fragments
 
 // fragments_power_events.go streams the navbar power pill and the dropdown's
 // power toggle as rendered HTML fragments over SSE, so htmx can swap them

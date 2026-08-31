@@ -1,4 +1,4 @@
-package ui
+package fragments
 
 // fragments_settings.go serves the settings dialog. Each panel has a GET that
 // renders it from live state and one or more writes that apply a change and

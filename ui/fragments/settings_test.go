@@ -1,4 +1,4 @@
-package ui
+package fragments
 
 // fragments_settings_test.go guards the mDNS settings form against reading
 // and writing different config blocks — see

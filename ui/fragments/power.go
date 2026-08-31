@@ -1,4 +1,4 @@
-package ui
+package fragments
 
 // fragments_power.go serves the navbar power menu's actions. The pill and
 // the toggle are driven by GET /ui/power/events (fragments_power_events.go)

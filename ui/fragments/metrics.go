@@ -1,4 +1,4 @@
-package ui
+package fragments
 
 // fragments_metrics.go serves the app-metrics panel. It is a read-only
 // fragment: the panel polls it, and every render reads the live values out of

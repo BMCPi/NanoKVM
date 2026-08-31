@@ -1,4 +1,4 @@
-package ui
+package fragments
 
 // fragments_media.go serves the navbar virtual-media picker
 // (components.VirtualMediaMenu): the "current mount" / "add media" views and

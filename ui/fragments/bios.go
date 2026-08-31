@@ -1,4 +1,4 @@
-package ui
+package fragments
 
 // fragments_bios.go serves the BIOS configuration page's fragments and owns
 // the translation between api/redfish's BiosView (what an attribute *is*) and

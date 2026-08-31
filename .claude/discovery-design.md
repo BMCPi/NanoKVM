@@ -11,7 +11,7 @@ SSDP (what DSP0266 §12.4 specifies for Redfish discovery).
 - `pkg/discovery` — lifecycle, config, interface resolution, change watcher. The
   only package that reads config and the only one the app talks to. Exports
   `Start()`, `Restart()`, `Advertised()`. `Restart()` is how settings apply
-  (`ui/fragments_settings.go` calls it); responder fields are snapshotted at
+  (`ui/fragments/settings.go` calls it); responder fields are snapshotted at
   construction.
 - `pkg/discovery/mdns` — DNS-SD responder on `brutella/dnssd` (replaced
   pion/mdns entirely; two responders on 5353 trigger RFC 6762 conflict renaming).

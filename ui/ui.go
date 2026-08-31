@@ -13,7 +13,9 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/middleware"
 	"github.com/pi-bmc/nanokvm-app/ui/assets"
 	"github.com/pi-bmc/nanokvm-app/ui/components"
+	"github.com/pi-bmc/nanokvm-app/ui/fragments"
 	"github.com/pi-bmc/nanokvm-app/ui/pages"
+	"github.com/pi-bmc/nanokvm-app/ui/render"
 
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
@@ -65,8 +67,7 @@ func pageRoutes(r *gin.Engine, d *deps.Deps) {
 			c.Redirect(http.StatusFound, "/dashboard")
 			return
 		}
-		render := newRender(c.Request.Context(), http.StatusOK, pages.LoginPage())
-		c.Render(http.StatusOK, render)
+		c.Render(http.StatusOK, render.New(c.Request.Context(), http.StatusOK, pages.LoginPage()))
 	})
 
 	// All page routes resolve auth status (sets authed flag, never redirects).
@@ -76,12 +77,11 @@ func pageRoutes(r *gin.Engine, d *deps.Deps) {
 	// htmx fragment endpoints. Registered on pageGroup rather than protected
 	// so they can reject with HX-Redirect instead of RequireAuth's 302, which
 	// htmx would follow and swap the login page into the fragment's target.
-	fragmentRoutes(pageGroup, d)
+	fragments.Routes(pageGroup, d)
 
 	// Password reset is reachable both logged-in and as a guest.
 	pageGroup.GET("/auth/password", func(c *gin.Context) {
-		render := newRender(c.Request.Context(), http.StatusOK, pages.PasswordPage(middleware.IsAuthed(c)))
-		c.Render(http.StatusOK, render)
+		c.Render(http.StatusOK, render.New(c.Request.Context(), http.StatusOK, pages.PasswordPage(middleware.IsAuthed(c))))
 	})
 
 	// Logout for the navbar's hx-post. On pageGroup rather than the fragment
@@ -106,8 +106,7 @@ func pageRoutes(r *gin.Engine, d *deps.Deps) {
 		c.Redirect(http.StatusFound, "/dashboard")
 	})
 	protected.GET("/dashboard", func(c *gin.Context) {
-		render := newRender(c.Request.Context(), http.StatusOK, pages.Home(homeModel()))
-		c.Render(http.StatusOK, render)
+		c.Render(http.StatusOK, render.New(c.Request.Context(), http.StatusOK, pages.Home(homeModel())))
 	})
 	// Legacy routes: the serial console and settings now live on the
 	// dashboard, so these redirect server-side for old links/bookmarks.
@@ -189,7 +188,6 @@ func apiDocsHandler() gin.HandlerFunc {
 			c.String(http.StatusInternalServerError, "API docs unavailable: %v", err)
 			return
 		}
-		render := newRender(c.Request.Context(), http.StatusOK, pages.APIDocsPage(model))
-		c.Render(http.StatusOK, render)
+		c.Render(http.StatusOK, render.New(c.Request.Context(), http.StatusOK, pages.APIDocsPage(model)))
 	}
 }
