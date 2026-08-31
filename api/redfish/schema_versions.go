@@ -1,6 +1,6 @@
 package redfish
 
-import "github.com/pi-bmc/nanokvm-app/pkg/identity"
+import "github.com/pi-bmc/nanokvm-app/pkg/protocol/identity"
 
 // schema_versions.go is the single place the schema versions this BMC
 // advertises are written down.

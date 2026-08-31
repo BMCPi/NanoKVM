@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/redfish"
+	"github.com/pi-bmc/nanokvm-app/pkg/protocol/redfish"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"

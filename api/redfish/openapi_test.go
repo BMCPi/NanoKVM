@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/redfish"
+	"github.com/pi-bmc/nanokvm-app/pkg/protocol/redfish"
 
 	"github.com/gin-gonic/gin"
 	"gopkg.in/yaml.v3"

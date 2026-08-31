@@ -21,7 +21,7 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/auth"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
-	"github.com/pi-bmc/nanokvm-app/pkg/shell"
+	"github.com/pi-bmc/nanokvm-app/pkg/protocol/shell"
 )
 
 // startTestServer brings the real server up on an ephemeral port with its

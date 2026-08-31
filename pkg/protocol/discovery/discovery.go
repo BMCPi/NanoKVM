@@ -34,10 +34,10 @@ import (
 	"time"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
-	"github.com/pi-bmc/nanokvm-app/pkg/discovery/mdns"
-	"github.com/pi-bmc/nanokvm-app/pkg/discovery/ssdp"
-	"github.com/pi-bmc/nanokvm-app/pkg/identity"
 	"github.com/pi-bmc/nanokvm-app/pkg/logger"
+	"github.com/pi-bmc/nanokvm-app/pkg/protocol/discovery/mdns"
+	"github.com/pi-bmc/nanokvm-app/pkg/protocol/discovery/ssdp"
+	"github.com/pi-bmc/nanokvm-app/pkg/protocol/identity"
 )
 
 // watchInterval is how often the watcher re-checks the hostname / interface

@@ -8,15 +8,16 @@ SSDP (what DSP0266 §12.4 specifies for Redfish discovery).
 
 ## Package layout
 
-- `pkg/discovery` — lifecycle, config, interface resolution, change watcher. The
-  only package that reads config and the only one the app talks to. Exports
-  `Start()`, `Restart()`, `Advertised()`. `Restart()` is how settings apply
-  (`ui/fragments/settings.go` calls it); responder fields are snapshotted at
-  construction.
-- `pkg/discovery/mdns` — DNS-SD responder on `brutella/dnssd` (replaced
-  pion/mdns entirely; two responders on 5353 trigger RFC 6762 conflict renaming).
-- `pkg/discovery/ssdp` — hand-rolled SSDP responder (no library can emit the
-  `AL` header or match both Redfish ST variants).
+- `pkg/protocol/discovery` — lifecycle, config, interface resolution, change
+  watcher. The only package that reads config and the only one the app talks
+  to. Exports `Start()`, `Restart()`, `Advertised()`. `Restart()` is how
+  settings apply (`ui/fragments/settings.go` calls it); responder fields are
+  snapshotted at construction.
+- `pkg/protocol/discovery/mdns` — DNS-SD responder on `brutella/dnssd`
+  (replaced pion/mdns entirely; two responders on 5353 trigger RFC 6762
+  conflict renaming).
+- `pkg/protocol/discovery/ssdp` — hand-rolled SSDP responder (no library can
+  emit the `AL` header or match both Redfish ST variants).
 
 ## Invariants
 
@@ -84,6 +85,7 @@ Accepted rollback cost: downgrading past the migration reverts mDNS to defaults.
 
 ## Shared identity
 
-`pkg/identity.BMCUUID()` (seeded from the lowest permanent MAC) is the single
-UUID used by the SSDP `USN`, the DNS-SD TXT `uuid`, and the Redfish service
-root. `api/redfish/identity.go` is a thin wrapper — `pkg` must never import `api`.
+`pkg/protocol/identity.BMCUUID()` (seeded from the lowest permanent MAC) is the
+single UUID used by the SSDP `USN`, the DNS-SD TXT `uuid`, and the Redfish
+service root. `api/redfish/identity.go` is a thin wrapper — `pkg` must never
+import `api`.

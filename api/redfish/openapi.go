@@ -24,7 +24,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gopkg.in/yaml.v3"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/redfish"
+	"github.com/pi-bmc/nanokvm-app/pkg/protocol/redfish"
 )
 
 // jsonOnce / cachedJSON memoise the YAML→JSON conversion so we only do

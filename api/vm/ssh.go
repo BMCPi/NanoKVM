@@ -7,7 +7,7 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/proto"
-	sshsvc "github.com/pi-bmc/nanokvm-app/pkg/ssh"
+	sshsvc "github.com/pi-bmc/nanokvm-app/pkg/protocol/ssh"
 )
 
 // SSH state is config, not a flag file: the BMC ships no sshd, so there is no

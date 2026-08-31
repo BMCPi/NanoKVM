@@ -9,7 +9,7 @@ import (
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/shell"
+	"github.com/pi-bmc/nanokvm-app/pkg/protocol/shell"
 )
 
 // serveSFTP runs the in-process SFTP server on a session channel. The image

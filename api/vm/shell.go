@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/shell"
+	"github.com/pi-bmc/nanokvm-app/pkg/protocol/shell"
 )
 
 // Shell upgrades the HTTP connection to a WebSocket and bridges it to an
