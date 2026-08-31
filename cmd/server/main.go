@@ -18,6 +18,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
 	"github.com/pi-bmc/nanokvm-app/pkg/auth"
 	"github.com/pi-bmc/nanokvm-app/pkg/autoupdate"
+	"github.com/pi-bmc/nanokvm-app/pkg/bmcsensor"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/discovery"
@@ -172,6 +173,11 @@ func initialize(ctx context.Context) {
 	// operator reaches for when the appliance feels slow — which is not a
 	// moment they can retroactively enable telemetry for.
 	sysinfo.StartResourceSampler(ctx, rootLog.With("component", "sysinfo"))
+	// The host's own sensors, pushed into our emulated I2C EEPROM from OP-TEE
+	// on the Pi. This is the process's only reader of that record — Redfish
+	// and IPMI both read through it — so it must start even on a board with no
+	// slave EEPROM, where it simply finds nothing.
+	bmcsensor.Default().Start(ctx, rootLog.With("component", "bmcsensor"))
 
 	// Build the composition-root controllers. These replace the old lazy
 	// singletons: constructed once here, shared by every subsystem that needs

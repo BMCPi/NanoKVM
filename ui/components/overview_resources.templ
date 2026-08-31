@@ -51,7 +51,7 @@ templ OverviewResourcesBody(m OverviewResources) {
 		} else {
 			<div class="flex flex-col gap-3">
 				for _, s := range m.Series() {
-					@resourceGraph(s)
+					@sparkGraph(s)
 				}
 			</div>
 		}
@@ -59,75 +59,4 @@ templ OverviewResourcesBody(m OverviewResources) {
 	@card.Footer(card.FooterProps{Class: "text-xs text-muted-foreground"}) {
 		Sampled every 10s · last 30 minutes.
 	}
-}
-
-// resourceGraph is one labelled trace: the reading above, the trend below.
-//
-// Deliberately not statusRow's two-column grid. That grid exists so a column of
-// values can be read straight down; here each value belongs to the graph
-// directly under it, and pushing the reading into a 7.5rem gutter would part it
-// from the thing it labels to align it with rows in a different card.
-templ resourceGraph(s ResourceSeries) {
-	<div class="flex flex-col gap-1">
-		<div class="flex items-baseline justify-between gap-2">
-			<span class="shrink-0 text-xs text-muted-foreground">{ s.Label }</span>
-			<span class="flex items-baseline gap-2 font-mono text-xs">
-				if s.Detail != "" {
-					<span class="text-muted-foreground">{ s.Detail }</span>
-				}
-				<span
-					class={ "tabular-nums",
-						templ.KV("text-destructive", s.Elevated()),
-						templ.KV("text-foreground", !s.Elevated()) }
-				>
-					{ s.PercentLabel() }
-				</span>
-			</span>
-		</div>
-		@sparkline(s)
-	</div>
-}
-
-// sparkline draws one trace against a fixed 0..100 box.
-//
-// preserveAspectRatio="none" lets the square viewBox stretch to whatever width
-// the drawer is at whatever height the class sets, which is what makes the
-// graph reflow with the panel without measuring anything. The distortion that
-// would otherwise smear the stroke is undone by vector-effect, which keeps it
-// at one device pixel regardless of the scale factor.
-//
-// aria-hidden with the reading in a sibling: the number above is the accessible
-// content, and a screen reader gains nothing from a path element.
-templ sparkline(s ResourceSeries) {
-	<svg
-		class={ "h-8 w-full overflow-hidden rounded-sm bg-muted/40",
-			templ.KV("text-destructive", s.Elevated()),
-			templ.KV("text-primary", !s.Elevated()) }
-		viewBox="0 0 100 100"
-		preserveAspectRatio="none"
-		aria-hidden="true"
-		focusable="false"
-	>
-		// The half-height rule is the only gridline. With the domain fixed it
-		// is always 50%, so it reads as a scale rather than as data.
-		<line
-			x1="0"
-			y1="50"
-			x2="100"
-			y2="50"
-			stroke="currentColor"
-			stroke-opacity="0.15"
-			stroke-width="1"
-			vector-effect="non-scaling-stroke"
-		></line>
-		<polygon points={ sparkPolygon(s.Points) } fill="currentColor" fill-opacity="0.2"></polygon>
-		<polyline
-			points={ sparkPolyline(s.Points) }
-			fill="none"
-			stroke="currentColor"
-			stroke-width="1.5"
-			stroke-linejoin="round"
-			vector-effect="non-scaling-stroke"
-		></polyline>
-	</svg>
 }

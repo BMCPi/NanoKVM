@@ -88,8 +88,11 @@ func Start(ctx context.Context, cfg *config.Config, powerCtrl *power.Controller,
 		power:    powerCtrl,
 		firmware: fwCtrl,
 		broker:   serial.GetBroker(),
-		sensors:  bmcsensor.NewReader(),
-		log:      log,
+		// The shared sampler, not a Reader of its own: staleness is measured
+		// from when the sequence was first observed, so a consumer with its own
+		// reader calls a long-dead host's last sample fresh.
+		sensors: bmcsensor.Default(),
+		log:     log,
 	})
 }
 

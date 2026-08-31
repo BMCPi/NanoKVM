@@ -237,18 +237,19 @@ func overviewResourcesModel() components.OverviewResources {
 	u := sysinfo.LatestUsage()
 	return components.OverviewResources{
 		Sampling: true,
-		CPU: components.ResourceSeries{
-			Label: "Processor", Percent: u.CPUPercent, Points: cpu, Valid: u.CPUValid,
+		CPU: components.SparkSeries{
+			Label: "Processor", Value: u.CPUPercent, Unit: "%",
+			Points: cpu, Valid: u.CPUValid,
 		},
-		Memory: components.ResourceSeries{
-			Label:   "Memory",
-			Detail:  resourceDetail(u.MemUsedMB, u.MemTotalMB),
-			Percent: u.MemPercent, Points: mem, Valid: u.MemValid,
+		Memory: components.SparkSeries{
+			Label: "Memory", Value: u.MemPercent, Unit: "%",
+			Detail: resourceDetail(u.MemUsedMB, u.MemTotalMB),
+			Points: mem, Valid: u.MemValid,
 		},
-		Disk: components.ResourceSeries{
-			Label:   "Storage",
-			Detail:  resourceDetail(u.DiskUsedMB, u.DiskTotalMB),
-			Percent: u.DiskPercent, Points: disk, Valid: u.DiskValid,
+		Disk: components.SparkSeries{
+			Label: "Storage", Value: u.DiskPercent, Unit: "%",
+			Detail: resourceDetail(u.DiskUsedMB, u.DiskTotalMB),
+			Points: disk, Valid: u.DiskValid,
 		},
 	}
 }

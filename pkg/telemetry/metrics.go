@@ -107,6 +107,10 @@ func initMetrics() {
 	// sampler. See resources.go for why they are observable rather than
 	// pushed.
 	initResourceMetrics()
+
+	// What the managed host reports about itself, pushed over I2C from OP-TEE.
+	// See host_sensors.go.
+	initHostSensorMetrics()
 }
 
 // ── Helpers used by service packages. All are nil-safe so calls are free

@@ -5,6 +5,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 )
 
 // resources_test.go pins the arithmetic, because every one of these numbers is
@@ -254,7 +256,7 @@ func validUsage(pct float64) Usage {
 func historyPoints() []ResourcePoint {
 	resources.mu.Lock()
 	defer resources.mu.Unlock()
-	return append([]ResourcePoint(nil), resources.points...)
+	return resources.points.Snapshot()
 }
 
 func resetResourceHistory(t *testing.T) {
@@ -262,7 +264,7 @@ func resetResourceHistory(t *testing.T) {
 	reset := func() {
 		resources.mu.Lock()
 		defer resources.mu.Unlock()
-		resources.points = nil
+		resources.points = utils.NewRing[ResourcePoint](resourceDepth)
 		resources.latest = Usage{}
 	}
 	reset()

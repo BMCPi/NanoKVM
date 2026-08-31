@@ -17,6 +17,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 )
 
 const (
@@ -46,10 +48,10 @@ type ResourcePoint struct {
 var resources = struct {
 	mu      sync.Mutex
 	sampler ResourceSampler
-	points  []ResourcePoint
+	points  utils.Ring[ResourcePoint]
 	latest  Usage
 	started bool
-}{}
+}{points: utils.NewRing[ResourcePoint](resourceDepth)}
 
 // StartResourceSampler records resource usage until ctx is cancelled. Safe to
 // call more than once; only the first call starts a goroutine.
@@ -116,11 +118,7 @@ func appendResourceSample(u Usage, at string) {
 
 	resources.latest = u
 
-	var prev ResourcePoint
-	hasPrev := len(resources.points) > 0
-	if hasPrev {
-		prev = resources.points[len(resources.points)-1]
-	}
+	prev, hasPrev := resources.points.Last()
 
 	// The first reading has no CPU rate behind it — a rate needs an interval.
 	// Waiting one tick for it costs ten seconds; recording it costs a zero at
@@ -138,15 +136,12 @@ func appendResourceSample(u Usage, at string) {
 		}
 		return before
 	}
-	resources.points = append(resources.points, ResourcePoint{
+	resources.points.Append(ResourcePoint{
 		At:     at,
 		CPU:    carry(u.CPUValid, u.CPUPercent, prev.CPU),
 		Memory: carry(u.MemValid, u.MemPercent, prev.Memory),
 		Disk:   carry(u.DiskValid, u.DiskPercent, prev.Disk),
 	})
-	if len(resources.points) > resourceDepth {
-		resources.points = append(resources.points[:0], resources.points[1:]...)
-	}
 }
 
 // LatestUsage is the most recent reading, for the numbers beside the graphs
@@ -169,8 +164,8 @@ func ResourceHistory() []ResourcePoint {
 	defer resources.mu.Unlock()
 
 	// One point is a value, not a trend, and the card says "last 30 minutes".
-	if len(resources.points) < 2 {
+	if resources.points.Len() < 2 {
 		return nil
 	}
-	return append([]ResourcePoint(nil), resources.points...)
+	return resources.points.Snapshot()
 }

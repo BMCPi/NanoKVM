@@ -31,10 +31,24 @@ import (
 // socSensorID is the sensor's Id, and the last segment of its URI.
 const socSensorID = "SoCTemp"
 
-// socReader is the process-wide reader. One instance, because staleness is
+// sensorReader is the slice of the host record source this file needs. An
+// interface only so the tests can point it at a fixture; production always
+// holds the shared sampler.
+type sensorReader interface {
+	Read() (bmcsensor.Reading, error)
+	Available() bool
+}
+
+// socReader is the process-wide source. One instance, because staleness is
 // measured by watching the sequence number move between reads — a reader
-// created per request would think every sample was brand new.
-var socReader = bmcsensor.NewReader()
+// created per request would think every sample was brand new, and report a
+// powered-off host's last record as a live die temperature.
+//
+// It is the shared sampler rather than a bare Reader so that this view, the
+// IPMI sensor HAL and the drawer's graphs all report the same sample, and so
+// that something is watching the sequence continuously even when nothing is
+// reading this endpoint.
+var socReader sensorReader = bmcsensor.Default()
 
 // Sensor is the Redfish Sensor resource (DSP2046 §6.x, Sensor.v1_2_0),
 // trimmed to the properties a temperature reading needs.

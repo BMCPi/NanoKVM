@@ -1,0 +1,89 @@
+package components
+
+// sparkGraph is one labelled trace: the reading above, the trend below.
+//
+// Deliberately not statusRow's two-column grid. That grid exists so a column of
+// values can be read straight down; here each value belongs to the graph
+// directly under it, and pushing the reading into a 7.5rem gutter would part it
+// from the thing it labels to align it with rows in a different card.
+templ sparkGraph(s SparkSeries) {
+	<div class="flex flex-col gap-1">
+		<div class="flex items-baseline justify-between gap-2">
+			<span class="shrink-0 text-xs text-muted-foreground">{ s.Label }</span>
+			<span class="flex items-baseline gap-2 font-mono text-xs">
+				if s.Detail != "" {
+					<span class="text-muted-foreground">{ s.Detail }</span>
+				}
+				<span
+					class={ "tabular-nums",
+						templ.KV("text-destructive", s.Elevated()),
+						templ.KV("text-foreground", !s.Elevated()) }
+				>
+					{ s.ValueLabel() }
+				</span>
+			</span>
+		</div>
+		@sparkline(s)
+	</div>
+}
+
+// sparkline draws one trace against its fixed domain.
+//
+// preserveAspectRatio="none" lets the square viewBox stretch to whatever width
+// the drawer is at whatever height the class sets, which is what makes the
+// graph reflow with the panel without measuring anything. The distortion that
+// would otherwise smear the stroke is undone by vector-effect, which keeps it
+// at one device pixel regardless of the scale factor.
+//
+// aria-hidden with the reading in a sibling: the number above is the accessible
+// content, and a screen reader gains nothing from a path element.
+templ sparkline(s SparkSeries) {
+	<svg
+		class={ "h-8 w-full overflow-hidden rounded-sm bg-muted/40",
+			templ.KV("text-destructive", s.Elevated()),
+			templ.KV("text-primary", !s.Elevated()) }
+		viewBox="0 0 100 100"
+		preserveAspectRatio="none"
+		aria-hidden="true"
+		focusable="false"
+	>
+		// The half-height rule is the scale. With the domain fixed it is always
+		// the midpoint, so it reads as a gridline rather than as data.
+		<line
+			x1="0"
+			y1="50"
+			x2="100"
+			y2="50"
+			stroke="currentColor"
+			stroke-opacity="0.15"
+			stroke-width="1"
+			vector-effect="non-scaling-stroke"
+		></line>
+		if s.HasMarker() {
+			// A reference the trace means something against — the temperature
+			// at which the host starts capping itself. Dashed so it cannot be
+			// mistaken for a reading, and dashed in the viewBox's own units so
+			// the stretch does not turn it into a solid line.
+			<line
+				x1="0"
+				y1={ s.MarkerY() }
+				x2="100"
+				y2={ s.MarkerY() }
+				stroke="currentColor"
+				stroke-opacity="0.45"
+				stroke-width="1"
+				stroke-dasharray="4 3"
+				vector-effect="non-scaling-stroke"
+			></line>
+		}
+		<polygon points={ s.Polygon() } fill="currentColor" fill-opacity="0.2"></polygon>
+		<polyline
+			points={ s.Polyline() }
+			fill="none"
+			stroke="currentColor"
+			stroke-width="1.5"
+			stroke-linejoin="round"
+			vector-effect="non-scaling-stroke"
+		></polyline>
+	</svg>
+}
