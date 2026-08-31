@@ -149,6 +149,17 @@ type BiosModel struct {
 // Searching reports whether the content region is showing search results.
 func (m BiosModel) Searching() bool { return m.Query != "" }
 
+// HasForm reports whether the content region is rendering an editable form.
+// The footer's submit button lives outside that region and reaches it by id,
+// so it needs the same answer BiosContent branches on — derived here rather
+// than judged twice, or the button ends up enabled over an empty state.
+func (m BiosModel) HasForm() bool {
+	if m.Empty() {
+		return false
+	}
+	return !(m.Searching() && m.AttrCount == 0)
+}
+
 // Empty reports whether there is nothing at all to configure — no registry and
 // no reported attributes, which is what a host that has never booted far
 // enough to publish looks like.

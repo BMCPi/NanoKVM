@@ -14,6 +14,7 @@ package components
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -423,4 +424,170 @@ func TestBiosCatalogedAttributesAreMarkedDistinctly(t *testing.T) {
 	if strings.Contains(html, ">unregistered<") {
 		t.Error("marked unregistered as well; the two badges contradict each other")
 	}
+}
+
+// ── dialog layout ───────────────────────────────────────────────────────
+//
+// The panel is one grid: identity over the rail in the left column, search
+// heading the content column, footer spanning both. Before this it was a rail
+// beside a column whose own header started to the right of it, which gave the
+// dialog two competing left edges and left the attribute rows stretching a
+// label and its control to opposite ends of a 6xl dialog.
+
+func renderBiosPanel(t *testing.T, m BiosModel) string {
+	t.Helper()
+	return renderToString(t, func(w *strings.Builder) error {
+		return BiosPanel(m).Render(context.Background(), w)
+	})
+}
+
+func TestBiosPanelIsOneTwoColumnGrid(t *testing.T) {
+	html := renderBiosPanel(t, sampleModel())
+
+	if !strings.Contains(html, "grid-cols-[14rem_minmax(0,1fr)]") {
+		t.Error("the panel is not a two-column grid, so the identity block and the " +
+			"rail cannot share a column edge")
+	}
+	// Identity must come before the rail in source order — same column, row
+	// above. If it drifts after, it lands in the body row.
+	identity := strings.Index(html, "BIOS Configuration")
+	rail := strings.Index(html, `id="bios-rail"`)
+	search := strings.Index(html, `id="bios-search"`)
+	if identity < 0 || rail < 0 || search < 0 {
+		t.Fatal("panel is missing the identity block, rail or search")
+	}
+	if !(identity < search && search < rail) {
+		t.Errorf("grid cells are out of order (identity %d, search %d, rail %d): the "+
+			"header row must be both cells, then the body row", identity, search, rail)
+	}
+	// The footer spans both columns; without this it sits under the content
+	// column only and the rail runs past it.
+	if !strings.Contains(html, "col-span-2") {
+		t.Error("the footer does not span both grid columns")
+	}
+}
+
+// The rail no longer sets its own width — the grid column does. A w-* left
+// behind here fights the track and the identity block stops lining up.
+func TestBiosRailDoesNotSetItsOwnWidth(t *testing.T) {
+	html := renderToString(t, func(w *strings.Builder) error {
+		return BiosRail(sampleModel(), false).Render(context.Background(), w)
+	})
+	if strings.Contains(html, "w-56") {
+		t.Error("the rail still carries a fixed width; the grid track owns it now")
+	}
+}
+
+// Contrast: the working surface and the chrome around it must be different
+// planes. --border is white/10 in the dark theme and cannot carry the
+// separation on its own, which is why the old all-bg-card/60 panel read flat.
+func TestBiosPanelSeparatesChromeFromContent(t *testing.T) {
+	html := renderBiosPanel(t, sampleModel())
+
+	if !strings.Contains(html, "bg-card") {
+		t.Error("the content region has no surface colour of its own")
+	}
+	if !strings.Contains(html, "bg-background") {
+		t.Error("the rail, header and footer share no chrome colour")
+	}
+	if strings.Contains(html, "bg-card/60") || strings.Contains(html, "bg-card/30") {
+		t.Error("a translucent card wash is back; that is what made the dialog flat")
+	}
+}
+
+// Stage changes lives in the footer and reaches the form by id, so the form
+// keeps its own hx-post and the two cannot name different endpoints.
+func TestStageChangesIsAFooterActionBoundToTheForm(t *testing.T) {
+	html := renderToString(t, func(w *strings.Builder) error {
+		return BiosStagedBar(sampleModel(), false).Render(context.Background(), w)
+	})
+
+	if !strings.Contains(html, `form="bios-form"`) {
+		t.Error("the footer's submit is not associated with the attribute form, so " +
+			"it cannot submit anything from outside it")
+	}
+	if !strings.Contains(html, `type="submit"`) {
+		t.Error("the footer's stage control is not a submit button")
+	}
+	if strings.Contains(html, "hx-post=\"/ui/bios/stage\"") {
+		t.Error("the footer duplicates the form's verb; the form owns it")
+	}
+}
+
+// The sentence moved out of the form body and onto the button as a tooltip.
+func TestStageChangesExplainsItselfInATooltip(t *testing.T) {
+	footer := renderToString(t, func(w *strings.Builder) error {
+		return BiosStagedBar(sampleModel(), false).Render(context.Background(), w)
+	})
+	const sentence = "applied by the host firmware at its next boot"
+
+	if !strings.Contains(footer, sentence) {
+		t.Error("the tooltip does not carry the explanation")
+	}
+	if !strings.Contains(footer, "data-tui-tooltip-trigger") {
+		t.Error("the stage button is not a tooltip trigger")
+	}
+	if form := renderContent(t, sampleModel()); strings.Contains(form, sentence) {
+		t.Error("the sentence is still inline in the form as well as in the tooltip")
+	}
+}
+
+// A submit that reaches a form which is not rendered does nothing and reports
+// nothing. HasForm is the single answer both the content branch and the
+// button's disabled state derive from.
+func TestStageChangesDisabledWhenThereIsNoForm(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		m    BiosModel
+		want bool
+	}{
+		{"nothing published", BiosModel{}, true},
+		{"search with no matches", BiosModel{TotalCount: 6, Query: "zzz", AttrCount: 0}, true},
+		{"a menu with rows", sampleModel(), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := !tc.m.HasForm(); got != tc.want {
+				t.Fatalf("HasForm disabled = %v, want %v", got, tc.want)
+			}
+			html := renderToString(t, func(w *strings.Builder) error {
+				return BiosStagedBar(tc.m, false).Render(context.Background(), w)
+			})
+			// The button ships disabled exactly when no form exists. Checked
+			// on the tag with its class attribute stripped: the button's
+			// classes carry disabled:opacity-50 and friends, which a naive
+			// substring match reads as the attribute being present.
+			if got := stageButtonDisabled(t, html); got != tc.want {
+				t.Errorf("rendered disabled = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// Rows sit two-up on a wide dialog and stack their control under their label.
+// The old responsive Field put them on one line and pushed them apart.
+func TestAttributeRowsUseATwoColumnGrid(t *testing.T) {
+	html := renderContent(t, sampleModel())
+
+	if !strings.Contains(html, "xl:grid-cols-2") {
+		t.Error("attribute rows are not laid out two-up, so a wide dialog keeps the " +
+			"dead middle space")
+	}
+	if strings.Contains(html, "@md/field-group:flex-row") {
+		t.Error("a responsive Field is back: it puts the label and control on one " +
+			"line and stretches the gap between them")
+	}
+	if strings.Contains(html, `Class: "w-56"`) || strings.Contains(html, "w-56") {
+		t.Error("a fixed-width control is back; controls fill their grid cell now")
+	}
+}
+
+// stageButtonDisabled reports whether the footer's submit carries the disabled
+// attribute, ignoring the disabled:* Tailwind variants in its class list.
+func stageButtonDisabled(t *testing.T, html string) bool {
+	t.Helper()
+	tag := regexp.MustCompile(`<button[^>]*form="bios-form"[^>]*>`).FindString(html)
+	if tag == "" {
+		t.Fatalf("no stage button in:\n%s", html)
+	}
+	return strings.Contains(regexp.MustCompile(`class="[^"]*"`).ReplaceAllString(tag, ""), "disabled")
 }

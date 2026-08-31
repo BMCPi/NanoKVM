@@ -13,6 +13,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/ui/components/input"
 	selectcomp "github.com/pi-bmc/nanokvm-app/ui/components/select"
 	switchcomp "github.com/pi-bmc/nanokvm-app/ui/components/switch"
+	"github.com/pi-bmc/nanokvm-app/ui/components/tooltip"
 	"github.com/pi-bmc/nanokvm-app/ui/utils"
 )
 
@@ -119,42 +120,57 @@ templ BiosDialog() {
 // fragment by GET /ui/bios when the dialog opens; the regions inside it are
 // swapped individually thereafter.
 templ BiosPanel(m BiosModel) {
-	<div class="flex h-full min-h-0 w-full">
+	// One grid, three rows by two columns, so the identity block sits over the
+	// rail in the same column the rail occupies and the footer spans both.
+	// Previously the header started to the right of the rail, which left the
+	// dialog with two competing left edges.
+	<div class="grid h-full min-h-0 w-full grid-cols-[14rem_minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto]">
+		@biosIdentity(m)
+		@biosSearchBar(m)
 		@BiosRail(m, false)
-		<div class="flex min-w-0 flex-1 flex-col">
-			@biosHeader(m)
-			<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-				<div id={ biosContentID }>
-					@BiosContent(m)
-				</div>
+		// bg-card against the chrome's bg-background is the contrast that
+		// separates the working surface from the frame; --border is white/10
+		// in this theme and cannot carry that on its own.
+		<div class="min-h-0 overflow-y-auto bg-card px-5 py-4">
+			<div id={ biosContentID }>
+				@BiosContent(m)
 			</div>
-			@BiosStagedBar(m, false)
 		</div>
+		@BiosStagedBar(m, false)
 	</div>
 }
 
-// biosHeader carries the page title, what firmware the values belong to, and
-// the search box. Search targets the content region only — the rail keeps
-// showing the menu tree so an operator can leave the results by picking a menu.
-templ biosHeader(m BiosModel) {
-	<header class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border bg-card/60 px-4 py-2.5 backdrop-blur-xs">
-		<div class="min-w-0">
-			<h2 class="flex items-center gap-2 text-sm font-semibold">
-				@icon.Microchip(icon.Props{Class: "size-4"})
-				BIOS Configuration
-			</h2>
-			<p class="mt-0.5 truncate text-xs text-muted-foreground">
-				if m.BiosVersion != "" {
-					{ "Host firmware " + m.BiosVersion + " · " }
-				}
-				{ strconv.Itoa(m.TotalCount) } attributes
-				if !m.HasRegistry && m.TotalCount > 0 {
-					{ " · no attribute registry published" }
-				}
+// biosIdentity is the grid's top-left cell: what this dialog is and which
+// firmware's values it holds. It sits over the rail rather than beside it, so
+// the title, the rail and the content each own one column edge instead of the
+// header straddling two.
+templ biosIdentity(m BiosModel) {
+	<div class="flex min-w-0 flex-col justify-center border-b border-r border-border bg-background px-4 py-3">
+		<h2 class="flex items-center gap-2 text-sm font-semibold">
+			@icon.Microchip(icon.Props{Class: "size-4 shrink-0"})
+			<span class="truncate">BIOS Configuration</span>
+		</h2>
+		<p class="mt-0.5 truncate text-xs text-muted-foreground">
+			if m.BiosVersion != "" {
+				{ "Host firmware " + m.BiosVersion + " · " }
+			}
+			{ strconv.Itoa(m.TotalCount) } attributes
+		</p>
+		if !m.HasRegistry && m.TotalCount > 0 {
+			<p class="mt-1 truncate text-[11px] text-amber-500" title="The host has not published an AttributeRegistry; types and value lists come from the BMC's platform table.">
+				no attribute registry published
 			</p>
-		</div>
+		}
+	</div>
+}
+
+// biosSearchBar heads the content column, where the title used to be. Search
+// targets the content region only — the rail keeps showing the whole menu tree
+// so an operator can leave the results by picking a menu.
+templ biosSearchBar(m BiosModel) {
+	<div class="flex min-w-0 items-center gap-2 border-b border-border bg-background px-4 py-3">
 		<form
-			class="flex items-center gap-2"
+			class="min-w-0 flex-1"
 			hx-get="/ui/bios/search"
 			hx-target={ "#" + biosContentID }
 			hx-swap="innerHTML"
@@ -162,8 +178,8 @@ templ biosHeader(m BiosModel) {
 			onsubmit="return false"
 		>
 			<div class="relative">
-				<span class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground">
-					@icon.Search(icon.Props{Class: "size-3.5"})
+				<span class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground">
+					@icon.Search(icon.Props{Class: "size-4"})
 				</span>
 				@input.Input(input.Props{
 					ID:          "bios-search",
@@ -171,7 +187,7 @@ templ biosHeader(m BiosModel) {
 					Type:        "search",
 					Value:       m.Query,
 					Placeholder: "Search attributes…",
-					Class:       "h-8 w-56 pl-7",
+					Class:       "h-9 w-full pl-9",
 					Attributes: templ.Attributes{
 						"autocomplete": "off",
 						"spellcheck":   "false",
@@ -182,12 +198,12 @@ templ biosHeader(m BiosModel) {
 		</form>
 		@button.Button(button.Props{
 			Variant:    button.VariantGhost,
-			Size:       button.SizeIcon,
+			Size:       button.SizeIconSm,
 			Attributes: utils.MergeAttributes(dialog.Close(ctx), templ.Attributes{"aria-label": "Close BIOS configuration"}),
 		}) {
 			@icon.X()
 		}
-	</header>
+	</div>
 }
 
 // BiosRail is the menu tree. oob marks it as an out-of-band swap, which is how
@@ -200,7 +216,7 @@ templ BiosRail(m BiosModel, oob bool) {
 			hx-swap-oob="true"
 		}
 		aria-label="BIOS menus"
-		class="no-scrollbar w-56 shrink-0 overflow-y-auto border-r border-border bg-card/30 p-2"
+		class="no-scrollbar min-h-0 overflow-y-auto border-r border-border bg-background p-2"
 	>
 		if len(m.Menus) == 0 {
 			<p class="px-2 py-3 text-xs text-muted-foreground">No menus published.</p>
@@ -251,7 +267,7 @@ func biosIndent(depth int) string {
 templ BiosContent(m BiosModel) {
 	if m.Empty() {
 		@biosEmptyState()
-	} else if m.Searching() && m.AttrCount == 0 {
+	} else if !m.HasForm() {
 		<p class="px-1 py-6 text-center text-xs text-muted-foreground">
 			No attribute matches “{ m.Query }”.
 		</p>
@@ -315,14 +331,6 @@ templ biosForm(m BiosModel) {
 				@biosSection(s)
 			}
 		}
-		<div class="mt-4 flex items-center gap-2">
-			@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm}) {
-				Stage changes
-			}
-			<p class="text-xs text-muted-foreground">
-				Staged values are applied by the host firmware at its next boot.
-			</p>
-		</div>
 	</form>
 }
 
@@ -337,23 +345,31 @@ templ biosSection(s BiosSection) {
 				{ s.Label }
 			}
 		}
-		for _, a := range s.Attrs {
-			@biosAttrRow(a)
-		}
+		// Two-up on wide dialogs. Each cell stacks label → meta → control,
+		// so no row stretches a label and its control to opposite edges of a
+		// 6xl dialog with nothing in between.
+		<div class="grid grid-cols-1 gap-x-8 xl:grid-cols-2">
+			for _, a := range s.Attrs {
+				@biosAttrRow(a)
+			}
+		</div>
 	}
 }
 
 // biosAttrRow renders one attribute: its label, help text, the control its
 // type calls for, and the staged/unregistered/error annotations.
 templ biosAttrRow(a BiosAttr) {
-	<div class="border-b border-border/40 py-2 last:border-b-0" data-bios-attr={ a.Name }>
+	<div class="min-w-0 border-b border-border/60 py-3" data-bios-attr={ a.Name }>
 		if a.Control != BiosControlReadOnly {
 			// The roster entry. Every editable attribute names itself so the
 			// handler knows this form owned it even when the control submits
 			// nothing (an unchecked switch).
 			<input type="hidden" name="__attr" value={ a.Name }/>
 		}
-		@field.Field(field.Props{Orientation: field.OrientationResponsive}) {
+		// Vertical rather than responsive: responsive puts the label and the
+		// control on one line and pushes them apart, which is where the dead
+		// space came from.
+		@field.Field() {
 			@field.Content() {
 				@field.Label(field.LabelProps{For: biosFieldID(a.Name)}) {
 					{ a.Label }
@@ -407,7 +423,7 @@ templ biosAttrRow(a BiosAttr) {
 					</p>
 				}
 			}
-			<div class="flex shrink-0 items-center gap-2">
+			<div class="flex items-center gap-2 pt-0.5">
 				@biosControl(a)
 			</div>
 		}
@@ -426,7 +442,7 @@ templ biosControl(a BiosAttr) {
 			})
 		case BiosControlSelect:
 			@selectcomp.Select(selectcomp.Props{ID: biosFieldID(a.Name) + "-sel", Name: a.Name, Value: a.Value}) {
-				@selectcomp.Trigger(selectcomp.TriggerProps{ID: biosFieldID(a.Name), Class: "w-56"}) {
+				@selectcomp.Trigger(selectcomp.TriggerProps{ID: biosFieldID(a.Name), Class: "w-full"}) {
 					@selectcomp.Value(selectcomp.ValueProps{})
 				}
 				@selectcomp.Content() {
@@ -443,7 +459,7 @@ templ biosControl(a BiosAttr) {
 				Name:       a.Name,
 				Type:       "number",
 				Value:      a.Value,
-				Class:      "w-32 font-mono",
+				Class:      "w-full max-w-40 font-mono",
 				Attributes: biosNumberAttrs(a),
 			})
 		case BiosControlPassword:
@@ -452,7 +468,7 @@ templ biosControl(a BiosAttr) {
 				Name:        a.Name,
 				Type:        "password",
 				Placeholder: "unchanged",
-				Class:       "w-56 font-mono",
+				Class:       "w-full font-mono",
 				Attributes:  utils.MergeAttributes(biosLengthAttrs(a), templ.Attributes{"autocomplete": "new-password"}),
 			})
 		case BiosControlReadOnly:
@@ -469,7 +485,7 @@ templ biosControl(a BiosAttr) {
 				Name:       a.Name,
 				Type:       "text",
 				Value:      a.Value,
-				Class:      "w-56 font-mono",
+				Class:      "w-full font-mono",
 				Attributes: utils.MergeAttributes(biosLengthAttrs(a), templ.Attributes{"spellcheck": "false", "autocomplete": "off"}),
 			})
 	}
@@ -516,27 +532,28 @@ templ BiosStagedBar(m BiosModel, oob bool) {
 		if oob {
 			hx-swap-oob="true"
 		}
-		class="shrink-0 border-t border-border bg-card/60 px-4 py-2 backdrop-blur-xs"
+		class="col-span-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border bg-background px-4 py-3"
 	>
-		if m.StagedCount == 0 {
-			<p class="flex items-center gap-1.5 text-xs text-muted-foreground">
-				@icon.CircleCheck(icon.Props{Class: "size-3.5"})
-				No pending changes. The host is running what is shown above.
-			</p>
-		} else {
-			<div class="flex flex-wrap items-center justify-between gap-2">
-				<div class="min-w-0">
-					<p class="flex items-center gap-1.5 text-xs font-medium">
-						@icon.Pencil(icon.Props{Class: "size-3.5"})
-						{ strconv.Itoa(m.StagedCount) } pending { utils.IfElse(m.StagedCount == 1, "change", "changes") }
-						<span class="font-normal text-muted-foreground">— applied at the host's next boot</span>
-					</p>
-					<div class="mt-1 flex flex-wrap gap-1">
-						for _, a := range m.Staged {
-							@biosStagedChip(m, a)
-						}
-					</div>
+		<div class="min-w-0 flex-1">
+			if m.StagedCount == 0 {
+				<p class="flex items-center gap-1.5 text-xs text-muted-foreground">
+					@icon.CircleCheck(icon.Props{Class: "size-3.5 shrink-0"})
+					No pending changes. The host is running what is shown.
+				</p>
+			} else {
+				<p class="flex items-center gap-1.5 text-xs font-medium">
+					@icon.Pencil(icon.Props{Class: "size-3.5 shrink-0"})
+					{ strconv.Itoa(m.StagedCount) } pending { utils.IfElse(m.StagedCount == 1, "change", "changes") }
+				</p>
+				<div class="mt-1.5 flex flex-wrap gap-1">
+					for _, a := range m.Staged {
+						@biosStagedChip(m, a)
+					}
 				</div>
+			}
+		</div>
+		<div class="flex shrink-0 items-center gap-2">
+			if m.StagedCount > 0 {
 				@button.Button(button.Props{
 					Variant: button.VariantOutline,
 					Size:    button.SizeSm,
@@ -553,8 +570,31 @@ templ BiosStagedBar(m BiosModel, oob bool) {
 					@icon.RotateCcw(icon.Props{Class: "size-3.5"})
 					Discard all
 				}
-			</div>
-		}
+			}
+			// Submits the attribute form in the content region by id. The
+			// form keeps its own hx-post, so the verb stays in one place and
+			// this button cannot drift from it — and the association is
+			// resolved at click time, which survives the form being replaced
+			// by every swap. Disabled when the content region is showing an
+			// empty state or a search with no matches, since there is then no
+			// form for it to reach.
+			@tooltip.Tooltip() {
+				@button.Button(button.Props{
+					Type:     button.TypeSubmit,
+					Size:     button.SizeSm,
+					Disabled: !m.HasForm(),
+					Attributes: utils.MergeAttributes(
+						tooltip.Trigger(ctx),
+						templ.Attributes{"form": biosFormID},
+					),
+				}) {
+					Stage changes
+				}
+				@tooltip.Content() {
+					Staged values are applied by the host firmware at its next boot.
+				}
+			}
+		</div>
 	</div>
 }
 
