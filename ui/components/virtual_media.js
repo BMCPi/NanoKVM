@@ -8,7 +8,11 @@
   // only ever shown as the in-flight phase label, never in the completion
   // toast, which reports the server's own sniffed format. A mismatch here
   // (e.g. a mislabeled .gz that is actually plain) is therefore cosmetic.
-  var COMPRESSED_EXT = /\.(xz|gz|zst)$/i;
+  // Kept in step with utils.CompressionExtensions() by
+  // TestUploadPhaseLabelKnowsEveryCompressionExtension — a codec the picker
+  // offers but this pattern misses reports a plain "Uploading…" for a
+  // transfer that spends most of its time decompressing.
+  var COMPRESSED_EXT = /\.(xz|gzip|gz|zstd|zst)$/i;
 
   function uploadPhaseLabel(filename) {
     var ext = COMPRESSED_EXT.exec(filename || '');

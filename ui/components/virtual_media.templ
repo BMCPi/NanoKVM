@@ -2,9 +2,11 @@ package components
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
+	pkgutils "github.com/pi-bmc/nanokvm-app/pkg/utils"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/dropdownmenu"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
@@ -54,6 +56,22 @@ func fetchPhaseLabel(format string) string {
 		return "Fetching"
 	}
 	return fmt.Sprintf("Fetching & extracting (%s)", format)
+}
+
+// mediaUploadAccept builds the upload picker's filter. Derived from
+// pkg/utils rather than written out, because the two have already drifted
+// once: DecompressingReader made compressed images work end to end while the
+// picker still offered ".iso,.img", so the OS dialog greyed out exactly the
+// files the feature was added for.
+//
+// The compression suffixes are listed on their own (".xz", not ".img.xz").
+// Browsers differ on whether an accept token matches more than the final
+// extension, and a token that some engines ignore reproduces the bug on those
+// engines. Being broad costs nothing here: the filter is a convenience, the
+// server sniffs magic bytes and rejects what it cannot read, and a stream it
+// does not recognise is staged byte-for-byte exactly as before.
+func mediaUploadAccept() string {
+	return strings.Join(append([]string{".iso", ".img"}, pkgutils.CompressionExtensions()...), ",")
 }
 
 // MediaState snapshots the staged ISO list and insertion state; rendered
@@ -247,7 +265,7 @@ templ VMAddBody(files []string) {
 						ID:     "vm-upload-file",
 						Name:   "file",
 						Type:   "file",
-						Accept: ".iso,.img",
+						Accept: mediaUploadAccept(),
 						Class:  "flex-1 h-8",
 					})
 					@button.Button(button.Props{
@@ -292,7 +310,7 @@ templ VMAddBody(files []string) {
 						ID:          "vm-fetch-url",
 						Name:        "url",
 						Type:        "url",
-						Placeholder: "https://example.com/image.iso",
+						Placeholder: "https://example.com/image.img.xz",
 					})
 					<div class="flex items-center gap-2">
 						@input.Input(input.Props{

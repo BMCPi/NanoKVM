@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sort"
 	"strings"
 	"testing"
 
@@ -325,5 +326,38 @@ func TestMagicPrefixComparisonIsFullNotPartial(t *testing.T) {
 	}
 	if !bytes.Equal(got, notGzip) {
 		t.Error("passthrough mismatch for near-miss magic bytes")
+	}
+}
+
+// TestCompressionExtensionsCoversEveryFormat keeps the list the UI builds its
+// file picker from in step with the decoder. A codec added to
+// compressionSuffixes without appearing here would leave the picker greying
+// out files DecompressingReader handles perfectly well.
+func TestCompressionExtensionsCoversEveryFormat(t *testing.T) {
+	got := CompressionExtensions()
+
+	seen := map[string]bool{}
+	for _, ext := range got {
+		if !strings.HasPrefix(ext, ".") {
+			t.Errorf("%q is not a filename suffix; an HTML accept token needs the dot", ext)
+		}
+		if seen[ext] {
+			t.Errorf("duplicate %q", ext)
+		}
+		seen[ext] = true
+	}
+
+	for format, sufs := range compressionSuffixes {
+		for _, suf := range sufs {
+			if !seen[suf] {
+				t.Errorf("%s strips %q but does not advertise it", format, suf)
+			}
+		}
+	}
+
+	// Sorted, so the accept attribute is stable across builds rather than
+	// reordering with Go's map iteration and churning every rendered page.
+	if !sort.StringsAreSorted(got) {
+		t.Errorf("not sorted: %v", got)
 	}
 }

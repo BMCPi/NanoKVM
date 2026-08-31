@@ -34,6 +34,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/klauspost/compress/zstd"
@@ -163,6 +164,24 @@ var compressionSuffixes = map[string][]string{
 	formatGzip: {".gz", ".gzip"},
 	formatXz:   {".xz"},
 	formatZstd: {".zst", ".zstd"},
+}
+
+// CompressionExtensions lists every filename suffix the supported codecs use,
+// sorted, each with its leading dot. It exists so a file picker's accept
+// filter can be built from the decoder rather than transcribed beside it:
+// uploads have been sniffed and inflated in place since this file landed, and
+// a picker that still offers only ".iso,.img" greys out the compressed image
+// the server would have handled — the capability present but unreachable.
+//
+// Sorted rather than map-ordered so a rendered accept attribute is stable
+// across builds instead of shuffling on every page render.
+func CompressionExtensions() []string {
+	out := make([]string, 0, 8)
+	for _, sufs := range compressionSuffixes {
+		out = append(out, sufs...)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // StripCompressionSuffix removes the filename extension implied by format

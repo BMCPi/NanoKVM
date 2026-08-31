@@ -10,9 +10,11 @@ import templruntime "github.com/a-h/templ/runtime"
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/firmware"
+	pkgutils "github.com/pi-bmc/nanokvm-app/pkg/utils"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/dropdownmenu"
 	"github.com/pi-bmc/nanokvm-app/ui/components/icon"
@@ -62,6 +64,22 @@ func fetchPhaseLabel(format string) string {
 		return "Fetching"
 	}
 	return fmt.Sprintf("Fetching & extracting (%s)", format)
+}
+
+// mediaUploadAccept builds the upload picker's filter. Derived from
+// pkg/utils rather than written out, because the two have already drifted
+// once: DecompressingReader made compressed images work end to end while the
+// picker still offered ".iso,.img", so the OS dialog greyed out exactly the
+// files the feature was added for.
+//
+// The compression suffixes are listed on their own (".xz", not ".img.xz").
+// Browsers differ on whether an accept token matches more than the final
+// extension, and a token that some engines ignore reproduces the bug on those
+// engines. Being broad costs nothing here: the filter is a convenience, the
+// server sniffs magic bytes and rejects what it cannot read, and a stream it
+// does not recognise is staged byte-for-byte exactly as before.
+func mediaUploadAccept() string {
+	return strings.Join(append([]string{".iso", ".img"}, pkgutils.CompressionExtensions()...), ",")
 }
 
 // MediaState snapshots the staged ISO list and insertion state; rendered
@@ -417,7 +435,7 @@ func VMMenuBody(files []string, inserted string) templ.Component {
 						var templ_7745c5c3_Var16 string
 						templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(inserted)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 129, Col: 16}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 147, Col: 16}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 						if templ_7745c5c3_Err != nil {
@@ -952,7 +970,7 @@ func VMAddBody(files []string) templ.Component {
 								var templ_7745c5c3_Var39 string
 								templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinStringErrs(f)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 227, Col: 12}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 245, Col: 12}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 								if templ_7745c5c3_Err != nil {
@@ -1033,7 +1051,7 @@ func VMAddBody(files []string) templ.Component {
 					ID:     "vm-upload-file",
 					Name:   "file",
 					Type:   "file",
-					Accept: ".iso,.img",
+					Accept: mediaUploadAccept(),
 					Class:  "flex-1 h-8",
 				}).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
@@ -1144,7 +1162,7 @@ func VMAddBody(files []string) templ.Component {
 					ID:          "vm-fetch-url",
 					Name:        "url",
 					Type:        "url",
-					Placeholder: "https://example.com/image.iso",
+					Placeholder: "https://example.com/image.img.xz",
 				}).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -1253,7 +1271,7 @@ func VMFetchProgress(name string, loaded, total int64, format string) templ.Comp
 		var templ_7745c5c3_Var48 string
 		templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(fetchPhaseLabel(format))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 338, Col: 71}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 356, Col: 71}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
 		if templ_7745c5c3_Err != nil {
@@ -1266,7 +1284,7 @@ func VMFetchProgress(name string, loaded, total int64, format string) templ.Comp
 		var templ_7745c5c3_Var49 string
 		templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 338, Col: 80}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 356, Col: 80}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
 		if templ_7745c5c3_Err != nil {
@@ -1289,7 +1307,7 @@ func VMFetchProgress(name string, loaded, total int64, format string) templ.Comp
 			var templ_7745c5c3_Var50 string
 			templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinStringErrs(formatBytes(loaded))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 342, Col: 67}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 360, Col: 67}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
 			if templ_7745c5c3_Err != nil {
@@ -1302,7 +1320,7 @@ func VMFetchProgress(name string, loaded, total int64, format string) templ.Comp
 			var templ_7745c5c3_Var51 string
 			templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(formatBytes(total))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 342, Col: 92}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 360, Col: 92}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 			if templ_7745c5c3_Err != nil {
@@ -1324,7 +1342,7 @@ func VMFetchProgress(name string, loaded, total int64, format string) templ.Comp
 			var templ_7745c5c3_Var52 string
 			templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.JoinStringErrs(formatBytes(loaded))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 346, Col: 25}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/virtual_media.templ`, Line: 364, Col: 25}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var52))
 			if templ_7745c5c3_Err != nil {
