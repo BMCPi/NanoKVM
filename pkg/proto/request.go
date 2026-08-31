@@ -11,39 +11,39 @@ import (
 var env = os.Getenv(gin.EnvGinMode)
 
 // ValidateRequest Validates request parameters.
-func ValidateRequest(req any) error {
+func ValidateRequest(log *slog.Logger, req any) error {
 	validate := validator.New()
 
 	if err := validate.Struct(req); err != nil {
-		slog.Error("validate request failed", slog.Any("err", err))
+		log.Error("validate request failed", slog.Any("err", err))
 		return err
 	}
 
 	if env == "" || env == "debug" {
-		slog.Debug("request", slog.Any("req", req))
+		log.Debug("request", slog.Any("req", req))
 	}
 
 	return nil
 }
 
 // ParseQueryRequest Validates GET requests.
-func ParseQueryRequest(c *gin.Context, req any) error {
+func ParseQueryRequest(c *gin.Context, log *slog.Logger, req any) error {
 	var err error
 	if err = c.ShouldBindQuery(req); err != nil {
-		slog.ErrorContext(c.Request.Context(), "parse request failed", slog.Any("err", err))
+		log.ErrorContext(c.Request.Context(), "parse request failed", slog.Any("err", err))
 		return err
 	}
 
-	return ValidateRequest(req)
+	return ValidateRequest(log, req)
 }
 
 // ParseFormRequest Validates POST Requests.
-func ParseFormRequest(c *gin.Context, req any) error {
+func ParseFormRequest(c *gin.Context, log *slog.Logger, req any) error {
 	var err error
 	if err = c.ShouldBind(req); err != nil {
-		slog.ErrorContext(c.Request.Context(), "parse request failed", slog.Any("err", err))
+		log.ErrorContext(c.Request.Context(), "parse request failed", slog.Any("err", err))
 		return err
 	}
 
-	return ValidateRequest(req)
+	return ValidateRequest(log, req)
 }

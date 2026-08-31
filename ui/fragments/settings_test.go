@@ -5,6 +5,7 @@ package fragments
 // TestPatchMDNSWritesTheBlockDiscoveryReadsFrom below.
 
 import (
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -90,7 +91,7 @@ func TestPatchMDNSWritesTheBlockDiscoveryReadsFrom(t *testing.T) {
 
 	// networkModel is what the re-rendered form (and the next GET) reads
 	// from; it must agree with what was just written, not the legacy block.
-	m := networkModel()
+	m := networkModel(slog.New(slog.DiscardHandler))
 	if m.MDNSHostname != "newname" || m.MDNSEnabled {
 		t.Errorf("networkModel() = %+v, want it to reflect the write via Discovery.MDNS", m)
 	}

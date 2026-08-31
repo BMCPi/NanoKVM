@@ -31,7 +31,7 @@ func overviewFragmentRoutes(g *gin.RouterGroup, h *handlers) {
 		renderFragment(c, components.OverviewServerBody(overviewServerModel(c.Request.Context(), h.d)))
 	})
 	o.GET("/app-update", func(c *gin.Context) {
-		renderFragment(c, components.OverviewAppUpdateBody(overviewAppUpdateModel(c.Request.Context())))
+		renderFragment(c, components.OverviewAppUpdateBody(overviewAppUpdateModel(c.Request.Context(), h.log)))
 	})
 	o.POST("/app/update", h.postOverviewAppUpdate)
 
@@ -95,9 +95,9 @@ const appUpdateTimeout = 30 * time.Minute
 
 // overviewAppUpdateModel runs the GitHub release check. Latest is "" when
 // upstream is unreachable (closed networks), which renders as no chrome.
-func overviewAppUpdateModel(ctx context.Context) components.OverviewUpdateCheck {
+func overviewAppUpdateModel(ctx context.Context, log *slog.Logger) components.OverviewUpdateCheck {
 	cur := strings.TrimPrefix(application.CurrentVersion(), "v")
-	latest := strings.TrimPrefix(application.LatestVersion(ctx), "v")
+	latest := strings.TrimPrefix(application.LatestVersion(ctx, log), "v")
 	return components.OverviewUpdateCheck{
 		Current:         cur,
 		Latest:          latest,
@@ -147,7 +147,7 @@ func (h *handlers) postOverviewAppUpdate(c *gin.Context) {
 	ctx, cancel := h.d.ActionContext(appUpdateTimeout)
 	defer cancel()
 
-	if err := application.RunUpdate(ctx); err != nil {
+	if err := application.RunUpdate(ctx, h.log); err != nil {
 		h.log.ErrorContext(c.Request.Context(), "ui: application update failed", slog.Any("err", err))
 		hxToast(c, "error", "Update failed", err.Error())
 		c.Status(http.StatusInternalServerError)
@@ -159,9 +159,10 @@ func (h *handlers) postOverviewAppUpdate(c *gin.Context) {
 
 	// DELIBERATELY DETACHED: the restart must outlive this request; the
 	// response has to flush before the service goes down.
+	log := h.log
 	go func() {
 		time.Sleep(1 * time.Second)
-		application.RestartService()
+		application.RestartService(log)
 	}()
 }
 

@@ -31,7 +31,7 @@ func (h *handlers) Login(c *gin.Context) {
 		return
 	}
 
-	if err := proto.ParseFormRequest(c, &req); err != nil {
+	if err := proto.ParseFormRequest(c, h.log, &req); err != nil {
 		time.Sleep(3 * time.Second)
 		rsp.ErrRsp(c, -1, "invalid parameters")
 		return

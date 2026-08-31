@@ -19,17 +19,17 @@ type interfaceInfo struct {
 	IP   net.IP
 }
 
-func listInterfaces() ([]*interfaceInfo, error) {
+func listInterfaces(log *slog.Logger) ([]*interfaceInfo, error) {
 	var interfaceInfos []*interfaceInfo
 
 	interfaces, err := net.Interfaces()
 	if err != nil {
-		slog.Error("failed to get net interfaces", slog.Any("err", err))
+		log.Error("failed to get net interfaces", slog.Any("err", err))
 		return nil, err
 	}
 
 	for _, iface := range interfaces {
-		info := getInterfaceInfo(iface)
+		info := getInterfaceInfo(iface, log)
 		if info != nil {
 			interfaceInfos = append(interfaceInfos, info)
 		}
@@ -42,7 +42,7 @@ func listInterfaces() ([]*interfaceInfo, error) {
 	return interfaceInfos, nil
 }
 
-func getInterfaceInfo(iface net.Interface) *interfaceInfo {
+func getInterfaceInfo(iface net.Interface, log *slog.Logger) *interfaceInfo {
 	if iface.Flags&net.FlagUp == 0 {
 		return nil
 	}
@@ -52,7 +52,7 @@ func getInterfaceInfo(iface net.Interface) *interfaceInfo {
 		return nil
 	}
 
-	interfaceIP := getInterfaceIP(iface)
+	interfaceIP := getInterfaceIP(iface, log)
 	if interfaceIP == nil {
 		return nil
 	}
@@ -76,10 +76,10 @@ func getInterfaceType(iface net.Interface) string {
 	return Other
 }
 
-func getInterfaceIP(iface net.Interface) net.IP {
+func getInterfaceIP(iface net.Interface, log *slog.Logger) net.IP {
 	addrs, err := iface.Addrs()
 	if err != nil {
-		slog.Error("failed to get interface addresses", slog.Any("err", err))
+		log.Error("failed to get interface addresses", slog.Any("err", err))
 		return nil
 	}
 

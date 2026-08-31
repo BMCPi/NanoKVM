@@ -32,7 +32,7 @@ func releaseUpdateLock() {
 	isUpdating = false
 }
 
-func installPackage(source string) error {
+func installPackage(log *slog.Logger, source string) error {
 	// Extract into a dedicated subdir of CacheDir so the downloaded tarball
 	// (which lives directly under CacheDir) isn't swept into AppDir below.
 	extractDir := filepath.Join(CacheDir, "extracted")
@@ -47,7 +47,7 @@ func installPackage(source string) error {
 		return err
 	}
 
-	if err := applyUpdate(dir); err != nil {
+	if err := applyUpdate(log, dir); err != nil {
 		return err
 	}
 
@@ -70,11 +70,11 @@ func backupCurrentApp() error {
 	return nil
 }
 
-func applyUpdate(sourceDir string) error {
+func applyUpdate(log *slog.Logger, sourceDir string) error {
 	if err := utils.MoveFilesRecursively(sourceDir, AppDir); err != nil {
 		// Try to restore backup on failure
 		if restoreErr := utils.MoveFilesRecursively(BackupDir, AppDir); restoreErr != nil {
-			slog.Error("failed to restore backup after update failure", slog.Any("err", restoreErr))
+			log.Error("failed to restore backup after update failure", slog.Any("err", restoreErr))
 		}
 		return fmt.Errorf("failed to move update in place: %w", err)
 	}

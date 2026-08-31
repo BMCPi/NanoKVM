@@ -142,19 +142,19 @@ func runOnce(ctx context.Context, log *slog.Logger) {
 
 func applyAppUpdateIfNewer(ctx context.Context, log *slog.Logger) error {
 	current := normaliseVersion(application.CurrentVersion())
-	latest := normaliseVersion(application.LatestVersion(ctx))
+	latest := normaliseVersion(application.LatestVersion(ctx, log))
 	if latest == "" || latest == current {
 		return nil
 	}
 	log.InfoContext(ctx, "autoupdate: application update available",
 		slog.String("current", current), slog.String("latest", latest))
 
-	if err := application.RunUpdate(ctx); err != nil {
+	if err := application.RunUpdate(ctx, log); err != nil {
 		return err
 	}
 	log.InfoContext(ctx, "autoupdate: application update applied; restarting service")
 	time.Sleep(preRestartDelay)
-	application.RestartService()
+	application.RestartService(log)
 	return nil
 }
 

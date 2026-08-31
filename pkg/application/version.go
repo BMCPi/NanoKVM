@@ -68,16 +68,16 @@ func CurrentVersion() string {
 	return Version
 }
 
-func getLatest(ctx context.Context) (*Latest, error) {
+func getLatest(ctx context.Context, log *slog.Logger) (*Latest, error) {
 	latestCacheMu.Lock()
 	defer latestCacheMu.Unlock()
 
 	if latestCacheValue != nil && time.Now().Before(latestCacheExpiry) {
-		slog.DebugContext(ctx, "latest release: cache hit", slog.String("version", latestCacheValue.Version))
+		log.DebugContext(ctx, "latest release: cache hit", slog.String("version", latestCacheValue.Version))
 		return latestCacheValue, nil
 	}
 
-	latest, err := fetchLatest(ctx)
+	latest, err := fetchLatest(ctx, log)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +87,7 @@ func getLatest(ctx context.Context) (*Latest, error) {
 	return latest, nil
 }
 
-func fetchLatest(ctx context.Context) (*Latest, error) {
+func fetchLatest(ctx context.Context, log *slog.Logger) (*Latest, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", GitHubOwner, GitHubRepo)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -98,7 +98,7 @@ func fetchLatest(ctx context.Context) (*Latest, error) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		slog.DebugContext(ctx, "failed to request latest release", slog.Any("err", err))
+		log.DebugContext(ctx, "failed to request latest release", slog.Any("err", err))
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -109,7 +109,7 @@ func fetchLatest(ctx context.Context) (*Latest, error) {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		slog.DebugContext(ctx, "github responded with status code", slog.Int("status", resp.StatusCode))
+		log.DebugContext(ctx, "github responded with status code", slog.Int("status", resp.StatusCode))
 		return nil, fmt.Errorf("status code %d", resp.StatusCode)
 	}
 
@@ -125,7 +125,7 @@ func fetchLatest(ctx context.Context) (*Latest, error) {
 
 	version := strings.TrimPrefix(release.TagName, "v")
 
-	slog.DebugContext(ctx, "latest release", slog.String("version", version), slog.String("asset", asset.Name))
+	log.DebugContext(ctx, "latest release", slog.String("version", version), slog.String("asset", asset.Name))
 	return &Latest{
 		Version: version,
 		Name:    asset.Name,

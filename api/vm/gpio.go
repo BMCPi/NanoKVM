@@ -30,7 +30,7 @@ func (h *handlers) SetGpio(c *gin.Context) {
 	var req proto.SetGpioReq
 	var rsp proto.Response
 
-	if err := proto.ParseFormRequest(c, &req); err != nil {
+	if err := proto.ParseFormRequest(c, h.log, &req); err != nil {
 		rsp.ErrRsp(c, -1, fmt.Sprintf("invalid arguments: %s", err))
 		return
 	}

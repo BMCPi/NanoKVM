@@ -23,7 +23,7 @@ func (h *handlers) WakeOnLAN(c *gin.Context) {
 	var req proto.WakeOnLANReq
 	var rsp proto.Response
 
-	if err := proto.ParseFormRequest(c, &req); err != nil {
+	if err := proto.ParseFormRequest(c, h.log, &req); err != nil {
 		rsp.ErrRsp(c, -1, "invalid arguments")
 		return
 	}
@@ -79,7 +79,7 @@ func (h *handlers) SetMacName(c *gin.Context) {
 	var req proto.SetMacNameReq // Mac:string Name:string
 	var rsp proto.Response
 
-	if err := proto.ParseFormRequest(c, &req); err != nil {
+	if err := proto.ParseFormRequest(c, h.log, &req); err != nil {
 		rsp.ErrRsp(c, -1, "invalid arguments")
 		return
 	}
@@ -127,7 +127,7 @@ func (h *handlers) DeleteMac(c *gin.Context) {
 	var req proto.DeleteMacReq
 	var rsp proto.Response
 
-	if err := proto.ParseFormRequest(c, &req); err != nil {
+	if err := proto.ParseFormRequest(c, h.log, &req); err != nil {
 		rsp.ErrRsp(c, -1, "invalid arguments")
 		return
 	}

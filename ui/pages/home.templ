@@ -1,6 +1,8 @@
 package pages
 
 import (
+	"log/slog"
+
 	"github.com/pi-bmc/nanokvm-app/ui/components"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/buttongroup"
@@ -42,7 +44,7 @@ const (
 // other tab outright would mean a headless box could never be checked for
 // video, and a workstation could never be reached when its HDMI is dark, which
 // are exactly the moments someone goes looking.
-templ Home(m HomeModel) {
+templ Home(m HomeModel, log *slog.Logger) {
 	@layouts.Base("NanoKVM BMC", true, false) {
 		<link rel="stylesheet" href="/css/xterm.min.css"/>
 		<style>
@@ -137,7 +139,7 @@ templ Home(m HomeModel) {
 				MaxSize:       "48rem",
 				Style:         "overflow:hidden;",
 			}) {
-				@components.OverviewSidebar()
+				@components.OverviewSidebar(log)
 			}
 		}
 		@xtermScripts()

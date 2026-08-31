@@ -25,7 +25,7 @@ var validFilenameRegex = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 func (h *handlers) OfflineUpdate(c *gin.Context) {
 	var rsp proto.Response
 
-	err := application.RunOfflineUpdate(func(cacheDir string) (string, error) {
+	err := application.RunOfflineUpdate(h.log, func(cacheDir string) (string, error) {
 		reader, err := c.Request.MultipartReader()
 		if err != nil {
 			return "", fmt.Errorf("invalid multipart data: %w", err)
@@ -39,7 +39,7 @@ func (h *handlers) OfflineUpdate(c *gin.Context) {
 	}
 
 	h.log.DebugContext(c.Request.Context(), "offline update application success")
-	respondAndRestart(c, &rsp)
+	respondAndRestart(c, &rsp, h.log)
 }
 
 // processUpload reads the multipart stream and stages the "file" field

@@ -16,7 +16,7 @@ func (h *handlers) SetTLS(c *gin.Context) {
 	var req proto.SetTLSReq
 	var rsp proto.Response
 
-	err := proto.ParseFormRequest(c, &req)
+	err := proto.ParseFormRequest(c, h.log, &req)
 	if err != nil {
 		rsp.ErrRsp(c, -1, fmt.Sprintf("invalid arguments: %s", err))
 		return
@@ -38,7 +38,7 @@ func (h *handlers) SetTLS(c *gin.Context) {
 
 	// The proto/cert change only takes effect on the next start; exit and
 	// let init respawn us.
-	application.RestartService()
+	application.RestartService(h.log)
 }
 
 // EnableTLS generates a self-signed certificate and switches the persisted

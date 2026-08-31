@@ -108,7 +108,7 @@ func pageRoutes(r *gin.Engine, d *deps.Deps, log *slog.Logger) {
 		c.Redirect(http.StatusFound, "/dashboard")
 	})
 	protected.GET("/dashboard", func(c *gin.Context) {
-		c.Render(http.StatusOK, render.New(c.Request.Context(), http.StatusOK, pages.Home(homeModel(log))))
+		c.Render(http.StatusOK, render.New(c.Request.Context(), http.StatusOK, pages.Home(homeModel(log), log)))
 	})
 	// Legacy routes: the serial console and settings now live on the
 	// dashboard, so these redirect server-side for old links/bookmarks.

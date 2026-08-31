@@ -4,6 +4,7 @@
 package sysinfo
 
 import (
+	"log/slog"
 	"os"
 	"strings"
 
@@ -50,8 +51,8 @@ func DeviceKey() string {
 }
 
 // IPs lists the IPv4 addresses of the up wired/wireless interfaces.
-func IPs() (ips []proto.IP) {
-	interfaces, err := listInterfaces()
+func IPs(log *slog.Logger) (ips []proto.IP) {
+	interfaces, err := listInterfaces(log)
 	if err != nil {
 		return
 	}
@@ -72,8 +73,8 @@ func IPs() (ips []proto.IP) {
 
 // PrimaryIP returns the best display address: the first non-loopback IPv4,
 // else the first address of any kind, else "".
-func PrimaryIP() string {
-	ips := IPs()
+func PrimaryIP(log *slog.Logger) string {
+	ips := IPs(log)
 	for _, ip := range ips {
 		if !strings.HasPrefix(ip.Addr, "127.") {
 			return ip.Addr

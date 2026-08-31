@@ -9,6 +9,8 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
+	"log/slog"
+
 	"github.com/pi-bmc/nanokvm-app/ui/components"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
 	"github.com/pi-bmc/nanokvm-app/ui/components/buttongroup"
@@ -50,7 +52,7 @@ const (
 // other tab outright would mean a headless box could never be checked for
 // video, and a workstation could never be reached when its HDMI is dark, which
 // are exactly the moments someone goes looking.
-func Home(m HomeModel) templ.Component {
+func Home(m HomeModel, log *slog.Logger) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -287,7 +289,7 @@ func Home(m HomeModel) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = components.OverviewSidebar().Render(ctx, templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = components.OverviewSidebar(log).Render(ctx, templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}

@@ -9,6 +9,8 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
+	"log/slog"
+
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/sysinfo"
@@ -36,7 +38,7 @@ const overviewSidebarID = "overview-sidebar"
 // cheap local values render with the page, everything else loads with
 // hx-trigger="load" and re-renders on the fw-changed event that mutating
 // fragment handlers raise via HX-Trigger.
-func OverviewSidebar() templ.Component {
+func OverviewSidebar(log *slog.Logger) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -68,7 +70,7 @@ func OverviewSidebar() templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(overviewSidebarID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 34, Col: 24}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 36, Col: 24}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -222,7 +224,7 @@ func OverviewSidebar() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = overviewBmcCard().Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = overviewBmcCard(log).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -664,7 +666,7 @@ func OverviewServerBody(m OverviewServer) templ.Component {
 				var templ_7745c5c3_Var24 string
 				templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(m.InventorySource)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 174, Col: 41}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 176, Col: 41}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 				if templ_7745c5c3_Err != nil {
@@ -697,7 +699,7 @@ func OverviewServerBody(m OverviewServer) templ.Component {
 // overviewBmcCard is the BMC build + network identity card — all local
 // values, rendered with the page. Only the release check (a GitHub call)
 // is a fragment.
-func overviewBmcCard() templ.Component {
+func overviewBmcCard(log *slog.Logger) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -918,7 +920,7 @@ func overviewBmcCard() templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = statusRow("IP Address", sysinfo.PrimaryIP()).Render(ctx, templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = statusRow("IP Address", sysinfo.PrimaryIP(log)).Render(ctx, templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1014,7 +1016,7 @@ func OverviewAppUpdateBody(m OverviewUpdateCheck) templ.Component {
 				var templ_7745c5c3_Var38 string
 				templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(versionDisplay(m.Latest))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 242, Col: 40}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/overview.templ`, Line: 244, Col: 40}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 				if templ_7745c5c3_Err != nil {

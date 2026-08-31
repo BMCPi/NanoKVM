@@ -42,12 +42,12 @@ func settingsFragmentRoutes(g *gin.RouterGroup, h *handlers) {
 	s.PATCH("/timesync", h.patchTimeSync)
 
 	s.GET("/network", func(c *gin.Context) {
-		renderFragment(c, components.SettingsNetworkBody(networkModel()))
+		renderFragment(c, components.SettingsNetworkBody(networkModel(h.log)))
 	})
 	s.PATCH("/network", h.patchNetwork)
 	s.PATCH("/mdns", h.patchMDNS)
 	s.GET("/network/status", func(c *gin.Context) {
-		renderFragment(c, components.SettingsNetworkStatusRows(networkStatus()))
+		renderFragment(c, components.SettingsNetworkStatusRows(networkStatus(h.log)))
 	})
 
 	s.GET("/serial", func(c *gin.Context) {
@@ -184,7 +184,7 @@ func (h *handlers) patchAutoUpdate(c *gin.Context) {
 
 // ── Network ─────────────────────────────────────────────────────────────
 
-func networkModel() components.SettingsNetwork {
+func networkModel(log *slog.Logger) components.SettingsNetwork {
 	n := config.GetInstance().Network
 	// Discovery.MDNS, not the top-level MDNS field: the latter is a
 	// migration landing spot only (see migrateDiscovery in pkg/config) and
@@ -205,7 +205,7 @@ func networkModel() components.SettingsNetwork {
 		MDNSInterface: md.Interface,
 		MDNSIPv4:      md.IPv4,
 		MDNSIPv6:      md.IPv6,
-		Status:        networkStatus(),
+		Status:        networkStatus(log),
 	}
 }
 
@@ -231,7 +231,7 @@ func (h *handlers) patchMDNS(c *gin.Context) {
 	discovery.Restart()
 
 	hxToast(c, "success", "Settings saved", "Discovery responder restarted.")
-	renderFragment(c, components.SettingsNetworkBody(networkModel()))
+	renderFragment(c, components.SettingsNetworkBody(networkModel(h.log)))
 }
 
 // ── Serial ──────────────────────────────────────────────────────────────
@@ -288,7 +288,7 @@ func (h *handlers) patchSerial(c *gin.Context) {
 // networkStatus reports what the interfaces actually came up with, which is
 // not necessarily what the form above asked for — a DHCP lease, a kernel MAC,
 // or a link that failed to come up all show here.
-func networkStatus() components.SettingsNetworkStatus {
+func networkStatus(log *slog.Logger) components.SettingsNetworkStatus {
 	cfg := config.GetInstance().Network
 	st := components.SettingsNetworkStatus{
 		Mode: strings.ToUpper(strings.ToLower(cfg.Eth0.Mode)),
@@ -298,7 +298,7 @@ func networkStatus() components.SettingsNetworkStatus {
 		st.MAC = "kernel default"
 	}
 
-	for _, ip := range sysinfo.IPs() {
+	for _, ip := range sysinfo.IPs(log) {
 		switch {
 		case strings.HasPrefix(ip.Addr, "169.254."):
 			if st.RHI == "" {
@@ -337,7 +337,7 @@ func (h *handlers) patchNetwork(c *gin.Context) {
 		// Re-render from the untouched config so the form snaps back to the
 		// last good values instead of holding the rejected ones.
 		hxToast(c, "error", "Network settings rejected", err.Error())
-		renderFragment(c, components.SettingsNetworkBody(networkModel()))
+		renderFragment(c, components.SettingsNetworkBody(networkModel(h.log)))
 		return
 	}
 
@@ -348,7 +348,7 @@ func (h *handlers) patchNetwork(c *gin.Context) {
 	h.log.InfoContext(c.Request.Context(), "network: settings updated via ui",
 		slog.String("eth0Mode", next.Eth0.Mode), slog.Bool("enabled", next.Enabled))
 	hxToast(c, "success", "Network settings saved", "Addressing re-applied.")
-	renderFragment(c, components.SettingsNetworkBody(networkModel()))
+	renderFragment(c, components.SettingsNetworkBody(networkModel(h.log)))
 }
 
 // splitList parses the comma/space separated DNS field.
@@ -651,7 +651,7 @@ func (h *handlers) postTLS(c *gin.Context) {
 	// returns, so a request-scoped context would cancel the restart before it
 	// happened, and the UI would report a scheme change that never occurred.
 	// Same hazard as postReboot below.
-	go application.RestartService()
+	go application.RestartService(h.log)
 }
 
 // ── Advanced ────────────────────────────────────────────────────────────

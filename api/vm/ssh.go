@@ -82,7 +82,7 @@ func (h *handlers) SetSSHKeys(c *gin.Context) {
 		rsp proto.Response
 	)
 
-	if err := proto.ParseFormRequest(c, &req); err != nil {
+	if err := proto.ParseFormRequest(c, h.log, &req); err != nil {
 		rsp.ErrRsp(c, -1, "invalid parameters")
 		return
 	}

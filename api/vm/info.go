@@ -15,7 +15,7 @@ func (h *handlers) GetInfo(c *gin.Context) {
 	var rsp proto.Response
 
 	data := &proto.GetInfoRsp{
-		IPs:         sysinfo.IPs(),
+		IPs:         sysinfo.IPs(h.log),
 		Mdns:        getMdns(),
 		Image:       sysinfo.ImageVersion(),
 		Application: application.CurrentVersion(),

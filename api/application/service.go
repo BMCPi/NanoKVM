@@ -25,7 +25,7 @@ func (h *handlers) GetVersion(c *gin.Context) {
 
 	rsp.OkRspWithData(c, &proto.GetVersionRsp{
 		Current: current,
-		Latest:  application.LatestVersion(c.Request.Context()),
+		Latest:  application.LatestVersion(c.Request.Context(), h.log),
 	})
 }
 
@@ -41,19 +41,19 @@ func (h *handlers) Update(c *gin.Context) {
 	ctx, cancel := h.d.ActionContext(appUpdateTimeout)
 	defer cancel()
 
-	if err := application.RunUpdate(ctx); err != nil {
+	if err := application.RunUpdate(ctx, h.log); err != nil {
 		rsp.ErrRsp(c, -1, fmt.Sprintf("update failed: %s", err))
 		return
 	}
 
 	h.log.DebugContext(c.Request.Context(), "update application success")
-	respondAndRestart(c, &rsp)
+	respondAndRestart(c, &rsp, h.log)
 }
 
 // respondAndRestart acknowledges a successful update, then restarts the
 // service after a short delay so the response flushes first.
-func respondAndRestart(c *gin.Context, rsp *proto.Response) {
+func respondAndRestart(c *gin.Context, rsp *proto.Response, log *slog.Logger) {
 	rsp.OkRsp(c)
 	time.Sleep(1 * time.Second)
-	application.RestartService()
+	application.RestartService(log)
 }

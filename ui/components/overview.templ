@@ -1,6 +1,8 @@
 package components
 
 import (
+	"log/slog"
+
 	"github.com/pi-bmc/nanokvm-app/pkg/application"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/sysinfo"
@@ -28,7 +30,7 @@ const overviewSidebarID = "overview-sidebar"
 // cheap local values render with the page, everything else loads with
 // hx-trigger="load" and re-renders on the fw-changed event that mutating
 // fragment handlers raise via HX-Trigger.
-templ OverviewSidebar() {
+templ OverviewSidebar(log *slog.Logger) {
 	@overviewSidebarStyles()
 	<aside
 		id={ overviewSidebarID }
@@ -62,7 +64,7 @@ templ OverviewSidebar() {
 			}
 			<div class="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 py-3 space-y-4">
 				@overviewServerCard()
-				@overviewBmcCard()
+				@overviewBmcCard(log)
 				@overviewActivityCard()
 				@overviewHostFirmwareCard()
 				@overviewBootOverrideCard()
@@ -183,7 +185,7 @@ templ OverviewServerBody(m OverviewServer) {
 // overviewBmcCard is the BMC build + network identity card — all local
 // values, rendered with the page. Only the release check (a GitHub call)
 // is a fragment.
-templ overviewBmcCard() {
+templ overviewBmcCard(log *slog.Logger) {
 	@card.Card() {
 		@card.Header() {
 			@card.Title(card.TitleProps{Class: "text-sm"}) {
@@ -209,7 +211,7 @@ templ overviewBmcCard() {
 				}
 				@statusRow("Image", sysinfo.ImageVersion())
 				@statusRow("Hardware", config.GetInstance().Hardware.Version.String())
-				@statusRow("IP Address", sysinfo.PrimaryIP())
+				@statusRow("IP Address", sysinfo.PrimaryIP(log))
 			}
 		}
 		@card.Footer(card.FooterProps{Class: "pt-2 text-xs text-muted-foreground"}) {

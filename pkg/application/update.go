@@ -25,12 +25,12 @@ const (
 // detached from the HTTP request: an update replaces the running binary, and
 // abandoning that partway because a browser tab closed would leave the install
 // half-applied.
-func RunUpdate(ctx context.Context) error {
+func RunUpdate(ctx context.Context, log *slog.Logger) error {
 	if !acquireUpdateLock() {
 		return fmt.Errorf("update already in progress")
 	}
 	defer releaseUpdateLock()
-	return update(ctx)
+	return update(ctx, log)
 }
 
 // RunOfflineUpdate installs an update package supplied by the caller: it
@@ -38,7 +38,7 @@ func RunUpdate(ctx context.Context) error {
 // package there (returning its path), and installs it. stage runs inside
 // the lock so an upload cannot race a concurrent update, and the lock and
 // cache lifecycle stay owned by this package.
-func RunOfflineUpdate(stage func(cacheDir string) (string, error)) error {
+func RunOfflineUpdate(log *slog.Logger, stage func(cacheDir string) (string, error)) error {
 	if !acquireUpdateLock() {
 		return fmt.Errorf("update already in progress")
 	}
@@ -54,7 +54,7 @@ func RunOfflineUpdate(stage func(cacheDir string) (string, error)) error {
 	if err != nil {
 		return err
 	}
-	return installPackage(target)
+	return installPackage(log, target)
 }
 
 // RestartService restarts the server by exiting: busybox init runs the
@@ -64,51 +64,51 @@ func RunOfflineUpdate(stage func(cacheDir string) (string, error)) error {
 // at ourselves (rather than calling os.Exit) routes through main's signal
 // handler, so listeners and the gadget shut down exactly as on a system
 // stop.
-func RestartService() {
-	slog.Info("restart requested; exiting for init to respawn")
+func RestartService(log *slog.Logger) {
+	log.Info("restart requested; exiting for init to respawn")
 	_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
 }
 
 // LatestVersion returns the latest available release version string (or
 // empty when the lookup fails). Exposed so the auto-update service can
 // compare against the running version without depending on internals.
-func LatestVersion(ctx context.Context) string {
-	l, err := getLatest(ctx)
+func LatestVersion(ctx context.Context, log *slog.Logger) string {
+	l, err := getLatest(ctx, log)
 	if err != nil || l == nil {
 		return ""
 	}
 	return l.Version
 }
 
-func update(ctx context.Context) error {
+func update(ctx context.Context, log *slog.Logger) error {
 	_ = os.RemoveAll(CacheDir)
 	_ = os.MkdirAll(CacheDir, 0o755)
 	defer func() {
 		_ = os.RemoveAll(CacheDir)
 	}()
 
-	latest, err := getLatest(ctx)
+	latest, err := getLatest(ctx, log)
 	if err != nil {
 		return err
 	}
 
 	target := fmt.Sprintf("%s/%s", CacheDir, latest.Name)
-	if err := download(ctx, latest.URL, target); err != nil {
-		slog.ErrorContext(ctx, "download app failed", slog.Any("err", err))
+	if err := download(ctx, log, latest.URL, target); err != nil {
+		log.ErrorContext(ctx, "download app failed", slog.Any("err", err))
 		return err
 	}
 
-	if err := installPackage(target); err != nil {
-		slog.ErrorContext(ctx, "failed to install package", slog.Any("err", err))
+	if err := installPackage(log, target); err != nil {
+		log.ErrorContext(ctx, "failed to install package", slog.Any("err", err))
 		return err
 	}
 
 	return nil
 }
 
-func download(ctx context.Context, url string, target string) (err error) {
+func download(ctx context.Context, log *slog.Logger, url string, target string) (err error) {
 	for i := range maxTries {
-		slog.DebugContext(ctx, "download attempt", slog.Int("attempt", i+1), slog.Int("max", maxTries))
+		log.DebugContext(ctx, "download attempt", slog.Int("attempt", i+1), slog.Int("max", maxTries))
 		if i > 0 {
 			// Back off between attempts, but give up immediately if the caller
 			// has gone away rather than sleeping through a cancelled update.
@@ -122,14 +122,14 @@ func download(ctx context.Context, url string, target string) (err error) {
 		var req *http.Request
 		req, err = http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
-			slog.ErrorContext(ctx, "new request err", slog.Any("err", err))
+			log.ErrorContext(ctx, "new request err", slog.Any("err", err))
 			continue
 		}
 
-		slog.DebugContext(ctx, "update will be saved", slog.String("path", target))
+		log.DebugContext(ctx, "update will be saved", slog.String("path", target))
 		err = utils.Download(req, target)
 		if err != nil {
-			slog.ErrorContext(ctx, "downloading latest application failed, try again", slog.Any("err", err))
+			log.ErrorContext(ctx, "downloading latest application failed, try again", slog.Any("err", err))
 			continue
 		}
 		return nil
