@@ -12,16 +12,30 @@ import (
 	"github.com/brutella/dnssd"
 )
 
+// generation bundles what one Start call produces, identified by the
+// pointer itself: comparing r.gen against a snapshot (rather than clearing
+// or reading fields unconditionally) is what lets a Stop or a superseded
+// Respond goroutine tell whether it is still looking at the generation it
+// started with, or whether a newer Start has since replaced it (see Start
+// and Stop).
+type generation struct {
+	cancel context.CancelFunc
+	// done is closed by this generation's Respond goroutine right before it
+	// returns, so Stop/Start can block until any goodbyes that goroutine
+	// sends have actually gone out before reporting stopped or starting the
+	// next generation.
+	done chan struct{}
+}
+
 // Responder publishes a host name and a set of services on one interface.
 type Responder struct {
 	host  string
 	iface string
 	svcs  []Service
 
-	mu       sync.Mutex
-	running  bool
-	cancel   context.CancelFunc
-	stopOnce *sync.Once
+	mu      sync.Mutex
+	running bool
+	gen     *generation
 }
 
 // New builds a responder. host is the ".local" name to claim (e.g.
@@ -35,7 +49,11 @@ func New(host, iface string, svcs []Service) *Responder {
 // responder: it restarts.
 func (r *Responder) Start(ctx context.Context) error {
 	// Restart semantics: tear down whatever the previous Start left running
-	// before standing up a new one, rather than layering responders.
+	// before standing up a new one, rather than layering responders. Stop
+	// blocks until the previous generation's Respond goroutine has actually
+	// exited, so its goodbyes for the old instance names land on the wire
+	// before this generation's announcements do — otherwise a browser sees
+	// announce-then-goodbye and drops the BMC (see FINDING 3).
 	r.Stop()
 
 	resp, err := dnssd.NewResponder()
@@ -73,46 +91,64 @@ func (r *Responder) Start(ctx context.Context) error {
 	// Derived from the caller's ctx so an outer cancellation (or deadline)
 	// stops the responder too, not just an explicit Stop().
 	respondCtx, cancel := context.WithCancel(ctx)
+	g := &generation{cancel: cancel, done: make(chan struct{})}
 
 	r.mu.Lock()
-	r.cancel = cancel
-	r.stopOnce = &sync.Once{}
+	r.gen = g
 	r.running = true
 	r.mu.Unlock()
 
 	// Respond blocks for the life of the responder; it sends goodbyes and
 	// closes its socket on its own once respondCtx is done, so Stop only
-	// needs to cancel.
+	// needs to cancel and then wait on g.done.
 	go func() {
+		defer close(g.done)
 		_ = resp.Respond(respondCtx)
 		r.mu.Lock()
-		r.running = false
+		// Only clear running if r.gen still names this generation: a
+		// goroutine from a generation Start has already superseded (see
+		// the leading r.Stop() above) would otherwise still reach this
+		// line eventually — dnssd's unannounce sleeps 250ms between
+		// goodbye packets per interface — and stomp the running=true a
+		// newer generation already set, so Name() (the package's only
+		// health signal) would incorrectly report down.
+		if r.gen == g {
+			r.running = false
+		}
 		r.mu.Unlock()
 	}()
 
 	return nil
 }
 
-// Stop sends goodbyes and closes the socket. Safe to call more than once.
+// Stop sends goodbyes and closes the socket, and does not return until they
+// have actually gone out. Safe to call more than once.
 func (r *Responder) Stop() {
 	r.mu.Lock()
-	cancel := r.cancel
-	once := r.stopOnce
+	g := r.gen
 	r.mu.Unlock()
 
-	if cancel == nil {
+	if g == nil {
 		return
 	}
-	// once, not a nil check on r.cancel, guards the actual cancel: Stop can
-	// race Start from the background watcher, and reading then calling
-	// cancel without it would let two callers both see a non-nil func and
-	// both "stop" — harmless for context.CancelFunc itself, but the pattern
-	// matches the mutex-guarded sibling ssdp.Responder and keeps this safe if
-	// the guarded body ever grows beyond a single idempotent call.
-	once.Do(cancel)
+	// context.CancelFunc is inherently idempotent, and reading a channel
+	// that is already closed (or racing another Stop's close of the same
+	// channel) is safe too, so a concurrent Stop reaching this same
+	// generation causes no harm.
+	g.cancel()
+	<-g.done
 
+	// Only clear state that still belongs to this generation. A concurrent
+	// Start can have already installed a newer generation by the time this
+	// call wakes up from <-g.done (its own leading Stop() may have raced
+	// this one to the same g above) — clobbering running/gen here would
+	// then report a live responder as stopped, the same class of bug the
+	// generation check in Start's goroutine guards against.
 	r.mu.Lock()
-	r.running = false
+	if r.gen == g {
+		r.running = false
+		r.gen = nil
+	}
 	r.mu.Unlock()
 }
 
