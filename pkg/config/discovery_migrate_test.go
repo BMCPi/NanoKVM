@@ -125,6 +125,124 @@ func TestLegacyDisabledSurvivesMigrationAndReload(t *testing.T) {
 	}
 }
 
+// TestDiscoveryMDNSMigrationMatrix is the regression test for the bug
+// shipped in 44eef4b itself: migrateDiscovery's fold was gated on
+// viper.IsSet("discovery") — "does a discovery: block exist at all?" —
+// while the delete of the legacy block ran unconditionally. A config that
+// gained a discovery: block for something other than mdns (e.g.
+// discovery.ssdp, on a board still configuring mDNS the legacy way) then
+// took the no-fold branch but still had its legacy block deleted: the
+// operator's deliberately-disabled responder came back enabled at eth0 with
+// its interface and hostname erased, on disk as well as in memory. The
+// per-key legacySet() backfill in checkDefaultValue had the identical
+// flaw one level down, keyed off the same wrong question.
+//
+// The fix keys both on viper.IsSet("discovery.mdns") — "is discovery.mdns
+// itself explicitly set?" — which is the question that actually decides
+// whether the legacy block is stale text or the only source of values.
+//
+// Covers the full matrix that exposed the gap: for each shape, assert both
+// the effective in-memory Discovery.MDNS and what actually remains on
+// disk. None of the pre-existing tests combined a discovery: block with a
+// legacy mdns: block while omitting discovery.mdns.
+func TestDiscoveryMDNSMigrationMatrix(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		yaml string
+		want MDNS
+		// wantRewrite is false only for shapes where nothing needs migrating
+		// — no legacy block to drop, nothing else asks for a one-time
+		// rewrite — so the file must be left untouched (case 4 of the
+		// invariants: no needless rewrite).
+		wantRewrite bool
+	}{
+		{
+			name: "legacy-only",
+			yaml: migrateSecret + "mdns:\n  enabled: true\n  interface: eth1\n  hostname: bmc-a\n",
+			want: MDNS{Enabled: true, Interface: "eth1", IPv4: true, IPv6: true, Hostname: "bmc-a"},
+			// Nothing on disk to preserve; folded values plus IPv4/IPv6
+			// defaults (the legacy spelling never had those keys).
+			wantRewrite: true,
+		},
+		{
+			name: "discovery-mdns-only",
+			yaml: migrateSecret + "discovery:\n  mdns:\n    enabled: true\n    interface: eth2\n    hostname: new\n",
+			want: MDNS{Enabled: true, Interface: "eth2", IPv4: true, IPv6: true, Hostname: "new"},
+			// No legacy block, nothing to migrate.
+			wantRewrite: false,
+		},
+		{
+			// The exact reproduction from the bug report: a discovery: block
+			// exists (for SSDP) but has no mdns sub-block, alongside a
+			// legacy mdns: block that deliberately disables the responder
+			// and sets a non-default interface/hostname. Before the fix
+			// this was silent, irrecoverable data loss: migrateDiscovery
+			// skipped the fold (gated on viper.IsSet("discovery"), true
+			// here because of discovery.ssdp) but deleted c.MDNS
+			// unconditionally, so the responder came back force-enabled at
+			// eth0 with the operator's interface/hostname/disabled choice
+			// gone from both memory and disk.
+			name: "discovery-without-mdns-plus-legacy",
+			yaml: migrateSecret +
+				"mdns:\n  enabled: false\n  interface: eth1\n  hostname: operator-set\n" +
+				"discovery:\n  ssdp:\n    enabled: true\n",
+			want:        MDNS{Enabled: false, Interface: "eth1", IPv4: true, IPv6: true, Hostname: "operator-set"},
+			wantRewrite: true,
+		},
+		{
+			// Both spellings, but discovery.mdns is the one explicitly set:
+			// per TestExplicitDiscoveryBlockWinsOverLegacy it wins in full —
+			// legacy's eth1/hostname must not leak through even partially,
+			// and Enabled ends up true because discovery.mdns's own
+			// (absent) enabled key defaults true, not because legacy's
+			// enabled: true leaked in.
+			name: "both",
+			yaml: migrateSecret +
+				"mdns:\n  enabled: true\n  interface: eth1\n  hostname: old\n" +
+				"discovery:\n  mdns:\n    interface: eth0\n",
+			want:        MDNS{Enabled: true, Interface: "eth0", IPv4: true, IPv6: true, Hostname: ""},
+			wantRewrite: true, // legacy key is present in the input and must still be dropped
+		},
+		{
+			name:        "neither",
+			yaml:        migrateSecret,
+			want:        MDNS{Enabled: true, Interface: "eth0", IPv4: true, IPv6: true, Hostname: ""},
+			wantRewrite: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, path := loadConfigFromYAML(t, tc.yaml)
+
+			if c.Discovery.MDNS != tc.want {
+				t.Errorf("effective Discovery.MDNS = %+v, want %+v", c.Discovery.MDNS, tc.want)
+			}
+
+			if !tc.wantRewrite {
+				if _, err := os.Stat(path); err == nil {
+					t.Fatalf("config was rewritten but nothing needed migrating")
+				}
+				return
+			}
+
+			top, data := readRewritten(t, path)
+			if _, ok := top["mdns"]; ok {
+				t.Errorf("rewritten config still carries a legacy mdns: key:\n%s", data)
+			}
+
+			// Round-trip the rewritten bytes back through the real struct
+			// (not the loose map above) so a marshal that the loader reads
+			// back differently would be caught here too.
+			var reloaded Config
+			if err := yaml.Unmarshal(data, &reloaded); err != nil {
+				t.Fatalf("rewritten config did not parse back into Config: %v", err)
+			}
+			if reloaded.Discovery.MDNS != tc.want {
+				t.Errorf("on-disk discovery.mdns = %+v, want %+v\n%s", reloaded.Discovery.MDNS, tc.want, data)
+			}
+		})
+	}
+}
+
 // TestConfigWithoutEitherBlockIsNotRewritten keeps the migration from
 // touching files that have nothing to migrate — every boot of an
 // already-current device would otherwise rewrite /etc/kvm/server.yaml.

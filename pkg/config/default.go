@@ -401,37 +401,51 @@ func checkDefaultValue() {
 	// block as absent and immediately stomp it back to hardcoded defaults —
 	// silently reverting an operator's non-default interface/hostname and,
 	// worse, flipping a deliberate `enabled: false` back to true.
-	discoveryKeySet := viper.IsSet("discovery")
+	//
+	// discoveryMDNSSet asks "is discovery.mdns itself explicitly set?" — not
+	// "does a discovery: block exist at all?" Those are different questions:
+	// a board can carry a discovery: block for SSDP alone (e.g.
+	// `discovery: {ssdp: {enabled: true}}`) with no discovery.mdns, while
+	// still configuring mDNS the legacy way. Gating the fold on the parent
+	// key's presence (viper.IsSet("discovery")) instead of the child's used
+	// to treat that shape as "explicit discovery, ignore legacy" — skipping
+	// the fold below in migrateDiscovery — and then delete the legacy block
+	// anyway, force-enabling mDNS on hardcoded defaults and erasing the
+	// operator's interface/hostname/disabled choice with no way back.
+	discoveryMDNSSet := viper.IsSet("discovery.mdns")
 	// legacyKeySet reads the parsed file, not the struct, so it still
 	// answers "did this file use the old spelling?" after migrateDiscovery
 	// has cleared the field — as do the per-key legacySet lookups below.
 	legacyKeySet := viper.IsSet("mdns")
-	migrateDiscovery(&instance, discoveryKeySet)
+	migrateDiscovery(&instance, discoveryMDNSSet)
 	if legacyKeySet {
 		// Rewrite the file once, on this first boot after upgrade, so the
 		// legacy key actually leaves disk. Migrating in memory only left
-		// both spellings in the file, and a file with a discovery: key
+		// both spellings in the file, and a file with a discovery.mdns key
 		// makes migrateDiscovery skip the legacy block on the next load —
 		// so the operator's values were read once and then lost.
 		needsPersist = true
 	}
-	if !viper.IsSet("discovery.mdns") && !legacyKeySet {
+	if !discoveryMDNSSet && !legacyKeySet {
 		instance.Discovery.MDNS = defaultConfig.Discovery.MDNS
 	} else {
 		// Enabled/IPv4/IPv6 default true, so a zero value is ambiguous with
 		// an explicit false — the same problem the section-level check above
 		// exists to prevent, just one level deeper. legacySet consults the
-		// legacy mdns.<key> spelling only when there is no explicit
-		// discovery: block at all; once one exists it wins in full (per
-		// migrateDiscovery above), so a legacy value must not count as
-		// "already set" for any of its own keys. Skipping that distinction
-		// would reintroduce the CRITICAL-2 trap in the other direction: a
-		// bare `discovery: {mdns: {interface: eth0}}` would inherit whatever
-		// legacy's mdns.enabled happened to be (or Go's false zero value if
-		// there were no legacy block at all), silently leaving the responder
-		// off even though the operator wrote no "enabled" key anywhere.
+		// legacy mdns.<key> spelling only when discovery.mdns itself was not
+		// explicitly set — the same condition that gated the fold in
+		// migrateDiscovery above, so a key counts as "already set" here
+		// exactly when the fold is what actually populated it. Once
+		// discovery.mdns is explicitly set it wins in full, so a legacy
+		// value must not count as "already set" for any of its own keys.
+		// Skipping that distinction would reintroduce the CRITICAL-2 trap in
+		// the other direction: a bare `discovery: {mdns: {interface: eth0}}`
+		// would inherit whatever legacy's mdns.enabled happened to be (or
+		// Go's false zero value if there were no legacy block at all),
+		// silently leaving the responder off even though the operator wrote
+		// no "enabled" key anywhere.
 		legacySet := func(key string) bool {
-			return !discoveryKeySet && viper.IsSet("mdns."+key)
+			return !discoveryMDNSSet && viper.IsSet("mdns."+key)
 		}
 		if !viper.IsSet("discovery.mdns.enabled") && !legacySet("enabled") {
 			instance.Discovery.MDNS.Enabled = defaultConfig.Discovery.MDNS.Enabled
@@ -518,17 +532,23 @@ func checkDefaultValue() {
 // Clearing the field is what makes the migration final: the caller pairs it
 // with a one-time rewrite (see checkDefaultValue), so the upgraded file has
 // one spelling instead of two. Keeping both was actively harmful — a file
-// with a discovery: key takes the early return below, so the legacy values
-// would be read on the migrating boot and dropped on every boot after it.
+// with a discovery.mdns key takes the no-fold branch below, so the legacy
+// values would be read on the migrating boot and dropped on every boot
+// after it.
 //
-// An explicit discovery: block is authoritative even when a legacy block
-// coexists with it: the legacy block is then stale text to delete, never a
-// source of values.
-func migrateDiscovery(c *Config, discoveryKeySet bool) {
+// mdnsSectionSet must mean "discovery.mdns is explicitly set", not "a
+// discovery: block exists" — a caller that passes the latter folds nothing
+// for a config with e.g. `discovery: {ssdp: {...}}` and no discovery.mdns,
+// then still deletes the legacy block below, silently reverting the
+// operator's mDNS settings to hardcoded defaults with no way to recover
+// them. An explicit discovery.mdns block is authoritative even when a
+// legacy block coexists with it: the legacy block is then stale text to
+// delete, never a source of values.
+func migrateDiscovery(c *Config, mdnsSectionSet bool) {
 	if c.MDNS == nil {
 		return
 	}
-	if !discoveryKeySet {
+	if !mdnsSectionSet {
 		c.Discovery.MDNS = *c.MDNS
 	}
 	c.MDNS = nil

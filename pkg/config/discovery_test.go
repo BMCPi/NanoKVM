@@ -13,7 +13,7 @@ import (
 // somewhere the SSDP/mDNS responders read from.
 func TestLegacyMDNSBlockMigratesIntoDiscovery(t *testing.T) {
 	c := &Config{MDNS: &MDNS{Enabled: true, Interface: "eth1", Hostname: "old"}}
-	migrateDiscovery(c, false /* discoveryKeySet */)
+	migrateDiscovery(c, false /* mdnsSectionSet */)
 
 	if c.Discovery.MDNS.Interface != "eth1" || c.Discovery.MDNS.Hostname != "old" {
 		t.Errorf("legacy mdns: block did not migrate: %+v", c.Discovery.MDNS)
@@ -34,7 +34,7 @@ func TestExplicitDiscoveryBlockWinsOverLegacy(t *testing.T) {
 		MDNS:      &MDNS{Interface: "eth1"},
 		Discovery: Discovery{MDNS: MDNS{Interface: "eth0"}},
 	}
-	migrateDiscovery(c, true /* discoveryKeySet */)
+	migrateDiscovery(c, true /* mdnsSectionSet */)
 
 	if c.Discovery.MDNS.Interface != "eth0" {
 		t.Errorf("legacy block overwrote an explicit discovery block: %q",
@@ -177,6 +177,24 @@ func TestDiscoveryMigrationSurvivesDefaulting(t *testing.T) {
 			wantInterface: "eth0",
 			wantHostname:  "",
 			wantEnabled:   true,
+			wantIPv4:      true,
+			wantIPv6:      true,
+		},
+		{
+			// Regression for 44eef4b: a discovery: block exists (for SSDP) but
+			// has no mdns sub-block, alongside a legacy mdns: block that
+			// deliberately disables the responder. The fold must still run —
+			// a discovery: block with no discovery.mdns is not the same thing
+			// as an explicit discovery.mdns — or the legacy values are read
+			// once and then deleted with nothing folded, reviving the
+			// responder at hardcoded defaults. See TestDiscoveryMDNSMigrationMatrix
+			// for the on-disk half of this case.
+			name: "discovery-without-mdns-plus-legacy",
+			yaml: secret + "mdns:\n  enabled: false\n  interface: eth1\n  hostname: operator-set\n" +
+				"discovery:\n  ssdp:\n    enabled: true\n",
+			wantInterface: "eth1",
+			wantHostname:  "operator-set",
+			wantEnabled:   false,
 			wantIPv4:      true,
 			wantIPv6:      true,
 		},
