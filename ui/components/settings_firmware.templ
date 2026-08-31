@@ -168,7 +168,15 @@ templ SettingsFirmwareBody(m SettingsFirmware) {
 						// [hidden] { display:none !important } wins where a `hidden`
 						// class competes with the component's own display rules — see
 						// virtual_media.templ's upload progress bar for the same note.
-						@progress.Progress(progress.Props{ID: "fw-upload-progress", Attributes: templ.Attributes{"hidden": true}})
+						//
+						// The label is a fixed "Uploading…", not rewritten client-side
+						// like virtual media's: capsules are never decompressed (see
+						// the package comment), so there is no format to ever name here.
+						@progress.Progress(progress.Props{ID: "fw-upload-progress", Attributes: templ.Attributes{"hidden": true}}) {
+							@progress.Label() {
+								Uploading…
+							}
+						}
 					}
 					@tabs.Content(tabs.ContentProps{Value: "url", Class: "space-y-2"}) {
 						<form

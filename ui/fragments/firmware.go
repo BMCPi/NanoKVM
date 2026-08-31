@@ -17,6 +17,7 @@ package fragments
 // both), but only the local one is what the UI reacts to.
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -183,14 +184,19 @@ func postFirmwareCapsuleUpload(d *deps.Deps) gin.HandlerFunc {
 			renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(d)))
 			return
 		}
-		if _, err := d.Firmware.StageCapsule(name, upload); err != nil {
+		written, err := d.Firmware.StageCapsule(name, upload)
+		if err != nil {
 			log.Errorf("ui: stage capsule %q failed: %v", name, err)
 			hxToast(c, "error", "Upload failed", err.Error())
 			renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(d)))
 			return
 		}
 
-		hxToast(c, "success", "Staged "+name, "Applies at the host's next boot.")
+		// TransferSummary is called with format "" — capsules are never
+		// decompressed (see the package comment), so this only ever reports
+		// the size, never extraction language a capsule doesn't earn.
+		hxToast(c, "success", "Staged "+name,
+			fmt.Sprintf("%s. Applies at the host's next boot.", components.TransferSummary(written, "", 0)))
 		renderFragment(c, components.SettingsFirmwareBody(firmwarePanel(d)))
 	}
 }

@@ -15,6 +15,7 @@ package fragments
 
 import (
 	"bytes"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -144,6 +145,37 @@ func TestCapsuleUploadStreamsToTheVolumeWithoutSpooling(t *testing.T) {
 	}
 	if capsules[0].Size != int64(len(payload)) {
 		t.Errorf("staged %d bytes, want %d", capsules[0].Size, len(payload))
+	}
+}
+
+// Capsules are never decompressed (see the package comment on
+// firmwareFetchStatus / StageCapsule) — unlike a virtual-media upload, the
+// completion toast here must report a size and nothing else: no codec, no
+// "extracted from", nothing implying a capsule was ever inflated.
+func TestCapsuleUploadReportsSizeWithoutExtractionWording(t *testing.T) {
+	r, ctrl := firmwareRouter(t)
+
+	payload := []byte("firmware capsule payload bytes, staged as-is")
+	body, contentType := capsuleUploadBody(t, "host.cap", payload)
+
+	req := httptest.NewRequest(http.MethodPost, "/ui/settings/firmware/capsules", bytes.NewReader(body))
+	req.Header.Set("Content-Type", contentType)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	trigger := w.Header().Get("HX-Trigger")
+	if strings.Contains(trigger, "extract") {
+		t.Errorf("HX-Trigger = %q, a capsule is never decompressed and must not claim extraction", trigger)
+	}
+	if !strings.Contains(trigger, fmt.Sprintf("%d B", len(payload))) {
+		t.Errorf("HX-Trigger = %q, want the toast to report the staged size", trigger)
+	}
+	if !strings.Contains(trigger, "Applies at the host's next boot.") {
+		t.Errorf("HX-Trigger = %q, want the existing next-boot framing preserved", trigger)
+	}
+
+	if names := capsuleNames(t, ctrl); len(names) != 1 || names[0] != "host.cap" {
+		t.Errorf("capsules = %v, want [host.cap]", names)
 	}
 }
 

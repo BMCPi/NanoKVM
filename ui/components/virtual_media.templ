@@ -32,6 +32,30 @@ func formatBytes(n int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
+// TransferSummary composes what a completed transfer's toast should say
+// about size. format is what utils.DecompressingReader detected server-side
+// ("" for a passthrough transfer — always the case for firmware capsules,
+// which are never decompressed) so this never speaks about extraction unless
+// extraction genuinely happened. wireBytes is ignored when format == "".
+func TransferSummary(staged int64, format string, wireBytes int64) string {
+	if format == "" {
+		return formatBytes(staged)
+	}
+	return fmt.Sprintf("%s extracted from %s %s", formatBytes(staged), formatBytes(wireBytes), format)
+}
+
+// fetchPhaseLabel names the transfer phase shown above the URL-fetch
+// progress bar. Unlike the upload form (which has no server response to ask
+// until the transfer is over), the fetch poller can carry the real,
+// magic-byte-sniffed format as soon as DecompressingReader has seen the
+// stream's header — so this never guesses from the requested filename.
+func fetchPhaseLabel(format string) string {
+	if format == "" {
+		return "Fetching"
+	}
+	return fmt.Sprintf("Fetching & extracting (%s)", format)
+}
+
 // MediaState snapshots the staged ISO list and insertion state; rendered
 // with the page and by the /ui/media fragments after every mutation.
 func MediaState(fw *firmware.Controller) (files []string, inserted string) {
@@ -243,7 +267,18 @@ templ VMAddBody(files []string) {
 				// preflight's [hidden] { display:none !important } always wins,
 				// where a `hidden` utility class competes with the component's
 				// own display classes on stylesheet order.
-				@progress.Progress(progress.Props{ID: "vm-upload-progress", Attributes: templ.Attributes{"hidden": true}})
+				//
+				// The label starts as the generic "Uploading…" and is rewritten
+				// by virtual_media.js from the chosen file's extension right as
+				// the request goes out. It can only guess at this point — the
+				// server hasn't seen a byte yet to sniff a real format from —
+				// which is fine, since it never appears anywhere authoritative:
+				// the completion toast reports what the server actually found.
+				@progress.Progress(progress.Props{ID: "vm-upload-progress", Attributes: templ.Attributes{"hidden": true}}) {
+					@progress.Label(progress.LabelProps{ID: "vm-upload-label"}) {
+						Uploading…
+					}
+				}
 			}
 			@tabs.Content(tabs.ContentProps{Value: "url", Class: "space-y-2"}) {
 				<form
@@ -288,14 +323,19 @@ templ VMAddBody(files []string) {
 // GET /ui/media/fetch/progress polls it every second until the download
 // reaches a terminal state (success renders VMMenuBody, failure re-renders
 // VMAddBody with a toast).
-templ VMFetchProgress(name string, loaded, total int64) {
+//
+// format is the server-sniffed codec once DecompressingReader has seen the
+// stream's header ("" until then, and always for an uncompressed source) —
+// unlike the upload form, a fetch has a live server-side reader to ask, so
+// this is never a filename guess.
+templ VMFetchProgress(name string, loaded, total int64, format string) {
 	<div
 		class="p-3 space-y-2"
 		hx-get="/ui/media/fetch/progress"
 		hx-trigger="every 1s"
 		hx-swap="outerHTML"
 	>
-		<div class="text-sm font-semibold truncate">Fetching { name }…</div>
+		<div class="text-sm font-semibold truncate">{ fetchPhaseLabel(format) } { name }…</div>
 		if total > 0 {
 			{{ pct := int(loaded * 100 / total) }}
 			@progress.Progress(progress.Props{Value: pct, Max: 100})

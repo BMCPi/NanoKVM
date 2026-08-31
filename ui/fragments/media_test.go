@@ -15,13 +15,16 @@ package fragments
 
 import (
 	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -41,6 +44,38 @@ func mediaRouter(t *testing.T) (*gin.Engine, string) {
 	cfg := &config.Config{}
 	cfg.Firmware.MediaDir = mediaDir
 	d := &deps.Deps{Config: cfg, Firmware: firmware.NewController(cfg)}
+
+	r := gin.New()
+	r.Use(deps.Middleware(d))
+	mediaFragmentRoutes(r.Group("/ui"), d)
+	return r, mediaDir
+}
+
+// fakeVMGadget stands in for the configfs-backed USB gadget, absent in a test
+// environment. Duplicated from pkg/firmware/virtual_media_test.go's private
+// twin rather than shared, since that one isn't exported across packages.
+type fakeVMGadget struct{ lun1 string }
+
+func (g *fakeVMGadget) InsertMedia(path string) error { g.lun1 = path; return nil }
+func (g *fakeVMGadget) EjectMedia() error             { g.lun1 = ""; return nil }
+func (g *fakeVMGadget) LUN1File() (string, bool)      { return g.lun1, g.lun1 != "" }
+
+// mediaRouterWithGadget is mediaRouter plus a fake gadget, so a successful
+// upload actually reaches its "Uploaded and mounted" toast instead of
+// failing at InsertVirtualMedia the way mediaRouter's callers expect (see
+// TestMediaUploadStreamsToDiskWithoutSpooling's comment) — needed here
+// because these tests assert on that toast's text, not just where the bytes
+// landed.
+func mediaRouterWithGadget(t *testing.T) (*gin.Engine, string) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	mediaDir := t.TempDir()
+	cfg := &config.Config{}
+	cfg.Firmware.MediaDir = mediaDir
+	ctrl := firmware.NewController(cfg)
+	ctrl.SetVMGadgetForTest(&fakeVMGadget{})
+	d := &deps.Deps{Config: cfg, Firmware: ctrl}
 
 	r := gin.New()
 	r.Use(deps.Middleware(d))
@@ -214,5 +249,117 @@ func TestMediaUploadBasesFilename(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(mediaDir, "escaped.iso")); err != nil {
 		t.Errorf("upload should have been staged under its base name: %v", err)
+	}
+}
+
+// gzipPayload compresses payload for the extraction-toast tests below.
+func gzipPayload(t *testing.T, payload []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write(payload); err != nil {
+		t.Fatalf("gzip write: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// The progress bar advancing during a slow xz decode already tells the truth
+// about elapsed time (see pkg/utils/decompress.go); this test is about
+// whether the operator learns WHY afterward — the completion toast must name
+// both the codec and how much bigger the staged file is than what crossed
+// the wire.
+func TestMediaUploadCompressedReportsExtractionInToast(t *testing.T) {
+	r, mediaDir := mediaRouterWithGadget(t)
+
+	// Kept under 1024 bytes so formatBytes renders it as "N B" — an exact,
+	// assertable string — rather than a rounded "X.Y KB".
+	payload := bytes.Repeat([]byte("nanokvm-virtual-media-payload-"), 20)
+	body, contentType := capsuleUploadBody(t, "ubuntu-24.04.img.gz", gzipPayload(t, payload))
+
+	req := httptest.NewRequest(http.MethodPost, "/ui/media/upload", bytes.NewReader(body))
+	req.Header.Set("Content-Type", contentType)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	trigger := w.Header().Get("HX-Trigger")
+	if !strings.Contains(trigger, "extracted from") || !strings.Contains(trigger, "gzip") {
+		t.Errorf("HX-Trigger = %q, want the toast to say the staged size was extracted from a gzip source", trigger)
+	}
+	if !strings.Contains(trigger, fmt.Sprintf("%d B", len(payload))) {
+		t.Errorf("HX-Trigger = %q, want the toast to report the decompressed (staged) size", trigger)
+	}
+
+	staged, err := os.ReadFile(filepath.Join(mediaDir, "ubuntu-24.04.img"))
+	if err != nil {
+		t.Fatalf("decompressed media not staged under its stripped name: %v", err)
+	}
+	if !bytes.Equal(staged, payload) {
+		t.Error("staged content does not match the decompressed payload")
+	}
+}
+
+// The mirror case: nothing was extracted, so nothing should claim it was —
+// only a size, matching what StageCapsule's report looks like for a capsule.
+func TestMediaUploadUncompressedReportsSizeOnly(t *testing.T) {
+	r, mediaDir := mediaRouterWithGadget(t)
+
+	payload := []byte("a plain image, never touched by any decompressor")
+	body, contentType := capsuleUploadBody(t, "plain.iso", payload)
+
+	req := httptest.NewRequest(http.MethodPost, "/ui/media/upload", bytes.NewReader(body))
+	req.Header.Set("Content-Type", contentType)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	trigger := w.Header().Get("HX-Trigger")
+	if strings.Contains(trigger, "extract") {
+		t.Errorf("HX-Trigger = %q, an uncompressed upload must not use extraction language", trigger)
+	}
+	if !strings.Contains(trigger, fmt.Sprintf("%d B", len(payload))) {
+		t.Errorf("HX-Trigger = %q, want the toast to report the staged size", trigger)
+	}
+
+	if _, err := os.Stat(filepath.Join(mediaDir, "plain.iso")); err != nil {
+		t.Fatalf("uncompressed upload not staged: %v", err)
+	}
+}
+
+// The URL-fetch poller has a live server-side reader to ask, unlike the
+// upload form — so once DecompressingReader has sniffed the stream, the
+// in-flight fragment and the eventual completion toast must both carry the
+// real format, not a placeholder.
+func TestMediaFetchStatusCarriesFormatAndReportsExtractionOnCompletion(t *testing.T) {
+	r, _ := mediaRouter(t)
+
+	// Latched directly rather than run through a real download — same
+	// rationale as TestCapsuleFetchRefusesASecondStage: no network needed to
+	// exercise what the poller renders off the tracker's state.
+	mediaFetchStart("ubuntu-24.04.img.xz")
+	t.Cleanup(mediaFetchClear)
+
+	mediaFetchSetName("ubuntu-24.04.img")
+	mediaFetchSetFormat("xz")
+	mediaFetchSetTotal(1_100_000_000)
+	mediaFetchAddProgress(600_000_000)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/ui/media/fetch/progress", nil))
+	// templ HTML-escapes the "&" in the rendered phase text, so match on the
+	// parts either side of it rather than hardcoding the escaped entity.
+	if body := w.Body.String(); !strings.Contains(body, "Fetching") || !strings.Contains(body, "extracting (xz)") {
+		t.Errorf("in-flight fragment does not name the sniffed format; body: %s", body)
+	}
+
+	mediaFetchSetWritten(4_200_000_000)
+	mediaFetchFinish(nil)
+
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/ui/media/fetch/progress", nil))
+	trigger := w.Header().Get("HX-Trigger")
+	if !strings.Contains(trigger, "extracted from") || !strings.Contains(trigger, "xz") {
+		t.Errorf("HX-Trigger = %q, want the completion toast to report bytes extracted from an xz source", trigger)
 	}
 }

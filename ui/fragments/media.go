@@ -54,8 +54,17 @@ type mediaFetchStatus struct {
 	Name   string
 	Loaded int64
 	Total  int64 // 0 until the remote sends a Content-Length.
-	Done   bool
-	Err    error
+	// Format is what utils.DecompressingReader sniffed from the stream's
+	// magic bytes ("" until it has seen them, and permanently "" for an
+	// uncompressed source). Unlike the upload form's client-side guess from
+	// the filename, this is authoritative — the poller can show and the
+	// completion toast can report the format the server actually found.
+	Format string
+	// Written is the decompressed byte count SaveMediaFile actually wrote.
+	// Only meaningful once Done && Err == nil.
+	Written int64
+	Done    bool
+	Err     error
 }
 
 var (
@@ -94,6 +103,22 @@ func mediaFetchSetTotal(total int64) {
 	mediaFetchMu.Unlock()
 }
 
+// mediaFetchSetFormat records the codec DecompressingReader sniffed, once it
+// has seen the stream's header — see mediaFetchStatus.Format.
+func mediaFetchSetFormat(format string) {
+	mediaFetchMu.Lock()
+	mediaFetchState.Format = format
+	mediaFetchMu.Unlock()
+}
+
+// mediaFetchSetWritten records the decompressed byte count once
+// SaveMediaFile has finished writing it, for the completion toast.
+func mediaFetchSetWritten(n int64) {
+	mediaFetchMu.Lock()
+	mediaFetchState.Written = n
+	mediaFetchMu.Unlock()
+}
+
 func mediaFetchAddProgress(n int64) {
 	mediaFetchMu.Lock()
 	mediaFetchState.Loaded += n
@@ -111,6 +136,14 @@ func mediaFetchSnapshot() mediaFetchStatus {
 	mediaFetchMu.Lock()
 	defer mediaFetchMu.Unlock()
 	return mediaFetchState
+}
+
+// mediaFetchClear resets the tracker, mirroring firmwareFetchClear — tests
+// use it to leave no state behind for whichever test runs next.
+func mediaFetchClear() {
+	mediaFetchMu.Lock()
+	defer mediaFetchMu.Unlock()
+	mediaFetchState = mediaFetchStatus{}
 }
 
 // countingReader wraps an io.Reader to report every Read into the shared
@@ -200,12 +233,19 @@ func postMediaUpload(d *deps.Deps) gin.HandlerFunc {
 			return
 		}
 
+		// Counts bytes as they come off the wire, before decompression, so
+		// the completion toast can say what the upload actually weighed on
+		// the wire — the multipart part itself carries no declared length to
+		// read that back from afterward.
+		var wireBytes int64
+		counted := &countingReader{r: upload, onRead: func(n int64) { wireBytes += n }}
+
 		// Sniff for gzip/xz/zstd and inflate on the fly; an uncompressed ISO
 		// passes through unchanged. maxMediaUploadBytes already bounds the
 		// wire via StreamMultipartFile above — LimitDecompressedReader
 		// re-bounds the same budget on the inflated side, since a
 		// compressed part can expand far past it.
-		dr, format, err := utils.DecompressingReader(upload)
+		dr, format, err := utils.DecompressingReader(counted)
 		if err != nil {
 			hxToast(c, "error", "Upload failed", "decompress failed: "+err.Error())
 			mediaRenderAdd(c, d)
@@ -214,7 +254,8 @@ func postMediaUpload(d *deps.Deps) gin.HandlerFunc {
 		defer dr.Close()
 		name = utils.StripCompressionSuffix(name, format)
 
-		if _, err := d.Firmware.SaveMediaFile(name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes)); err != nil {
+		written, err := d.Firmware.SaveMediaFile(name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes))
+		if err != nil {
 			log.Errorf("ui: save media file %q failed: %v", name, err)
 			hxToast(c, "error", "Upload failed", err.Error())
 			mediaRenderAdd(c, d)
@@ -226,7 +267,7 @@ func postMediaUpload(d *deps.Deps) gin.HandlerFunc {
 			return
 		}
 
-		hxToast(c, "success", "Uploaded and mounted "+name, "")
+		hxToast(c, "success", "Uploaded and mounted "+name, components.TransferSummary(written, format, wireBytes))
 		files, inserted := components.MediaState(d.Firmware)
 		renderFragment(c, components.VMMenuBody(files, inserted))
 	}
@@ -297,12 +338,15 @@ func postMediaFetch(d *deps.Deps) gin.HandlerFunc {
 			defer dr.Close()
 			name = utils.StripCompressionSuffix(name, format)
 			mediaFetchSetName(name)
+			mediaFetchSetFormat(format)
 
-			if _, err := d.Firmware.SaveMediaFile(name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes)); err != nil {
+			written, err := d.Firmware.SaveMediaFile(name, utils.LimitDecompressedReader(dr, maxMediaUploadBytes))
+			if err != nil {
 				log.Errorf("ui: save fetched media %q failed: %v", name, err)
 				mediaFetchFinish(err)
 				return
 			}
+			mediaFetchSetWritten(written)
 			if err := d.Firmware.InsertVirtualMedia(name); err != nil {
 				mediaFetchFinish(err)
 				return
@@ -310,7 +354,7 @@ func postMediaFetch(d *deps.Deps) gin.HandlerFunc {
 			mediaFetchFinish(nil)
 		}()
 
-		renderFragment(c, components.VMFetchProgress(name, 0, 0))
+		renderFragment(c, components.VMFetchProgress(name, 0, 0, ""))
 	}
 }
 
@@ -322,7 +366,7 @@ func getMediaFetchProgress(d *deps.Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		s := mediaFetchSnapshot()
 		if !s.Done {
-			renderFragment(c, components.VMFetchProgress(s.Name, s.Loaded, s.Total))
+			renderFragment(c, components.VMFetchProgress(s.Name, s.Loaded, s.Total, s.Format))
 			return
 		}
 
@@ -331,7 +375,7 @@ func getMediaFetchProgress(d *deps.Deps) gin.HandlerFunc {
 			mediaRenderAdd(c, d)
 			return
 		}
-		hxToast(c, "success", "Fetched and mounted "+s.Name, "")
+		hxToast(c, "success", "Fetched and mounted "+s.Name, components.TransferSummary(s.Written, s.Format, s.Loaded))
 		files, inserted := components.MediaState(d.Firmware)
 		renderFragment(c, components.VMMenuBody(files, inserted))
 	}
