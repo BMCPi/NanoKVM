@@ -543,7 +543,7 @@ func patchLoginSecurity(c *gin.Context) {
 	conf.Security.LoginMaxFailures = atoiClamp(c.PostForm("maxFailures"), conf.Security.LoginMaxFailures, 1)
 	// Zero is meaningful here — it disables lockout — so the floor is 0, not 1.
 	conf.Security.LoginLockoutDuration = atoiClamp(c.PostForm("lockoutDuration"), conf.Security.LoginLockoutDuration, 0)
-	if n := atoiClamp(c.PostForm("sessionDuration"), int(conf.JWT.RefreshTokenDuration), 60); n > 0 { //nolint:gosec // G115: RefreshTokenDuration is a JWT lifetime in seconds (pkg/config/types.go), default 2678400 (31 days); this handler is its only writer and stores only values strconv.Atoi already parsed into a (64-bit, riscv64-only) int, so it never approaches the range where a uint64->int conversion could wrap
+	if n := atoiClamp(c.PostForm("sessionDuration"), int(conf.JWT.RefreshTokenDuration), 60); n > 0 { //nolint:gosec // G115: this conversion only feeds atoiClamp's unchanged-value fallback, used solely as the n > 0 comparand right here; if RefreshTokenDuration (an operator-supplied seconds count, see pkg/middleware/jwt.go) were ever large enough to wrap negative, n > 0 discards it instead of writing it back
 		conf.JWT.RefreshTokenDuration = uint64(n)
 	}
 	conf.JWT.RevokeTokensOnLogout = checked(c, "revokeOnLogout")
