@@ -24,6 +24,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 	"github.com/pi-bmc/nanokvm-app/pkg/network"
 )
 
@@ -51,6 +52,8 @@ type Service struct {
 
 	done     chan struct{}
 	stopOnce sync.Once
+
+	log *slog.Logger
 }
 
 var (
@@ -58,13 +61,30 @@ var (
 	active   *Service
 )
 
+// pkgLogHolder is pkg/timesync's holder for the "timesync" component logger,
+// needed by ntp.go and http.go's query helpers: they run in goroutines
+// spawned by a Service's sync loop and by Restart, which reuses whatever
+// logger the most recent Start call was given rather than a bare default —
+// see logger.Holder's doc comment for why a sync.Once-guarded var would get
+// either of those wrong.
+var pkgLogHolder logger.Holder
+
+// pkgLog returns the package's component logger, defaulting to the process
+// logger if Start has not run yet.
+func pkgLog() *slog.Logger {
+	return pkgLogHolder.Get()
+}
+
 // Start launches the sync loop when timesync is enabled in config. Safe to
 // call before the network is up — the loop retries with backoff until a
 // source is reachable.
-func Start() {
+func Start(log *slog.Logger) {
+	log = logger.Or(log)
+	pkgLogHolder.Set(log)
+
 	cfg := config.GetInstance().TimeSync
 	if !cfg.Enabled {
-		slog.Info("timesync: disabled by config")
+		log.Info("timesync: disabled by config")
 		return
 	}
 
@@ -73,6 +93,7 @@ func Start() {
 		interval: time.Duration(cfg.IntervalMinutes) * time.Minute,
 		rtc:      openRTC(),
 		done:     make(chan struct{}),
+		log:      log,
 	}
 	s.seedFromRTC()
 
@@ -94,6 +115,17 @@ func Stop() {
 	if s != nil {
 		s.stop()
 	}
+}
+
+// Restart re-reads config and rebuilds the sync loop, reusing the logger
+// Start was given rather than falling back to a bare default. Stop before
+// Start because Start returns early when the subsystem is disabled — without
+// the Stop, turning timesync off would leave the previous loop running and
+// still touching the clock.
+func Restart() {
+	log := pkgLog()
+	Stop()
+	Start(log)
 }
 
 // Status reports the last successful sync, its source, and whether the clock
@@ -129,17 +161,17 @@ func (s *Service) seedFromRTC() {
 	}
 	t, err := s.rtc.read()
 	if err != nil {
-		slog.Warn("timesync: read rtc failed", slog.Any("err", err))
+		s.log.Warn("timesync: read rtc failed", slog.Any("err", err))
 		return
 	}
 	if !t.After(time.Now()) {
 		return
 	}
 	if err := setSystemTime(t); err != nil {
-		slog.Warn("timesync: seed clock from rtc failed", slog.Any("err", err))
+		s.log.Warn("timesync: seed clock from rtc failed", slog.Any("err", err))
 		return
 	}
-	slog.Info("timesync: seeded clock from rtc", slog.Time("time", t))
+	s.log.Info("timesync: seeded clock from rtc", slog.Time("time", t))
 }
 
 func (s *Service) loop() {
@@ -155,7 +187,7 @@ func (s *Service) loop() {
 		}
 
 		if err := s.sync(); err != nil {
-			slog.Warn("timesync: sync failed", slog.Any("err", err), slog.Duration("retryIn", backoff))
+			s.log.Warn("timesync: sync failed", slog.Any("err", err), slog.Duration("retryIn", backoff))
 			timer.Reset(backoff)
 			backoff = min(backoff*2, retryCap)
 			continue
@@ -189,7 +221,7 @@ func (s *Service) sync() error {
 		}
 		if s.rtc != nil {
 			if err := s.rtc.set(now); err != nil {
-				slog.Warn("timesync: write rtc failed", slog.Any("err", err))
+				s.log.Warn("timesync: write rtc failed", slog.Any("err", err))
 			}
 		}
 		s.mu.Lock()
@@ -197,9 +229,9 @@ func (s *Service) sync() error {
 		s.lastSync, s.source = now, src.name
 		s.mu.Unlock()
 		if first {
-			slog.Info("timesync: clock set", slog.Time("time", now), slog.String("source", src.name))
+			s.log.Info("timesync: clock set", slog.Time("time", now), slog.String("source", src.name))
 		} else {
-			slog.Debug("timesync: clock refreshed", slog.String("source", src.name))
+			s.log.Debug("timesync: clock refreshed", slog.String("source", src.name))
 		}
 		return nil
 	}

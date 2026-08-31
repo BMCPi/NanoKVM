@@ -227,7 +227,7 @@ func initialize(ctx context.Context) {
 
 	// Start the clock synchronizer (SNTP + HTTP fallback, RTC mirror).
 	// Replaces busybox ntpd; retries with backoff until the network is up.
-	timesync.Start()
+	timesync.Start(rootLog.With("component", "timesync"))
 
 	// Start the discovery responders (mDNS hostname/service records, SSDP).
 	// Replaces avahi-daemon; the watcher brings them up once eth0 has an

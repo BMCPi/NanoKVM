@@ -130,10 +130,9 @@ func generalModel() components.SettingsGeneral {
 	}
 }
 
-// patchTimeSync re-reads the whole sync loop. Stop before Start because Start
-// returns early when the subsystem is disabled — without the Stop, turning
-// timesync off would leave the previous loop running and still touching the
-// clock.
+// patchTimeSync re-reads the whole sync loop via Restart, which stops the
+// previous loop before starting the new one — otherwise turning timesync off
+// would leave the previous loop running and still touching the clock.
 func patchTimeSync(c *gin.Context) {
 	ts := &config.GetInstance().TimeSync
 	ts.Enabled = checked(c, "enabled")
@@ -141,8 +140,7 @@ func patchTimeSync(c *gin.Context) {
 	ts.IntervalMinutes = atoiClamp(c.PostForm("intervalMinutes"), ts.IntervalMinutes, 1)
 
 	config.Save()
-	timesync.Stop()
-	timesync.Start()
+	timesync.Restart()
 
 	hxToast(c, "success", "Settings saved", "Clock synchronisation reconfigured.")
 	renderFragment(c, components.SettingsGeneralBody(generalModel()))

@@ -59,11 +59,11 @@ func queryNTPChunk(servers []string) (time.Time, bool) {
 				err = resp.Validate()
 			}
 			if err != nil {
-				slog.Debug("timesync: ntp query failed", slog.String("server", server), slog.Any("err", err))
+				pkgLog().Debug("timesync: ntp query failed", slog.String("server", server), slog.Any("err", err))
 				results <- nil
 				return
 			}
-			slog.Debug("timesync: ntp response",
+			pkgLog().Debug("timesync: ntp response",
 				slog.String("server", server),
 				slog.Duration("offset", resp.ClockOffset),
 				slog.Int("stratum", int(resp.Stratum)),

@@ -43,7 +43,7 @@ func queryHTTPChunk(urls []string) (time.Time, bool) {
 		go func() {
 			t, err := queryHTTPTime(url)
 			if err != nil {
-				slog.Debug("timesync: http query failed", slog.String("url", url), slog.Any("err", err))
+				pkgLog().Debug("timesync: http query failed", slog.String("url", url), slog.Any("err", err))
 				results <- nil
 				return
 			}
