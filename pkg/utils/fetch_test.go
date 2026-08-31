@@ -14,6 +14,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -32,12 +33,16 @@ func TestFetchURLRejectsNonHTTPSchemes(t *testing.T) {
 }
 
 func TestFetchURLRejectsDeclaredOversizeBeforeReading(t *testing.T) {
-	var served int64
+	// FetchURL never reads the body in this case (that's the point of the
+	// test), so the handler goroutine may still be blocked mid-Write, racing
+	// the test goroutine's read below, after FetchURL has already returned
+	// its error — hence atomic rather than a plain int64.
+	var served atomic.Int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Length", "4096")
 		w.WriteHeader(http.StatusOK)
 		n, _ := w.Write(bytes.Repeat([]byte("a"), 4096))
-		served = int64(n)
+		served.Store(int64(n))
 	}))
 	defer srv.Close()
 
@@ -45,7 +50,7 @@ func TestFetchURLRejectsDeclaredOversizeBeforeReading(t *testing.T) {
 	if !errors.Is(err, ErrRemoteTooLarge) {
 		t.Fatalf("err = %v, want ErrRemoteTooLarge", err)
 	}
-	_ = served // the point is that the caller never got a reader at all
+	_ = served.Load() // the point is that the caller never got a reader at all
 }
 
 // The cap that actually protects the BMC: a remote that declares nothing (or
