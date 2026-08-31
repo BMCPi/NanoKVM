@@ -214,16 +214,22 @@ func biosMenuLabel(mn redfish.BiosMenu) string {
 // "what this attribute is" becomes "which control to draw".
 func biosAttr(a redfish.BiosAttribute, errMsg string) components.BiosAttr {
 	out := components.BiosAttr{
-		Name:         a.Name,
-		Label:        a.Label(),
-		Help:         a.HelpText,
-		Warning:      a.WarningText,
-		Control:      biosControlFor(a),
-		Value:        a.ValueString(),
-		Bool:         a.BoolValue(),
-		Current:      a.CurrentString(),
-		Staged:       a.HasPending,
-		Unregistered: !a.Registered,
+		Name:    a.Name,
+		Label:   a.Label(),
+		Help:    a.HelpText,
+		Warning: a.WarningText,
+		Control: biosControlFor(a),
+		Value:   a.ValueString(),
+		Bool:    a.BoolValue(),
+		Current: a.CurrentString(),
+		Staged:  a.HasPending,
+		// Cataloged wins: an attribute the BMC's platform table describes is
+		// not an undescribed one, and rendering both badges would have the
+		// row contradict itself. A registry entry the table merely topped up
+		// is Registered and Cataloged at once — still worth marking, because
+		// some of what the operator sees is not what the host asserted.
+		Unregistered: !a.Registered && !a.Cataloged,
+		Cataloged:    a.Cataloged,
 		Min:          biosBound(a.LowerBound),
 		Max:          biosBound(a.UpperBound),
 		MinLength:    biosBound(a.MinLength),

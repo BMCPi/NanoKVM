@@ -16,9 +16,11 @@ package redfish
 // surface: the host owns the vocabulary. That stays true here. The registry is
 // used to *present* attributes and to coerce submitted form strings back to
 // the JSON type the host declared — not to reject keys. An attribute the host
-// reported without a registry entry is still shown and still editable, with
-// its type inferred from the value it currently holds, because a host that has
-// not published a registry would otherwise present an empty screen.
+// reported without a registry entry is still shown and still editable, because
+// a host that has not published a registry would otherwise present an empty
+// screen. Describing one falls back twice: bios_catalog.go knows the platform's
+// own firmware questions, and anything it does not have gets its type inferred
+// from the value it currently holds.
 //
 // Staging is a diff, not a snapshot. The pending set is exactly the attributes
 // whose staged value differs from the live one: submitting a value equal to

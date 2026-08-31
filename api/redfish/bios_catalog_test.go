@@ -388,3 +388,50 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+// The rail is the other half of "described": a cataloged attribute has to
+// produce a navigable menu entry, not just leave the leftovers bucket. The
+// path is one segment even though it contains a slash — menuSegments treats
+// " / " as part of an EDK2 screen name, which is why this one is worth
+// pinning alongside a plain path.
+func TestBiosCatalogMenusReachTheRail(t *testing.T) {
+	resetHostState(t)
+	mergeHostBiosAttributes(map[string]any{
+		"EthIp4Mode":      "Dhcp",
+		"SystemTableMode": "Acpi",
+		"AcpiSdLimitUhs":  true,
+	})
+
+	byPath := map[string]BiosMenu{}
+	for _, mn := range BiosSnapshot().Menus {
+		byPath[mn.Path] = mn
+	}
+
+	for _, tc := range []struct {
+		path  string
+		label string
+		count int
+	}{
+		{"./IPv4 (BMC Managed)", "IPv4 (BMC Managed)", 1},
+		{"./ACPI / Device Tree", "ACPI / Device Tree", 2},
+	} {
+		mn, ok := byPath[tc.path]
+		if !ok {
+			t.Errorf("%s missing from the rail; its attributes are unreachable", tc.path)
+			continue
+		}
+		if mn.DisplayName != tc.label {
+			t.Errorf("%s label = %q, want %q", tc.path, mn.DisplayName, tc.label)
+		}
+		if mn.Depth != 1 {
+			t.Errorf("%s depth = %d, want 1 — the slash was read as a separator",
+				tc.path, mn.Depth)
+		}
+		if mn.Count != tc.count {
+			t.Errorf("%s holds %d attributes, want %d", tc.path, mn.Count, tc.count)
+		}
+	}
+	if _, ok := byPath[unregisteredMenuPath]; ok {
+		t.Error("the leftovers menu still exists though every attribute is described")
+	}
+}

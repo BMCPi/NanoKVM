@@ -403,3 +403,24 @@ func TestBiosFormRendersSubSectionHeadings(t *testing.T) {
 		t.Error("sections must share one form, or a submit would only carry one of them")
 	}
 }
+
+// A cataloged attribute is described, just not by the host. It gets its own
+// badge rather than the "unregistered" one — and never both, which would read
+// as the row contradicting itself.
+func TestBiosCatalogedAttributesAreMarkedDistinctly(t *testing.T) {
+	m := sampleModel()
+	m.Sections = []BiosSection{{Path: "./IPv4 (BMC Managed)", Attrs: []BiosAttr{{
+		Name: "EthIp4Mode", Label: "IPv4 Policy", Control: BiosControlSelect,
+		Value: "Dhcp", Cataloged: true,
+		Options: []BiosOption{{Value: "Dhcp", Label: "DHCP"}},
+	}}}}
+	m.AttrCount = 1
+
+	html := renderContent(t, m)
+	if !strings.Contains(html, "platform default") {
+		t.Errorf("no badge saying the description is the BMC's, not the host's:\n%s", html)
+	}
+	if strings.Contains(html, ">unregistered<") {
+		t.Error("marked unregistered as well; the two badges contradict each other")
+	}
+}
