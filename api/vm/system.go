@@ -10,10 +10,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func (s *Service) Reboot(c *gin.Context) {
+func (h *handlers) Reboot(c *gin.Context) {
 	var rsp proto.Response
 
-	slog.InfoContext(c.Request.Context(), "reboot system")
+	h.log.InfoContext(c.Request.Context(), "reboot system")
 
 	// context.Background(), not c.Request.Context(): a client disconnect must
 	// not abort a reboot partway through, so the command's lifetime is
@@ -26,10 +26,10 @@ func (s *Service) Reboot(c *gin.Context) {
 	err := exec.CommandContext(context.Background(), "reboot").Run()
 	if err != nil {
 		rsp.ErrRsp(c, -1, "operation failed")
-		slog.ErrorContext(c.Request.Context(), "failed to reboot", slog.Any("err", err))
+		h.log.ErrorContext(c.Request.Context(), "failed to reboot", slog.Any("err", err))
 		return
 	}
 
 	rsp.OkRsp(c)
-	slog.DebugContext(c.Request.Context(), "system rebooted")
+	h.log.DebugContext(c.Request.Context(), "system rebooted")
 }

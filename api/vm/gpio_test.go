@@ -14,6 +14,7 @@ import (
 	"github.com/warthog618/go-gpiosim"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
+	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/power"
 )
 
@@ -68,7 +69,7 @@ func TestStreamGpioPushesEdges(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.GET("/api/vm/gpio/events", (&Service{Power: ctrl}).StreamGpio)
+	r.GET("/api/vm/gpio/events", (&handlers{d: &deps.Deps{Power: ctrl}, log: slog.New(slog.DiscardHandler)}).StreamGpio)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
@@ -121,7 +122,7 @@ func TestStreamGpioUnreadableStateIsNotOK(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.GET("/api/vm/gpio/events", (&Service{Power: ctrl}).StreamGpio)
+	r.GET("/api/vm/gpio/events", (&handlers{d: &deps.Deps{Power: ctrl}, log: slog.New(slog.DiscardHandler)}).StreamGpio)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 

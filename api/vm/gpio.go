@@ -26,7 +26,7 @@ const (
 	legacyPollInterval = 5 * time.Second
 )
 
-func (s *Service) SetGpio(c *gin.Context) {
+func (h *handlers) SetGpio(c *gin.Context) {
 	var req proto.SetGpioReq
 	var rsp proto.Response
 
@@ -35,14 +35,14 @@ func (s *Service) SetGpio(c *gin.Context) {
 		return
 	}
 
-	ctrl := s.Power
+	ctrl := h.d.Power
 	var err error
 
 	// Not the request context: a power action is a command, and abandoning one
 	// midway is worse than finishing it. Reset in particular is off-then-on, so
 	// a client that hangs up between the two phases would leave the host down.
 	// This context still dies at shutdown. See deps.ActionContext.
-	ctx, cancel := s.Deps.ActionContext(power.ActionTimeout)
+	ctx, cancel := h.d.ActionContext(power.ActionTimeout)
 	defer cancel()
 
 	switch req.Action {
@@ -64,14 +64,14 @@ func (s *Service) SetGpio(c *gin.Context) {
 		return
 	}
 
-	slog.DebugContext(c.Request.Context(), "power action completed", slog.String("action", req.Action))
+	h.log.DebugContext(c.Request.Context(), "power action completed", slog.String("action", req.Action))
 	rsp.OkRsp(c)
 }
 
-func (s *Service) GetGpio(c *gin.Context) {
+func (h *handlers) GetGpio(c *gin.Context) {
 	var rsp proto.Response
 
-	ctrl := s.Power
+	ctrl := h.d.Power
 	pwr, err := ctrl.State(c.Request.Context())
 	if err != nil {
 		rsp.ErrRsp(c, -2, fmt.Sprintf("failed to read power state: %s", err))
@@ -96,8 +96,8 @@ func (s *Service) GetGpio(c *gin.Context) {
 //
 //	event: power
 //	data: {"pwr":true,"hdd":false}
-func (s *Service) StreamGpio(c *gin.Context) {
-	ctrl := s.Power
+func (h *handlers) StreamGpio(c *gin.Context) {
+	ctrl := h.d.Power
 
 	// Subscribe before reading the initial state: a transition landing between
 	// the two is then queued on changes rather than lost. The client may see the
@@ -138,7 +138,7 @@ func (s *Service) StreamGpio(c *gin.Context) {
 	// (never-ending) stream closed.
 	c.Header("X-Accel-Buffering", "no")
 
-	writePower(c.Writer, pwr)
+	h.writePower(c.Writer, pwr)
 	c.Writer.Flush()
 
 	ctx := c.Request.Context()
@@ -151,20 +151,20 @@ func (s *Service) StreamGpio(c *gin.Context) {
 			if !ok {
 				return
 			}
-			writePower(c.Writer, on)
+			h.writePower(c.Writer, on)
 			c.Writer.Flush()
 
 		case <-poll:
 			on, err := ctrl.State(ctx)
 			if err != nil {
-				slog.DebugContext(ctx, "gpio stream: poll failed", slog.Any("err", err))
+				h.log.DebugContext(ctx, "gpio stream: poll failed", slog.Any("err", err))
 				continue
 			}
 			if on == pwr {
 				continue
 			}
 			pwr = on
-			writePower(c.Writer, on)
+			h.writePower(c.Writer, on)
 			c.Writer.Flush()
 
 		case <-heartbeat.C:
@@ -194,12 +194,12 @@ func streamUnavailable(c *gin.Context, code int, msg string) {
 }
 
 // writePower emits one SSE `power` event carrying a GetGpioRsp body.
-func writePower(w io.Writer, on bool) {
+func (h *handlers) writePower(w io.Writer, on bool) {
 	body, err := json.Marshal(proto.GetGpioRsp{PWR: on})
 	if err != nil {
 		return // GetGpioRsp is two bools; unreachable.
 	}
 	if _, err := fmt.Fprintf(w, "event: power\ndata: %s\n\n", body); err != nil {
-		slog.Debug("gpio stream: write failed", slog.Any("err", err))
+		h.log.Debug("gpio stream: write failed", slog.Any("err", err))
 	}
 }

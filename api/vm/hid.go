@@ -16,6 +16,7 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/hid"
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 )
 
 // HID input for the HDMI console: keyboard and mouse events from the browser,
@@ -80,8 +81,8 @@ func (w *hidSocketWriter) send(v any) error {
 
 // HID upgrades to a WebSocket and applies the client's keyboard and mouse
 // events to the USB HID gadget.
-func (s *Service) HID(c *gin.Context) {
-	ctrl := s.HIDGadget
+func (h *handlers) HID(c *gin.Context) {
+	ctrl := h.d.HID
 	if ctrl == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: "HID gadget is not available on this device"})
 		return
@@ -89,7 +90,7 @@ func (s *Service) HID(c *gin.Context) {
 
 	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		slog.ErrorContext(c.Request.Context(), "hid: failed to init websocket", slog.Any("err", err))
+		h.log.ErrorContext(c.Request.Context(), "hid: failed to init websocket", slog.Any("err", err))
 		return
 	}
 
@@ -100,7 +101,7 @@ func (s *Service) HID(c *gin.Context) {
 	// down: a dropped socket is indistinguishable from a lost key-up.
 	defer func() {
 		if err := ctrl.ReleaseAll(); err != nil {
-			slog.DebugContext(c.Request.Context(), "hid: release on disconnect failed", slog.Any("err", err))
+			h.log.DebugContext(c.Request.Context(), "hid: release on disconnect failed", slog.Any("err", err))
 		}
 		_ = ws.Close()
 	}()
@@ -136,9 +137,9 @@ func (s *Service) HID(c *gin.Context) {
 	}()
 	defer close(done)
 
-	slog.DebugContext(c.Request.Context(), "hid: input session opened", slog.String("client", c.ClientIP()))
-	s.readHIDEvents(ws, ctrl)
-	slog.DebugContext(c.Request.Context(), "hid: input session closed", slog.String("client", c.ClientIP()))
+	h.log.DebugContext(c.Request.Context(), "hid: input session opened", slog.String("client", c.ClientIP()))
+	h.readHIDEvents(ws, ctrl)
+	h.log.DebugContext(c.Request.Context(), "hid: input session closed", slog.String("client", c.ClientIP()))
 }
 
 // keyEventBuffer bounds the ordered keyboard queue. Key events are stateful
@@ -165,6 +166,7 @@ const keyEventBuffer = 64
 // human click cannot do that.
 type hidApplier struct {
 	apply func(hidEvent) error
+	log   *slog.Logger
 	keys  chan hidEvent
 	done  chan struct{}
 
@@ -173,9 +175,10 @@ type hidApplier struct {
 	kick    chan struct{}
 }
 
-func newHIDApplier(apply func(hidEvent) error) *hidApplier {
+func newHIDApplier(log *slog.Logger, apply func(hidEvent) error) *hidApplier {
 	a := &hidApplier{
 		apply: apply,
+		log:   logger.Or(log),
 		keys:  make(chan hidEvent, keyEventBuffer),
 		kick:  make(chan struct{}, 1),
 		done:  make(chan struct{}),
@@ -210,7 +213,7 @@ func (a *hidApplier) enqueue(ev hidEvent) {
 	case a.keys <- ev:
 	case <-a.done:
 	default:
-		slog.Debug("hid: keyboard queue full; dropping event (host not consuming reports)", slog.String("type", ev.Type))
+		a.log.Debug("hid: keyboard queue full; dropping event (host not consuming reports)", slog.String("type", ev.Type))
 	}
 }
 
@@ -252,7 +255,7 @@ func (a *hidApplier) keyboardLane() {
 			if err := a.apply(ev); err != nil {
 				// Usually "the host is not listening", which is normal for a
 				// BMC and already logged at debug by pkg/hid.
-				slog.Debug("hid: applying event failed", slog.String("type", ev.Type), slog.Any("err", err))
+				a.log.Debug("hid: applying event failed", slog.String("type", ev.Type), slog.Any("err", err))
 			}
 		}
 	}
@@ -277,7 +280,7 @@ func (a *hidApplier) pointerLane() {
 				break
 			}
 			if err := a.apply(*ev); err != nil {
-				slog.Debug("hid: applying event failed", slog.String("type", ev.Type), slog.Any("err", err))
+				a.log.Debug("hid: applying event failed", slog.String("type", ev.Type), slog.Any("err", err))
 			}
 		}
 	}
@@ -287,8 +290,8 @@ func (a *hidApplier) pointerLane() {
 // than fatal: dropping a whole input session over one bad frame would lose the
 // operator's keyboard mid-sentence. Events are enqueued, never applied inline:
 // the read loop must keep consuming even while a device write stalls.
-func (s *Service) readHIDEvents(ws *websocket.Conn, ctrl *hid.Controller) {
-	applier := newHIDApplier(func(ev hidEvent) error { return applyHIDEvent(ctrl, ev) })
+func (h *handlers) readHIDEvents(ws *websocket.Conn, ctrl *hid.Controller) {
+	applier := newHIDApplier(h.log, func(ev hidEvent) error { return applyHIDEvent(ctrl, ev) })
 	defer applier.stop()
 
 	for {
@@ -299,7 +302,7 @@ func (s *Service) readHIDEvents(ws *websocket.Conn, ctrl *hid.Controller) {
 
 		var ev hidEvent
 		if err := json.Unmarshal(data, &ev); err != nil {
-			slog.Debug("hid: bad event from client", slog.Any("err", err))
+			h.log.Debug("hid: bad event from client", slog.Any("err", err))
 			continue
 		}
 
@@ -329,20 +332,20 @@ func applyHIDEvent(ctrl *hid.Controller, ev hidEvent) error {
 // ── Macros ────────────────────────────────────────────────────────────────
 
 // GetMacros lists the stored macros in display order.
-func (s *Service) GetMacros(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"macros": sortedMacros(s.Conf)})
+func (h *handlers) GetMacros(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"macros": sortedMacros(h.d.Config)})
 }
 
 // CreateMacro appends a macro. The ID is assigned here so a client cannot
 // collide with an existing one.
-func (s *Service) CreateMacro(c *gin.Context) {
+func (h *handlers) CreateMacro(c *gin.Context) {
 	var macro config.KeyboardMacro
 	if err := c.ShouldBindJSON(&macro); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
 		return
 	}
 
-	conf := s.Conf
+	conf := h.d.Config
 	if len(conf.Macros) >= config.MaxMacros {
 		c.JSON(http.StatusBadRequest, gin.H{errorKey: "the macro limit has been reached"})
 		return
@@ -357,12 +360,12 @@ func (s *Service) CreateMacro(c *gin.Context) {
 
 	conf.Macros = append(conf.Macros, macro)
 	config.Save()
-	slog.InfoContext(c.Request.Context(), "hid: macro created", slog.String("name", macro.Name))
+	h.log.InfoContext(c.Request.Context(), "hid: macro created", slog.String("name", macro.Name))
 	c.JSON(http.StatusOK, gin.H{"macro": macro})
 }
 
 // UpdateMacro replaces a macro in place, keeping its ID.
-func (s *Service) UpdateMacro(c *gin.Context) {
+func (h *handlers) UpdateMacro(c *gin.Context) {
 	var macro config.KeyboardMacro
 	if err := c.ShouldBindJSON(&macro); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
@@ -370,7 +373,7 @@ func (s *Service) UpdateMacro(c *gin.Context) {
 	}
 
 	id := c.Param("id")
-	conf := s.Conf
+	conf := h.d.Config
 	idx := macroIndex(conf, id)
 	if idx < 0 {
 		c.JSON(http.StatusNotFound, gin.H{errorKey: "no such macro"})
@@ -385,13 +388,13 @@ func (s *Service) UpdateMacro(c *gin.Context) {
 
 	conf.Macros[idx] = macro
 	config.Save()
-	slog.InfoContext(c.Request.Context(), "hid: macro updated", slog.String("name", macro.Name))
+	h.log.InfoContext(c.Request.Context(), "hid: macro updated", slog.String("name", macro.Name))
 	c.JSON(http.StatusOK, gin.H{"macro": macro})
 }
 
 // DeleteMacro removes a macro.
-func (s *Service) DeleteMacro(c *gin.Context) {
-	conf := s.Conf
+func (h *handlers) DeleteMacro(c *gin.Context) {
+	conf := h.d.Config
 	idx := macroIndex(conf, c.Param("id"))
 	if idx < 0 {
 		c.JSON(http.StatusNotFound, gin.H{errorKey: "no such macro"})
@@ -401,19 +404,19 @@ func (s *Service) DeleteMacro(c *gin.Context) {
 	name := conf.Macros[idx].Name
 	conf.Macros = append(conf.Macros[:idx], conf.Macros[idx+1:]...)
 	config.Save()
-	slog.InfoContext(c.Request.Context(), "hid: macro deleted", slog.String("name", name))
+	h.log.InfoContext(c.Request.Context(), "hid: macro deleted", slog.String("name", name))
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 // RunMacro plays a stored macro at the host.
-func (s *Service) RunMacro(c *gin.Context) {
-	ctrl := s.HIDGadget
+func (h *handlers) RunMacro(c *gin.Context) {
+	ctrl := h.d.HID
 	if ctrl == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: "HID gadget is not available on this device"})
 		return
 	}
 
-	conf := s.Conf
+	conf := h.d.Config
 	idx := macroIndex(conf, c.Param("id"))
 	if idx < 0 {
 		c.JSON(http.StatusNotFound, gin.H{errorKey: "no such macro"})
@@ -435,12 +438,12 @@ func (s *Service) RunMacro(c *gin.Context) {
 	defer cancel()
 
 	if err := ctrl.RunMacro(ctx, steps); err != nil {
-		slog.WarnContext(c.Request.Context(), "hid: macro failed", slog.String("name", macro.Name), slog.Any("err", err))
+		h.log.WarnContext(c.Request.Context(), "hid: macro failed", slog.String("name", macro.Name), slog.Any("err", err))
 		c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 		return
 	}
 
-	slog.InfoContext(c.Request.Context(), "hid: macro sent", slog.String("name", macro.Name))
+	h.log.InfoContext(c.Request.Context(), "hid: macro sent", slog.String("name", macro.Name))
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 

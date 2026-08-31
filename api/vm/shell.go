@@ -23,10 +23,10 @@ import (
 // Wire protocol matches Terminal so the same xterm.js client code works: text
 // frames are keystrokes, binary frames are JSON WinSize resizes, and
 // everything the shell prints comes back as binary frames.
-func (s *Service) Shell(c *gin.Context) {
+func (h *handlers) Shell(c *gin.Context) {
 	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		slog.ErrorContext(c.Request.Context(), "failed to init websocket", slog.Any("err", err))
+		h.log.ErrorContext(c.Request.Context(), "failed to init websocket", slog.Any("err", err))
 		return
 	}
 	defer func() {
@@ -35,13 +35,13 @@ func (s *Service) Shell(c *gin.Context) {
 
 	session, err := shell.Start(shell.Options{})
 	if err != nil {
-		slog.ErrorContext(c.Request.Context(), "failed to start bmc shell", slog.Any("err", err))
+		h.log.ErrorContext(c.Request.Context(), "failed to start bmc shell", slog.Any("err", err))
 		_ = ws.WriteMessage(websocket.TextMessage, []byte("shell error: "+err.Error()))
 		return
 	}
 	defer session.Close()
 
-	slog.InfoContext(c.Request.Context(), "bmc shell session started", slog.Int("pid", session.Pid()))
+	h.log.InfoContext(c.Request.Context(), "bmc shell session started", slog.Int("pid", session.Pid()))
 
 	// Shell → WebSocket. Closing the socket here unblocks the read loop below
 	// when the shell exits on its own (e.g. the user typed `exit`).

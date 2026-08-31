@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
@@ -14,7 +15,7 @@ func TestHIDApplierCoalescesPointerAndPreservesKeyOrder(t *testing.T) {
 	var applied []hidEvent
 	release := make(chan struct{})
 
-	a := newHIDApplier(func(ev hidEvent) error {
+	a := newHIDApplier(slog.New(slog.DiscardHandler), func(ev hidEvent) error {
 		<-release // hold "the device write" until the test lets go
 		mu.Lock()
 		applied = append(applied, ev)

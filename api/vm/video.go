@@ -45,15 +45,15 @@ func (w *wsSignaler) Send(m rtc.Message) error {
 // costs nothing but the ability to renegotiate. Closing it is still what ends
 // the session, because it is the only liveness signal that tells the BMC to
 // stop encoding for a viewer who has gone away.
-func (s *Service) Video(c *gin.Context) {
-	if s.VideoHub == nil {
+func (h *handlers) Video(c *gin.Context) {
+	if h.d.Video == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: "video capture is not available on this device"})
 		return
 	}
 
 	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		slog.ErrorContext(c.Request.Context(), "failed to init video websocket", slog.Any("err", err))
+		h.log.ErrorContext(c.Request.Context(), "failed to init video websocket", slog.Any("err", err))
 		return
 	}
 	defer func() {
@@ -63,9 +63,9 @@ func (s *Service) Video(c *gin.Context) {
 
 	sig := &wsSignaler{ws: ws}
 
-	session, err := s.VideoHub.NewSession(sig)
+	session, err := h.d.Video.NewSession(sig)
 	if err != nil {
-		slog.ErrorContext(c.Request.Context(), "failed to start video session", slog.Any("err", err))
+		h.log.ErrorContext(c.Request.Context(), "failed to start video session", slog.Any("err", err))
 		_ = sig.Send(rtc.Message{Type: rtc.TypeError, Error: err.Error()})
 		return
 	}
@@ -88,7 +88,7 @@ func (s *Service) Video(c *gin.Context) {
 			// Report and keep the socket open: a rejected candidate or a
 			// malformed offer is recoverable, and the browser can retry
 			// on the same session.
-			slog.WarnContext(c.Request.Context(), "video signaling", slog.Any("err", err))
+			h.log.WarnContext(c.Request.Context(), "video signaling", slog.Any("err", err))
 			_ = sig.Send(rtc.Message{Type: rtc.TypeError, Error: err.Error()})
 		}
 	}

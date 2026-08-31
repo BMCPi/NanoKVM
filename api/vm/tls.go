@@ -12,7 +12,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/utils"
 )
 
-func (s *Service) SetTLS(c *gin.Context) {
+func (h *handlers) SetTLS(c *gin.Context) {
 	var req proto.SetTLSReq
 	var rsp proto.Response
 
@@ -29,7 +29,7 @@ func (s *Service) SetTLS(c *gin.Context) {
 	}
 
 	if err != nil {
-		slog.ErrorContext(c.Request.Context(), "failed to set TLS", slog.Any("err", err))
+		h.log.ErrorContext(c.Request.Context(), "failed to set TLS", slog.Any("err", err))
 		rsp.ErrRsp(c, -2, "operation failed")
 		return
 	}

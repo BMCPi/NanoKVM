@@ -15,7 +15,7 @@ import (
 // the toggle starts or stops it, persisting the choice to /etc/kvm/server.yaml
 // (a bind mount onto the data partition) so it survives a reboot.
 
-func (s *Service) GetSSHState(c *gin.Context) {
+func (h *handlers) GetSSHState(c *gin.Context) {
 	var rsp proto.Response
 
 	rsp.OkRspWithData(c, &proto.GetSSHStateRsp{
@@ -23,15 +23,15 @@ func (s *Service) GetSSHState(c *gin.Context) {
 	})
 }
 
-func (s *Service) EnableSSH(c *gin.Context) {
-	setSSHEnabled(c, true)
+func (h *handlers) EnableSSH(c *gin.Context) {
+	h.setSSHEnabled(c, true)
 }
 
-func (s *Service) DisableSSH(c *gin.Context) {
-	setSSHEnabled(c, false)
+func (h *handlers) DisableSSH(c *gin.Context) {
+	h.setSSHEnabled(c, false)
 }
 
-func setSSHEnabled(c *gin.Context, enabled bool) {
+func (h *handlers) setSSHEnabled(c *gin.Context, enabled bool) {
 	var rsp proto.Response
 
 	conf := config.GetInstance()
@@ -42,7 +42,7 @@ func setSSHEnabled(c *gin.Context, enabled bool) {
 		// Roll back so the reported state matches reality — a port already in
 		// use must not leave the UI showing SSH as enabled.
 		conf.SSH.Enabled = previous
-		slog.ErrorContext(c.Request.Context(), "failed to apply SSH state", slog.Any("err", err))
+		h.log.ErrorContext(c.Request.Context(), "failed to apply SSH state", slog.Any("err", err))
 		rsp.ErrRsp(c, -1, "operation failed")
 		return
 	}
@@ -53,19 +53,19 @@ func setSSHEnabled(c *gin.Context, enabled bool) {
 
 	rsp.OkRsp(c)
 	if enabled {
-		slog.InfoContext(c.Request.Context(), "SSH enabled")
+		h.log.InfoContext(c.Request.Context(), "SSH enabled")
 	} else {
-		slog.InfoContext(c.Request.Context(), "SSH disabled")
+		h.log.InfoContext(c.Request.Context(), "SSH disabled")
 	}
 }
 
 // GetSSHKeys returns the configured authorized_keys content.
-func (s *Service) GetSSHKeys(c *gin.Context) {
+func (h *handlers) GetSSHKeys(c *gin.Context) {
 	var rsp proto.Response
 
 	keys, err := sshsvc.ReadAuthorizedKeys()
 	if err != nil {
-		slog.ErrorContext(c.Request.Context(), "failed to read authorized keys", slog.Any("err", err))
+		h.log.ErrorContext(c.Request.Context(), "failed to read authorized keys", slog.Any("err", err))
 		rsp.ErrRsp(c, -1, "operation failed")
 		return
 	}
@@ -76,7 +76,7 @@ func (s *Service) GetSSHKeys(c *gin.Context) {
 // SetSSHKeys replaces authorized_keys. An empty value clears the file, leaving
 // password auth (when enabled) as the only way in. Content is validated before
 // anything is written, so a malformed paste cannot silently break key auth.
-func (s *Service) SetSSHKeys(c *gin.Context) {
+func (h *handlers) SetSSHKeys(c *gin.Context) {
 	var (
 		req proto.SetSSHKeysReq
 		rsp proto.Response
@@ -88,7 +88,7 @@ func (s *Service) SetSSHKeys(c *gin.Context) {
 	}
 
 	if err := sshsvc.WriteAuthorizedKeys(req.SSHKey); err != nil {
-		slog.ErrorContext(c.Request.Context(), "failed to write authorized keys", slog.Any("err", err))
+		h.log.ErrorContext(c.Request.Context(), "failed to write authorized keys", slog.Any("err", err))
 		rsp.ErrRsp(c, -1, err.Error())
 		return
 	}

@@ -57,10 +57,10 @@ func (w *wsWriter) Write(p []byte) (int, error) {
 
 // Terminal upgrades the HTTP connection to a WebSocket and bridges it to
 // the shared serial port via the serial broker.
-func (s *Service) Terminal(c *gin.Context) {
+func (h *handlers) Terminal(c *gin.Context) {
 	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		slog.ErrorContext(c.Request.Context(), "failed to init websocket", slog.Any("err", err))
+		h.log.ErrorContext(c.Request.Context(), "failed to init websocket", slog.Any("err", err))
 		return
 	}
 	defer func() {
@@ -73,7 +73,7 @@ func (s *Service) Terminal(c *gin.Context) {
 	writer := &wsWriter{ws: ws}
 	_, err = broker.Connect(sessionID, writer)
 	if err != nil {
-		slog.ErrorContext(c.Request.Context(), "serial broker connect failed", slog.Any("err", err))
+		h.log.ErrorContext(c.Request.Context(), "serial broker connect failed", slog.Any("err", err))
 		// Best-effort error message to the client before closing.
 		_ = ws.WriteMessage(websocket.TextMessage, []byte("serial error: "+err.Error()))
 		return
@@ -94,7 +94,7 @@ func (s *Service) Terminal(c *gin.Context) {
 		if msgType == websocket.BinaryMessage {
 			var winSize WinSize
 			if json.Unmarshal(p, &winSize) == nil {
-				slog.DebugContext(c.Request.Context(), "terminal resize (ignored – serial)",
+				h.log.DebugContext(c.Request.Context(), "terminal resize (ignored – serial)",
 					slog.Int("cols", int(winSize.Cols)), slog.Int("rows", int(winSize.Rows)))
 			}
 			continue
@@ -102,7 +102,7 @@ func (s *Service) Terminal(c *gin.Context) {
 
 		// Text messages are keyboard input destined for the serial port.
 		if _, err := broker.Write(p); err != nil {
-			slog.ErrorContext(c.Request.Context(), "serial write failed", slog.Any("err", err))
+			h.log.ErrorContext(c.Request.Context(), "serial write failed", slog.Any("err", err))
 			return
 		}
 	}
@@ -112,7 +112,7 @@ func (s *Service) Terminal(c *gin.Context) {
 // generation first, then current) as plain text — the managed host's boot
 // and crash logs, recorded by the always-on capture even when no live
 // console session was attached.
-func (s *Service) TerminalCapture(c *gin.Context) {
+func (h *handlers) TerminalCapture(c *gin.Context) {
 	files := serial.CaptureFiles()
 	if len(files) == 0 {
 		c.String(http.StatusNotFound, "no serial capture available")

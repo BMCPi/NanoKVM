@@ -12,24 +12,24 @@ import (
 // GetVirtualDevice reports which optional USB gadget functions are currently
 // exposed to the host: the ethernet function (network), the mass-storage disk,
 // and whether virtual media (an ISO on lun.1) is inserted.
-func (s *Service) GetVirtualDevice(c *gin.Context) {
+func (h *handlers) GetVirtualDevice(c *gin.Context) {
 	var rsp proto.Response
 
 	st := usbgadget.Get().State()
-	media := s.Firmware.GetVirtualMediaState().Inserted
+	media := h.d.Firmware.GetVirtualMediaState().Inserted
 
 	rsp.OkRspWithData(c, &proto.GetVirtualDeviceRsp{
 		Network: st.Ethernet != usbgadget.EthernetOff,
 		Media:   media,
 		Disk:    st.Disk,
 	})
-	slog.DebugContext(c.Request.Context(), "get virtual device success")
+	h.log.DebugContext(c.Request.Context(), "get virtual device success")
 }
 
 // UpdateVirtualDevice toggles the ethernet or disk gadget function. The gadget
 // package reconciles the configfs topology and re-enumerates the host; the
 // choice is persisted so it survives a reboot.
-func (s *Service) UpdateVirtualDevice(c *gin.Context) {
+func (h *handlers) UpdateVirtualDevice(c *gin.Context) {
 	var req proto.UpdateVirtualDeviceReq
 	var rsp proto.Response
 
@@ -52,14 +52,14 @@ func (s *Service) UpdateVirtualDevice(c *gin.Context) {
 			mode = usbgadget.EthernetNCM
 		}
 		if err := gadget.SetEthernet(mode); err != nil {
-			slog.ErrorContext(c.Request.Context(), "set ethernet failed", slog.String("mode", mode), slog.Any("err", err))
+			h.log.ErrorContext(c.Request.Context(), "set ethernet failed", slog.String("mode", mode), slog.Any("err", err))
 			rsp.ErrRsp(c, -3, "operation failed")
 			return
 		}
 	case "disk":
 		on = !st.Disk
 		if err := gadget.SetDisk(on); err != nil {
-			slog.ErrorContext(c.Request.Context(), "set disk failed", slog.Bool("on", on), slog.Any("err", err))
+			h.log.ErrorContext(c.Request.Context(), "set disk failed", slog.Bool("on", on), slog.Any("err", err))
 			rsp.ErrRsp(c, -3, "operation failed")
 			return
 		}
@@ -72,5 +72,5 @@ func (s *Service) UpdateVirtualDevice(c *gin.Context) {
 		On: on,
 	})
 
-	slog.DebugContext(c.Request.Context(), "update virtual device success", slog.String("device", req.Device))
+	h.log.DebugContext(c.Request.Context(), "update virtual device success", slog.String("device", req.Device))
 }

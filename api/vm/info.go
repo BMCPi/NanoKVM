@@ -1,8 +1,6 @@
 package vm
 
 import (
-	"log/slog"
-
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 
 	"github.com/gin-gonic/gin"
@@ -13,7 +11,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/sysinfo"
 )
 
-func (s *Service) GetInfo(c *gin.Context) {
+func (h *handlers) GetInfo(c *gin.Context) {
 	var rsp proto.Response
 
 	data := &proto.GetInfoRsp{
@@ -25,7 +23,7 @@ func (s *Service) GetInfo(c *gin.Context) {
 	}
 
 	rsp.OkRspWithData(c, data)
-	slog.DebugContext(c.Request.Context(), "get vm information success")
+	h.log.DebugContext(c.Request.Context(), "get vm information success")
 }
 
 func getMdns() string {
@@ -39,7 +37,7 @@ func getMdns() string {
 	return name
 }
 
-func (s *Service) GetHardware(c *gin.Context) {
+func (h *handlers) GetHardware(c *gin.Context) {
 	var rsp proto.Response
 
 	conf := config.GetInstance()
