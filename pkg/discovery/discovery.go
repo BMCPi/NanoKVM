@@ -37,6 +37,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/discovery/mdns"
 	"github.com/pi-bmc/nanokvm-app/pkg/discovery/ssdp"
 	"github.com/pi-bmc/nanokvm-app/pkg/identity"
+	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 )
 
 // watchInterval is how often the watcher re-checks the hostname / interface
@@ -77,6 +78,8 @@ type Responder struct {
 
 	stopCh   chan struct{}
 	stopOnce sync.Once
+
+	log *slog.Logger
 }
 
 // The process-wide singleton, so the vm info endpoint and the settings page
@@ -86,6 +89,38 @@ var (
 	mu      sync.Mutex
 	current *Responder
 )
+
+// pkgState is pkg/discovery's process-lifetime holder for the "discovery"
+// component logger. It exists because Start returns (nil, nil) with no
+// Responder at all when both mDNS and SSDP are disabled — so a later
+// Restart() (a settings write re-enabling discovery) would otherwise have
+// nowhere to draw the logger from. Set once, by the first Start() call —
+// which cmd/server/main.go always makes during initialize() — and never
+// reassigned. Mirrors pkg/serial's broker singleton.
+type pkgState struct {
+	log *slog.Logger
+}
+
+var (
+	stateOnce sync.Once
+	state     *pkgState
+)
+
+// ensureLog seeds the singleton on first call and returns its logger; later
+// calls, including pkgLog's nil, just return what stuck.
+func ensureLog(log *slog.Logger) *slog.Logger {
+	stateOnce.Do(func() {
+		state = &pkgState{log: logger.Or(log)}
+	})
+	return state.log
+}
+
+// pkgLog returns the package's component logger, defaulting to the process
+// logger if Start has not run yet (a discovery_test.go unit test exercising
+// a Responder built directly).
+func pkgLog() *slog.Logger {
+	return ensureLog(nil)
+}
 
 // Start builds and starts the responders from config, stores the result as
 // the process singleton, and launches the restart watcher. It returns
@@ -98,7 +133,9 @@ var (
 //
 // An initial bind failure on either responder is not fatal — the watcher
 // retries (the target interface may not be up yet).
-func Start() (*Responder, error) {
+func Start(log *slog.Logger) (*Responder, error) {
+	log = ensureLog(log)
+
 	cfg := config.GetInstance()
 	disc := cfg.Discovery
 
@@ -106,7 +143,7 @@ func Start() (*Responder, error) {
 	ssdpOn := disc.SSDP.Enabled && cfg.Redfish.Enabled
 
 	if !mdnsOn && !ssdpOn {
-		slog.Info("discovery: mdns and ssdp both disabled")
+		log.Info("discovery: mdns and ssdp both disabled")
 		return nil, nil
 	}
 
@@ -117,9 +154,10 @@ func Start() (*Responder, error) {
 		ssdpIfaceName: disc.SSDP.Interface,
 		hostname:      disc.MDNS.Hostname,
 		stopCh:        make(chan struct{}),
+		log:           log,
 	}
 	if err := r.start(); err != nil {
-		slog.Warn("discovery: initial start failed (watcher will retry)", slog.Any("err", err))
+		log.Warn("discovery: initial start failed (watcher will retry)", slog.Any("err", err))
 	}
 	go r.watch()
 
@@ -264,7 +302,7 @@ func (r *Responder) startMDNSLocked(cfg *config.Config, host string) error {
 		return fmt.Errorf("mdns: %w", err)
 	}
 	r.mdnsR = mr
-	slog.Info("discovery: mdns advertising",
+	r.log.Info("discovery: mdns advertising",
 		slog.String("host", host), slog.String("iface", ifaceDesc(r.ifaceName)))
 	return nil
 }
@@ -298,7 +336,7 @@ func (r *Responder) startSSDPLocked(cfg *config.Config) error {
 		return fmt.Errorf("ssdp: %w", err)
 	}
 	r.ssdpR = sr
-	slog.Info("discovery: ssdp advertising",
+	r.log.Info("discovery: ssdp advertising",
 		slog.String("location", location), slog.String("iface", ifaceDesc(r.ssdpIfaceName)))
 	return nil
 }
@@ -410,9 +448,9 @@ func (r *Responder) watch() {
 				continue
 			}
 			if err := r.start(); err != nil {
-				slog.Debug("discovery: restart on change failed (will retry)", slog.Any("err", err))
+				r.log.Debug("discovery: restart on change failed (will retry)", slog.Any("err", err))
 			} else {
-				slog.Debug("discovery: (re)started after network/hostname change")
+				r.log.Debug("discovery: (re)started after network/hostname change")
 			}
 		}
 	}
@@ -531,7 +569,13 @@ func localNames(hostname string) []string {
 // overwrites the singleton pointer, so without the Stop the previous
 // responders' watcher goroutine would keep running and keep answering on
 // their multicast groups with the old name/services.
+//
+// Reuses the package's stored logger rather than falling back to a bare
+// default — it stuck the first time Start ran, whether or not discovery was
+// enabled then.
 func Restart() {
+	log := pkgLog()
+
 	mu.Lock()
 	prev := current
 	current = nil
@@ -539,8 +583,8 @@ func Restart() {
 
 	prev.Stop() // nil-safe
 
-	if _, err := Start(); err != nil {
-		slog.Warn("discovery: restart failed", slog.Any("err", err))
+	if _, err := Start(log); err != nil {
+		log.Warn("discovery: restart failed", slog.Any("err", err))
 	}
 }
 

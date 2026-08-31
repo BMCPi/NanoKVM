@@ -235,7 +235,7 @@ func initialize(ctx context.Context) {
 	// can swap in a different instance as the package singleton later, so
 	// shutdown goes through discovery.Stop() (which always targets whatever
 	// is current) rather than a pointer that could go stale.
-	if _, err := discovery.Start(); err != nil {
+	if _, err := discovery.Start(rootLog.With("component", "discovery")); err != nil {
 		slog.ErrorContext(ctx, "discovery start failed", slog.Any("err", err))
 	}
 }
