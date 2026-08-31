@@ -69,7 +69,7 @@ func initResourceMetrics() {
 	}
 
 	if err != nil {
-		pkgLog.Warn("telemetry: resource instrument creation", slog.Any("err", err))
+		pkgLog().Warn("telemetry: resource instrument creation", slog.Any("err", err))
 		return
 	}
 
@@ -99,6 +99,6 @@ func initResourceMetrics() {
 		return nil
 	}, cpu, mem, disk, memUsed, memTotal, diskUsed, diskTotal, blocked)
 	if err != nil {
-		pkgLog.Warn("telemetry: resource callback registration", slog.Any("err", err))
+		pkgLog().Warn("telemetry: resource callback registration", slog.Any("err", err))
 	}
 }

@@ -200,10 +200,6 @@ func initialize(ctx context.Context) {
 	// file on the data partition, so its boot/crash logs are retained even
 	// when no terminal or SOL session is watching. Holds the port open for
 	// the server's lifetime; no-op when serial.capture.enabled is false.
-	//
-	// Must run before ipmi.Start: both reach the same pkg/serial broker
-	// singleton, and only the first caller's logger sticks — this call is
-	// what gives it the "serial" component tag.
 	serial.StartCapture(rootLog.With("component", "serial"))
 
 	if cfg.IPMI.Enabled {

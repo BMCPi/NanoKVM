@@ -64,6 +64,14 @@ var (
 	once     sync.Once
 )
 
+// pkgLogHolder is pkg/usbgadget's holder for the "usbgadget" component
+// logger. Get seeds the singleton's log field through it rather than a bare
+// logger.Or(nil), so a caller that reaches Get before Init has run gets the
+// process default and Init's real, component-tagged logger still wins once
+// it runs — see logger.Holder's doc comment for why a sync.Once-guarded var
+// would get this wrong.
+var pkgLogHolder logger.Holder
+
 // Get returns the singleton Gadget. Its logger defaults to the process
 // logger (see Init) so a caller that reaches it before Init has run — every
 // method here locks g.mu, which Init also holds while setting g.log, so
@@ -74,7 +82,7 @@ func Get() *Gadget {
 		instance = &Gadget{
 			cfg: config.GetInstance().UsbGadget,
 			fs:  newSysfs(sysfsRootPath),
-			log: logger.Or(nil),
+			log: pkgLogHolder.Get(),
 		}
 	})
 	return instance
@@ -89,7 +97,8 @@ func (g *Gadget) Init(log *slog.Logger) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	g.log = logger.Or(log)
+	pkgLogHolder.Set(log)
+	g.log = pkgLogHolder.Get()
 
 	// The config is the source of truth for the whole gadget topology. (The
 	// old /data/usbgadget/state.json fold-in is gone: /data no longer exists

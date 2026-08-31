@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"log/slog"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -45,7 +44,6 @@ func TestGetBrokerHasScrollback(t *testing.T) {
 func newTestBroker() *Broker {
 	return &Broker{
 		buf: newScrollback(),
-		log: slog.New(slog.DiscardHandler),
 	}
 }
 
@@ -421,7 +419,7 @@ func TestBrokerConcurrentDisconnect(t *testing.T) {
 
 func TestSessionFields(t *testing.T) {
 	var buf bytes.Buffer
-	s := &Session{ID: "test-id", output: &buf, log: slog.New(slog.DiscardHandler)}
+	s := &Session{ID: "test-id", output: &buf}
 	if s.ID != "test-id" {
 		t.Fatalf("Session.ID = %q, want %q", s.ID, "test-id")
 	}

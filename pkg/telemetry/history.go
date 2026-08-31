@@ -85,14 +85,14 @@ func StartSampler(ctx context.Context) {
 		for {
 			select {
 			case <-ctx.Done():
-				pkgLog.DebugContext(ctx, "telemetry: metrics sampler stopped")
+				pkgLog().DebugContext(ctx, "telemetry: metrics sampler stopped")
 				return
 			case <-ticker.C:
 				recordSample()
 			}
 		}
 	}()
-	pkgLog.DebugContext(ctx, "telemetry: sampling metrics",
+	pkgLog().DebugContext(ctx, "telemetry: sampling metrics",
 		slog.Duration("interval", sampleInterval),
 		slog.Duration("history", time.Duration(historyDepth)*sampleInterval))
 }

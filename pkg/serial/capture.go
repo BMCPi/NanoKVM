@@ -32,11 +32,13 @@ var (
 // as a permanent session (retrying until the device opens) so the port runs
 // for the whole server lifetime. No-op when disabled.
 //
-// This is also what seeds the pkg/serial broker singleton's logger (see
-// ensureBroker) — it must run before anything else in the process can reach
-// GetBroker(), which is why cmd/server/main.go calls it ahead of ipmi.Start.
+// This is also what Sets pkg/serial's component logger (see pkgLogHolder in
+// broker.go): every Broker/Session method reads through it, and this call
+// always wins over whatever earlier caller reached the broker first — order
+// relative to ipmi.Start or anything else no longer matters.
 func StartCapture(log *slog.Logger) {
-	b := ensureBroker(log)
+	pkgLogHolder.Set(log)
+	b := GetBroker()
 
 	cfg := config.GetInstance().Serial.Capture
 	if !cfg.Enabled {
@@ -48,7 +50,7 @@ func StartCapture(log *slog.Logger) {
 	if captureCancel != nil {
 		return // already running
 	}
-	captureFile = newCaptureWriter(cfg.File, int64(cfg.MaxSizeKB)*1024, b.log)
+	captureFile = newCaptureWriter(cfg.File, int64(cfg.MaxSizeKB)*1024, pkgLog())
 	cancel := make(chan struct{})
 	captureCancel = cancel
 
@@ -56,10 +58,10 @@ func StartCapture(log *slog.Logger) {
 		for {
 			_, err := b.Connect(captureSessionID, captureFile)
 			if err == nil {
-				b.log.Info("serial: capture started", slog.String("file", cfg.File), slog.Int("maxKB", cfg.MaxSizeKB))
+				pkgLog().Info("serial: capture started", slog.String("file", cfg.File), slog.Int("maxKB", cfg.MaxSizeKB))
 				return
 			}
-			b.log.Warn("serial: capture connect failed", slog.Any("err", err), slog.Duration("retryIn", captureRetryInterval))
+			pkgLog().Warn("serial: capture connect failed", slog.Any("err", err), slog.Duration("retryIn", captureRetryInterval))
 			select {
 			case <-cancel:
 				return
@@ -195,9 +197,9 @@ func (w *captureWriter) Close() {
 // is about to go away, which would re-open it with the old settings still
 // snapshotted.
 func Restart() {
-	// The singleton already carries the "serial" component logger StartCapture
-	// gave it at startup; reuse it rather than falling back to a bare default.
-	log := GetBroker().log
+	// Reuse the "serial" component logger StartCapture was given at startup,
+	// rather than falling back to a bare default.
+	log := pkgLog()
 
 	StopCapture()
 	GetBroker().Close()

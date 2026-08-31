@@ -68,11 +68,6 @@ type Service struct {
 var (
 	activeMu sync.Mutex
 	active   *Service
-	// procCtx is the ctx most recently given to Start, kept so Restart can
-	// reuse it -- mirrors pkgLogHolder's reasoning for the logger, but a ctx
-	// has no zero-value-safe default the way logger.Or gives one, so it is
-	// guarded by activeMu instead of a separate holder type.
-	procCtx context.Context
 )
 
 // pkgLogHolder is pkg/timesync's holder for the "timesync" component logger,
@@ -99,10 +94,6 @@ func pkgLog() *slog.Logger {
 func Start(ctx context.Context, log *slog.Logger) {
 	log = logger.Or(log)
 	pkgLogHolder.Set(log)
-
-	activeMu.Lock()
-	procCtx = ctx
-	activeMu.Unlock()
 
 	cfg := config.GetInstance().TimeSync
 	if !cfg.Enabled {
@@ -143,23 +134,17 @@ func Stop() {
 	}
 }
 
-// Restart re-reads config and rebuilds the sync loop, reusing both the
-// logger and the process ctx Start was given rather than falling back to a
-// bare default. Stop before Start because Start returns early when the
-// subsystem is disabled — without the Stop, turning timesync off would leave
-// the previous loop running and still touching the clock; Stop also joins the
-// old loop, so its retired Service cannot still be mid-sync when the new one
-// starts (which is what let a stale sync silently step the clock after the
-// new Service had already synced).
-func Restart() {
+// Restart re-reads config and rebuilds the sync loop, reusing the logger
+// Start was given rather than falling back to a bare default. ctx is the
+// caller's process-lifetime context (matches autoupdate.Restart(ctx), the
+// package's single convention). Stop before Start because Start returns
+// early when the subsystem is disabled — without the Stop, turning timesync
+// off would leave the previous loop running and still touching the clock;
+// Stop also joins the old loop, so its retired Service cannot still be
+// mid-sync when the new one starts (which is what let a stale sync silently
+// step the clock after the new Service had already synced).
+func Restart(ctx context.Context) {
 	log := pkgLog()
-
-	activeMu.Lock()
-	ctx := procCtx
-	activeMu.Unlock()
-	if ctx == nil {
-		ctx = context.Background()
-	}
 
 	Stop()
 	Start(ctx, log)

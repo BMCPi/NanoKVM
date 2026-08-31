@@ -67,16 +67,22 @@ var (
 	enabled        bool
 	tracerProvider *sdktrace.TracerProvider
 	meterProvider  *sdkmetric.MeterProvider
-
-	// pkgLog is the "telemetry" component logger, set by Init before the
-	// once-guarded body below runs. Every other logging entry point in this
-	// package (StartSampler, Middleware, Routes, Gather, Shutdown) only
-	// touches it from behind Enabled() or a provider pointer that becomes
-	// non-nil solely inside a successful Init, so nothing can reach pkgLog
-	// before Init sets it — a plain package var is safe here without
-	// logger.Holder.
-	pkgLog *slog.Logger
 )
+
+// pkgLogHolder is pkg/telemetry's holder for the "telemetry" component
+// logger. Init Sets it before the once-guarded body below runs; every other
+// logging entry point in this package (StartSampler, Middleware, Routes,
+// Gather, Shutdown) reads it back through pkgLog(), which falls back to the
+// process default if something reaches it before Init ever runs — see
+// logger.Holder's doc comment for why a sync.Once-guarded var would get this
+// wrong.
+var pkgLogHolder logger.Holder
+
+// pkgLog returns the package's component logger, defaulting to the process
+// logger if Init has not run yet.
+func pkgLog() *slog.Logger {
+	return pkgLogHolder.Get()
+}
 
 // Enabled reports whether telemetry was initialized successfully.
 func Enabled() bool { return enabled }
@@ -85,7 +91,7 @@ func Enabled() bool { return enabled }
 // exporter. Safe to call once; subsequent calls are no-ops. When telemetry
 // is disabled in config this leaves the no-op global providers in place.
 func Init(ctx context.Context, log *slog.Logger) error {
-	pkgLog = logger.Or(log)
+	pkgLogHolder.Set(log)
 
 	var initErr error
 	initOnce.Do(func() {
@@ -117,7 +123,7 @@ func Init(ctx context.Context, log *slog.Logger) error {
 			if err := PromRegistry.Register(collectors.NewProcessCollector(
 				collectors.ProcessCollectorOpts{ReportErrors: true},
 			)); err != nil {
-				pkgLog.WarnContext(ctx, "telemetry: process collector", slog.Any("err", err))
+				pkgLog().WarnContext(ctx, "telemetry: process collector", slog.Any("err", err))
 			}
 
 			// Bridges OTel metric instruments → the Prometheus registry,
@@ -182,7 +188,7 @@ func Init(ctx context.Context, log *slog.Logger) error {
 
 		enabled = true
 		initMetrics() // create the application metric instruments
-		pkgLog.InfoContext(ctx, "telemetry: enabled",
+		pkgLog().InfoContext(ctx, "telemetry: enabled",
 			slog.String("service", cfg.ServiceName),
 			slog.Bool("prometheus", cfg.Prometheus.Enabled),
 			slog.String("otlp", cfg.OTLP.Endpoint))
@@ -195,12 +201,12 @@ func Init(ctx context.Context, log *slog.Logger) error {
 func Shutdown(ctx context.Context) {
 	if tracerProvider != nil {
 		if err := tracerProvider.Shutdown(ctx); err != nil {
-			pkgLog.WarnContext(ctx, "telemetry: tracer shutdown", slog.Any("err", err))
+			pkgLog().WarnContext(ctx, "telemetry: tracer shutdown", slog.Any("err", err))
 		}
 	}
 	if meterProvider != nil {
 		if err := meterProvider.Shutdown(ctx); err != nil {
-			pkgLog.WarnContext(ctx, "telemetry: meter shutdown", slog.Any("err", err))
+			pkgLog().WarnContext(ctx, "telemetry: meter shutdown", slog.Any("err", err))
 		}
 	}
 }

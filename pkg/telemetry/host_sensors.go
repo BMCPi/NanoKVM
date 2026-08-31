@@ -74,7 +74,7 @@ func initHostSensorMetrics() {
 		"1 while the managed host is pushing sensor records, 0 when it has gone quiet", "")
 
 	if err != nil {
-		pkgLog.Warn("telemetry: host sensor instrument creation", slog.Any("err", err))
+		pkgLog().Warn("telemetry: host sensor instrument creation", slog.Any("err", err))
 		return
 	}
 
@@ -112,6 +112,6 @@ func initHostSensorMetrics() {
 		return nil
 	}, temp, fanDuty, fanRPM, throttle, underVoltage, freqCapped, softTempLimit, reporting)
 	if err != nil {
-		pkgLog.Warn("telemetry: host sensor callback registration", slog.Any("err", err))
+		pkgLog().Warn("telemetry: host sensor callback registration", slog.Any("err", err))
 	}
 }

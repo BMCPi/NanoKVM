@@ -140,7 +140,9 @@ func (h *handlers) patchTimeSync(c *gin.Context) {
 	ts.IntervalMinutes = atoiClamp(c.PostForm("intervalMinutes"), ts.IntervalMinutes, 1)
 
 	config.Save()
-	timesync.Restart()
+	// The process context, not the request's: the sync loop outlives this
+	// call and must only stop at shutdown.
+	timesync.Restart(h.d.Ctx)
 
 	hxToast(c, "success", "Settings saved", "Clock synchronisation reconfigured.")
 	renderFragment(c, components.SettingsGeneralBody(generalModel()))
@@ -228,7 +230,9 @@ func (h *handlers) patchMDNS(c *gin.Context) {
 	md.IPv6 = checked(c, "ipv6")
 
 	config.Save()
-	discovery.Restart()
+	// The process context, not the request's: the responders outlive this
+	// call and must only stop at shutdown.
+	discovery.Restart(h.d.Ctx)
 
 	hxToast(c, "success", "Settings saved", "Discovery responder restarted.")
 	renderFragment(c, components.SettingsNetworkBody(networkModel(h.log)))

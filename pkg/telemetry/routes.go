@@ -44,6 +44,6 @@ func Routes(r *gin.Engine) {
 			Registry: PromRegistry,
 		})
 		r.GET(path, gin.WrapH(handler))
-		pkgLog.Info("telemetry: prometheus exposed", slog.String("path", path))
+		pkgLog().Info("telemetry: prometheus exposed", slog.String("path", path))
 	}
 }

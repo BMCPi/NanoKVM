@@ -112,11 +112,6 @@ func pkgLog() *slog.Logger {
 	return pkgLogHolder.Get()
 }
 
-// procCtx is the ctx most recently given to Start, guarded by mu (the same
-// lock that guards current) so Restart can reuse it instead of falling back
-// to context.Background() -- mirrors pkgLogHolder's reasoning for the logger.
-var procCtx context.Context
-
 // Start builds and starts the responders from config, stores the result as
 // the process singleton, and launches the restart watcher. It returns
 // (nil, nil) when both mDNS and SSDP are disabled — a legitimate deployment
@@ -134,10 +129,6 @@ func Start(ctx context.Context, log *slog.Logger) (*Responder, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-
-	mu.Lock()
-	procCtx = ctx
-	mu.Unlock()
 
 	cfg := config.GetInstance()
 	disc := cfg.Discovery
@@ -574,20 +565,17 @@ func localNames(hostname string) []string {
 // responders' watcher goroutine would keep running and keep answering on
 // their multicast groups with the old name/services.
 //
-// Reuses the package's stored logger and process ctx rather than falling
-// back to bare defaults — both stuck the first time Start ran, whether or not
-// discovery was enabled then.
-func Restart() {
+// Reuses the package's stored logger rather than falling back to a bare
+// default — it stuck the first time Start ran, whether or not discovery was
+// enabled then. ctx is the caller's process-lifetime context (matches
+// autoupdate.Restart(ctx), the package's single convention).
+func Restart(ctx context.Context) {
 	log := pkgLog()
 
 	mu.Lock()
 	prev := current
 	current = nil
-	ctx := procCtx
 	mu.Unlock()
-	if ctx == nil {
-		ctx = context.Background()
-	}
 
 	prev.Stop() // nil-safe
 
