@@ -13,8 +13,8 @@ import (
 	"github.com/pi-bmc/nanokvm-app/ui/utils"
 )
 
-// Fixed ids: the SSE script addresses these, and the boot-override region is
-// an htmx swap target.
+// Fixed ids: powerToggleID is powerActionGroup's hx-target for the SSE
+// toggle swap, and the boot-override region is an htmx swap target too.
 const (
 	powerMenuTriggerID  = "power-menu-trigger"
 	powerToggleID       = "power-toggle"
@@ -35,8 +35,16 @@ func initialPowerState(ctx context.Context, ctrl *power.Controller) (on bool, kn
 
 // PowerMenu is the navbar power-state pill and the dropdown holding power
 // actions + boot-device override. Actions are htmx posts to /ui/power/…;
-// the pill itself is fed by the GPIO SSE stream (see powerMenuScript) —
-// deliberately not htmx: the server pushes transitions, nothing polls.
+// the pill and the toggle are both fed by GET /ui/power/events (see
+// ui/fragments_power_events.go) via htmx's SSE extension — sse-swap on each,
+// not a script re-deriving their markup from a JSON payload.
+//
+// The pill and the toggle each open their own SSE connection to the same
+// stream rather than sharing one from a common wrapper here, because they
+// don't share a live ancestor to hang it on: dropdownmenu.Content (holding
+// the toggle) is moved to <body> as one unit by dropdownmenu.js once the
+// page loads, which detaches it from anything outside itself, including
+// PowerMenu's own root. See powerActionGroup for the toggle's half.
 templ PowerMenu() {
 	// Read once at the top: the pill and the power toggle must agree, and
 	// both are painted from this single answer.
@@ -51,7 +59,15 @@ templ PowerMenu() {
 				templ.Attributes{"aria-label": "Power menu"},
 			),
 		}) {
-			@PowerPill(pwrOn, pwrKnown)
+			// The trigger is never portaled, so it can own a self-contained
+			// SSE scope: sse-connect and sse-swap on the same element is a
+			// supported htmx-ext-sse pattern. class="contents" keeps the
+			// wrapper out of the button's flex layout, so the dot/label pair
+			// still sit directly in its flex row sharing the button's own
+			// gap, matching the pre-SSE markup pixel for pixel.
+			<span class="contents" hx-ext="sse" sse-connect="/ui/power/events" sse-swap="powerpill">
+				@PowerPill(pwrOn, pwrKnown)
+			</span>
 			@icon.ChevronDown()
 		}
 		// Wide enough for the power group's intrinsic width: three labelled
@@ -115,7 +131,28 @@ templ PowerPill(on, known bool) {
 // one it is comes from the same source as the navbar pill — the GPIO power
 // LED — so the button and the pill can never disagree.
 templ powerActionGroup(on bool) {
-	@buttongroup.ButtonGroup(buttongroup.Props{Class: "w-full"}) {
+	// hx-ext/sse-connect live on the group itself, not on PowerMenu: this
+	// whole fragment is portaled to <body> in one piece (see PowerMenu's
+	// doc comment), so the connection has to originate from inside the
+	// portaled subtree to still be reachable afterward.
+	//
+	// sse-swap/hx-target/hx-swap redirect the update at #power-toggle
+	// instead of letting it land on the group: sse-swap defaults to
+	// innerHTML, which would swap the toggle's own rendered <button> inside
+	// itself. hx-swap=outerHTML replaces the toggle wholesale instead, which
+	// also keeps it a direct child of this group — required for
+	// orientationClasses' sibling-selector welding (buttongroup.templ) to
+	// keep treating it as a welded member instead of an unwelded stray.
+	@buttongroup.ButtonGroup(buttongroup.Props{
+		Class: "w-full",
+		Attributes: templ.Attributes{
+			"hx-ext":      "sse",
+			"sse-connect": "/ui/power/events",
+			"sse-swap":    "powertoggle",
+			"hx-target":   "#" + powerToggleID,
+			"hx-swap":     "outerHTML",
+		},
+	}) {
 		@PowerToggleBtn(on)
 		// Welding drops the left border of every button after the first, so
 		// without these three destructive-adjacent targets share one unbroken
@@ -343,100 +380,21 @@ templ bootDeviceSelect(value string) {
 	}
 }
 
-// powerMenuScript is the SSE half of the pill and the toggle: the server
-// pushes a `power` event on every GPIO transition (nothing polls), and a
-// reconnect re-sends the current state. Auth rides the nano-kvm-token cookie.
+// powerMenuScript hosts setBootMode — the pill and the toggle are now driven
+// entirely by htmx's SSE extension (see PowerMenu's doc comment), so this is
+// what's left.
 //
-// The reconnect is ours, not EventSource's. EventSource only retries by
-// itself while the failure is at the transport layer (readyState stays
-// CONNECTING); a failure at the HTTP layer — any non-200 status, or a 200
-// whose body is not text/event-stream — is fatal: readyState goes to CLOSED
-// and nothing tries again. One unreadable-GPIO answer, one 401 on a stale
-// cookie, one restart caught mid-response, and the pill froze at whatever it
-// last showed with only a page reload to recover it. So a CLOSED stream is
-// re-opened here on a capped backoff.
-//
-// setBootMode lives here rather than in the fragment because the fragment is
-// swapped by htmx on every open; a handler defined inside it would be
-// redefined on each swap, and any listener bound to the old copy lost.
+// setBootMode lives here rather than in the boot-override fragment because
+// that fragment is swapped by htmx on every open; a handler defined inside
+// it would be redefined on each swap, and any listener bound to the old copy
+// lost.
 templ powerMenuScript() {
 	<script>
-		(function () {
-			function renderPower(on) {
-				const dot = document.getElementById('power-dot');
-				if (dot) dot.className = 'inline-block size-2 rounded-full shrink-0 ' + (on ? 'bg-green-500' : 'bg-destructive');
-				const txt = document.getElementById('power-text');
-				if (txt) txt.textContent = on ? 'Power On' : 'Power Off';
-
-				// The toggle offers the action that changes the current state.
-				//
-				// Rewriting the attribute is only half of it. htmx reads hx-post
-				// once, when it processes the node, and hands that captured path
-				// to every request the trigger fires (processVerbs → the `path`
-				// closed over by issueAjaxRequest). Setting the attribute later
-				// repaints nothing on htmx's side: the button would read
-				// "Power On" and still post /ui/power/off. htmx.process()
-				// recomputes the node's attribute hash, and a changed hash is
-				// what makes htmx drop the stale binding and re-read the verb.
-				const btn = document.getElementById('power-toggle');
-				if (btn) {
-					btn.setAttribute('hx-post', on ? '/ui/power/off' : '/ui/power/on');
-					// Guarded because this runs from the SSE handler: if htmx
-					// were not loaded, throwing here would abandon the rest of
-					// the repaint below.
-					if (window.htmx) window.htmx.process(btn);
-				}
-				const label = document.getElementById('power-toggle-label');
-				if (label) label.textContent = on ? 'Power Off' : 'Power On';
-				const iconOn = document.getElementById('power-toggle-icon-on');
-				const iconOff = document.getElementById('power-toggle-icon-off');
-				if (iconOn) iconOn.hidden = on;
-				if (iconOff) iconOff.hidden = !on;
-			}
-
-			window.setBootMode = function (mode, label) {
-				const apply = document.getElementById('boot-apply');
-				if (apply) apply.value = mode;
-				const shown = document.getElementById('boot-mode-label');
-				if (shown) shown.textContent = label;
-			};
-
-			// Backoff for our own reconnects: quick enough that a BMC restart
-			// is invisible, capped so a board that is genuinely unable to read
-			// its power LED is not asked once a second forever.
-			const RETRY_MIN = 1000, RETRY_MAX = 30000;
-			let retry = RETRY_MIN, pending = null;
-
-			function connect() {
-				// Each attempt keeps its own handle: a late error from a
-				// superseded stream must be judged on that stream's
-				// readyState, not on whichever one is current.
-				const es = new EventSource('/api/vm/gpio/events');
-
-				es.addEventListener('power', (e) => {
-					// A delivered event is the only proof the stream is
-					// healthy: onopen fires for a connection that may still
-					// break before the first byte.
-					retry = RETRY_MIN;
-					try {
-						renderPower(JSON.parse(e.data).pwr);
-					} catch(err) { console.error(err); }
-				});
-
-				es.onerror = () => {
-					// Still CONNECTING means EventSource is retrying by
-					// itself — leave the last known state on screen and let
-					// it. CLOSED means it has given up, and only we can
-					// re-open the stream.
-					if (es.readyState !== EventSource.CLOSED) return;
-					console.debug('power stream closed, reopening in ' + retry + 'ms');
-					if (pending) return;
-					pending = setTimeout(() => { pending = null; connect(); }, retry);
-					retry = Math.min(retry * 2, RETRY_MAX);
-				};
-			}
-
-			connect();
-		})();
+		window.setBootMode = function (mode, label) {
+			const apply = document.getElementById('boot-apply');
+			if (apply) apply.value = mode;
+			const shown = document.getElementById('boot-mode-label');
+			if (shown) shown.textContent = label;
+		};
 	</script>
 }

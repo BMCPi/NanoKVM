@@ -29,6 +29,14 @@ templ Base(title string, showNav bool, onDocsPage bool) {
 			// management network. Deferred like the component bundle; htmx
 			// initializes on DOMContentLoaded either way.
 			<script defer nonce={ templ.GetNonce(ctx) } src="/js/htmx.min.js"></script>
+			// The SSE extension registers itself on the htmx object at load
+			// time (htmx.defineExtension), so it must run after htmx.min.js
+			// has executed, not just after it starts downloading -- defer
+			// preserves document order for both, unlike a bare <script> here
+			// which would run synchronously while htmx.min.js is still
+			// deferred and hasn't defined anything yet. Vendored (2.2.4) for
+			// the same closed-network reason as htmx itself.
+			<script defer nonce={ templ.GetNonce(ctx) } src="/js/htmx-ext-sse.min.js"></script>
 			@components.Scripts()
 		</head>
 		<body class="min-h-screen">

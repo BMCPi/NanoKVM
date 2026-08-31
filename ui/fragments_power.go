@@ -1,9 +1,10 @@
 package ui
 
-// fragments_power.go serves the navbar power menu's actions. The pill itself
-// is driven by the GPIO SSE stream (see api/vm.StreamGpio), not htmx, so a
-// handler here only needs to kick the controller and toast the result —
-// there is no fragment to re-render.
+// fragments_power.go serves the navbar power menu's actions. The pill and
+// the toggle are driven by GET /ui/power/events (fragments_power_events.go)
+// via htmx's SSE extension, so a handler here only needs to kick the
+// controller and toast the result — the transition itself reaches the
+// client over the SSE stream, not this response.
 
 import (
 	"fmt"
