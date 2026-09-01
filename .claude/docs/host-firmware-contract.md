@@ -69,7 +69,8 @@ to read it without `/dev/mem`). The composite spends all six:
 
 ### The RHI NIC is CDC-EEM, and stock UsbNetworkPkg will not bind it
 
-`NetworkPkg/UsbNetwork` ships `UsbCdcEcm`, `UsbCdcNcm` and `UsbRndis`. All
+`MdeModulePkg/Bus/Usb/UsbNetwork` ships `UsbCdcEcm`, `UsbCdcNcm` and
+`UsbRndis`, and the NUC payload builds all three (patch 0030). All
 three describe a NIC with an interrupt-IN notification endpoint, which costs
 two IN endpoints — one more than the budget above leaves once the console is
 composed. CDC-EEM has no notification interface at all, so it costs one, and

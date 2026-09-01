@@ -58,8 +58,8 @@ const (
 	// counterpart so neighbor caches survive reboots.
 	//
 	// The firmware side is a custom SNP driver, not stock UsbNetworkPkg:
-	// NetworkPkg ships UsbCdcEcm, UsbCdcNcm and UsbRndis, and none of them
-	// binds CDC-EEM. See .claude/docs/host-firmware-contract.md.
+	// MdeModulePkg/Bus/Usb/UsbNetwork ships UsbCdcEcm, UsbCdcNcm and UsbRndis,
+	// and none of them binds CDC-EEM. See .claude/docs/host-firmware-contract.md.
 	RHIHostMAC = "da:c0:ff:ee:10:02"
 	RHIDevMAC  = "da:c0:ff:ee:10:01"
 )
