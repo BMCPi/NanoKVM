@@ -412,8 +412,8 @@ paths:
       summary: |
         Processor collection. Lists what the host reported over the host
         interface; until it reports anything, the BMC's own placeholder for
-        the board's aarch64 part (CPU1). The first host report replaces that
-        placeholder.
+        the host's primary processor (CPU1). The first host report replaces
+        that placeholder.
       responses:
         "200": { description: ProcessorCollection resource. }
     post:
@@ -442,7 +442,12 @@ paths:
         "404": { description: No such processor. }
     patch:
       tags: [Systems]
-      summary: (Host interface only) Merge changes into a reported processor.
+      summary: |
+        Merge changes into a processor member. The host updates its
+        report here; an operator caps the CPU by PATCHing the standard
+        SpeedLimitMHz (0 = no cap) and SpeedLocked properties, which the
+        host firmware consumes and applies via config.txt on its next
+        boot. Identity keys are not writable.
       parameters:
         - {
             name: processor,
@@ -452,7 +457,7 @@ paths:
           }
       responses:
         "200": { description: Updated Processor resource. }
-        "403": { description: Not the host interface. }
+        "400": { description: No writable properties in the request. }
         "404": { description: No such processor. }
         "412": { description: If-Match did not match. }
     delete:

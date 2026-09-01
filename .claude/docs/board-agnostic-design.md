@@ -79,10 +79,10 @@ it will actually do.
 - Attribute-typed rendering anywhere in the UI/API reads the host-supplied
   registry. Unknown attributes (host reported a value the registry lacks)
   degrade to untyped display, as today.
-- The `EthConfigDxe` NIC↔BIOS bridge (`api/redfish/ethernet_interfaces.go`)
-  activates only when the live registry contains the attribute names it
-  bridges; otherwise the bridge is inert and NIC settings PATCHes that
-  would need it are rejected with a clear extended-info message.
+- The `EthConfigDxe` NIC↔BIOS bridge is DELETED (amended during
+  implementation): the fixed firmware no longer configures NICs via Bios
+  attributes, and the user's groundwork removed the bridge outright.
+  Gating it would have re-hardcoded RPi attribute names.
 
 ## 3. Conditional RPi surfaces
 
@@ -152,11 +152,14 @@ type Source interface {
   wins, honest-empty before sync, catalog deletion leaves no fallback path.
   Config migration: absent `power.reset` reads as `auto`; existing configs
   unchanged. Fan knob presence/absence in Chassis rendering.
-- On-device: RPi regression smoke (with `reset: auto` and the RPi wiring,
-  behavior is unchanged; the catalog-less BIOS page renders correctly
-  against the fixed EDK2), then NUC bring-up: reset-line pulse observed,
-  client sync populates registry/inventory, capsule staged and applied by
-  the custom FMP.
+- On-device: RPi regression smoke must VERIFY the new pulse behavior — per
+  §1's table, `reset: auto` on the RPi's existing (wired) reset line changes
+  `ForceRestart` from force-off+repower to a reset-line pulse, so this is
+  not a no-op on existing RPi deployments; confirm `power.reset: cycle`
+  restores the old force-off+repower behavior. Also confirm the
+  catalog-less BIOS page renders correctly against the fixed EDK2. Then
+  NUC bring-up: reset-line pulse observed, client sync populates
+  registry/inventory, capsule staged and applied by the custom FMP.
 
 ## Out of scope
 
