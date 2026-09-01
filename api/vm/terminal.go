@@ -2,6 +2,7 @@ package vm
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -90,6 +91,11 @@ func (h *handlers) Terminal(c *gin.Context) {
 	var zeroTime time.Time
 	_ = ws.SetReadDeadline(zeroTime)
 
+	// Whether the client has already been told the port is not accepting
+	// input, so a host that stays away does not paint a notice per keystroke.
+	// Reset on the first write that lands again.
+	var dropNoticeSent bool
+
 	for {
 		msgType, p, err := ws.ReadMessage()
 		if err != nil {
@@ -108,9 +114,30 @@ func (h *handlers) Terminal(c *gin.Context) {
 
 		// Text messages are keyboard input destined for the serial port.
 		if _, err := broker.Write(p); err != nil {
+			// A write timeout is transient and expected on the USB gadget
+			// console: gser carries no DTR, so a host that has enumerated the
+			// device but has not opened the port simply stops draining, and
+			// u_serial blocks after 8 KB. The operator fixes that on the host,
+			// not by reconnecting — closing the WebSocket here just makes the
+			// console tab die and reconnect in a loop with nothing on screen
+			// to say why. Genuine port errors still end the session.
+			if errors.Is(err, serial.ErrWriteTimeout) {
+				h.log.WarnContext(c.Request.Context(), "serial write dropped; keeping the console open",
+					slog.Any("err", err))
+				if !dropNoticeSent {
+					// Same channel the broker's own "console fell behind"
+					// seam marker uses: a bracketed line in the terminal.
+					// Best-effort — if the socket is gone, ReadMessage ends
+					// the session on the next turn anyway.
+					_, _ = writer.Write([]byte("\r\n[nanokvm: input not accepted — the host is not reading the console port]\r\n"))
+					dropNoticeSent = true
+				}
+				continue
+			}
 			h.log.ErrorContext(c.Request.Context(), "serial write failed", slog.Any("err", err))
 			return
 		}
+		dropNoticeSent = false
 	}
 }
 

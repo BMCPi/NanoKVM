@@ -45,6 +45,14 @@ type SettingsSerial struct {
 	StopBits    string
 	FlowControl string
 
+	// ConsoleDevice is the port the terminal and SOL are actually on, and
+	// GadgetConsoleActive says the USB gadget console is what put them there.
+	// Without these the form silently lies: Device is only the console port
+	// while the gadget console is off, and every field in this fieldset is
+	// then configuring a UART nothing is reading.
+	ConsoleDevice       string
+	GadgetConsoleActive bool
+
 	CaptureEnabled bool
 	CaptureFile    string
 	CaptureMaxKB   string

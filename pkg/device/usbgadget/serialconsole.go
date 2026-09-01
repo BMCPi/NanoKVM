@@ -110,9 +110,9 @@ func (g *Gadget) ensureSerialFunc() error {
 }
 
 // SerialConsoleDevice returns the BMC-side device node of the USB serial
-// console — /dev/ttyGS<port_num> — or "" when the console is disabled or the
-// function does not exist. pkg/device/serial resolves the port it opens
-// through this at open time; nothing persists the path.
+// console — /dev/ttyGS<port_num> — or "" when the console is not actually
+// composed. pkg/device/serial resolves the port it opens through this at open
+// time; nothing persists the path.
 //
 // The port number is read back from configfs rather than assumed to be 0:
 // u_serial numbers its ports by allocation order across every f_serial/f_acm
@@ -125,6 +125,17 @@ func (g *Gadget) SerialConsoleDevice() string {
 	// toggle-off (reconcileLinks only drops the symlink), so a stale port_num
 	// must not resurrect a console the operator turned off.
 	if !g.cfg.SerialConsole {
+		return ""
+	}
+
+	// The toggle says what was asked for; the symlink says what the gadget is
+	// actually presenting. Answering from the toggle alone hands the broker a
+	// device node for a function that was never linked — because creating it
+	// failed, or because reconcileLinks refused the set on the endpoint budget
+	// — and the broker then abandons the operator's real serial.device for a
+	// console that does not exist. isLinked reads the same configfs state
+	// linkedFunctions() does.
+	if !g.isLinked(serialFuncName) {
 		return ""
 	}
 
@@ -160,7 +171,20 @@ func (g *Gadget) SetSerialConsole(on bool) error {
 			return err
 		}
 	}
+
+	// Reconcile first, persist only on success — unlike SetEthernet and
+	// SetDisk, which persist first. This toggle also decides which port the
+	// broker opens, so persisting a reconcile that failed leaves the settings
+	// panel showing "on" and SerialConsoleDevice() resolving a console the
+	// gadget never composed, while the terminal and SOL are still on
+	// serial.device. desiredFunctions() reads g.cfg, so the flag has to be set
+	// before the reconcile; it is rolled back if that fails.
+	previous := g.cfg.SerialConsole
 	g.cfg.SerialConsole = on
+	if err := g.reconcileLinks(); err != nil {
+		g.cfg.SerialConsole = previous
+		return err
+	}
 	g.persistHardwareLocked()
-	return g.reconcileLinks()
+	return nil
 }

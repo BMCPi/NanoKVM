@@ -254,10 +254,16 @@ func (g *Gadget) ensureBindState() error {
 
 // desiredFunctions returns the ordered list of functions that should be linked
 // into configs/c.1 for the current cfg + state. The order is canonical and MUST
-// be preserved: mass_storage → ethernet → keyboard → mouse → touchpad → serial.
-// It may be extended at the end, never reordered — interface numbers follow
-// symlink creation order, and any change to the linked set costs a full
-// unbind/relink (a host re-enumeration) in reconcileLinks.
+// be preserved: mass_storage → ethernet → keyboard → pointer → serial. It may
+// be extended at the end, never reordered — interface numbers follow symlink
+// creation order, and any change to the linked set costs a full unbind/relink
+// (a host re-enumeration) in reconcileLinks.
+//
+// There are two HID functions, not three: mouse and touchpad were combined into
+// hid.GS1 (see hid.go). A separate touchpad function would be a third interrupt
+// IN endpoint, and this composite already sits at 6/6 of what the SG2002's dwc2
+// core implements — the 7-endpoint layout the old wording described cannot
+// exist on this silicon.
 func (g *Gadget) desiredFunctions() []string {
 	var out []string
 	if g.cfg.Disk {

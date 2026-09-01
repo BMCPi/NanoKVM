@@ -487,6 +487,20 @@ type UsbGadget struct {
 	// gadget device covers both. The host sees a plain bulk serial port (no
 	// CDC-ACM control interface, so no DTR and no line-coding requests).
 	//
+	// The host will NOT bind a driver to it on its own. f_serial presents a
+	// vendor-specific interface (class 0xFF), which matches no host class
+	// driver, so nothing enumerates as a tty until something claims the
+	// VID/PID — on Linux either
+	//
+	//	modprobe usbserial vendor=0x3346 product=0x1009
+	//
+	// (the gadget's default VendorID/ProductID, below) or the equivalent udev
+	// rule writing the pair to /sys/bus/usb-serial/drivers/generic/new_id.
+	// Without that the operator sees the device in lsusb and no /dev/ttyUSB*,
+	// which reads as a broken cable rather than a missing driver bind. The
+	// trade is deliberate: f_acm would auto-bind, and does not fit the
+	// endpoint budget below.
+	//
 	// Defaults to false, and false is a real answer rather than "unset": the
 	// function costs one device IN endpoint, and the SG2002's dwc2 core
 	// implements exactly six of them, of which the standing composite

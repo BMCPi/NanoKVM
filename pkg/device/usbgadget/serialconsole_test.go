@@ -177,6 +177,45 @@ func TestBuildSkipsGserWhenDisabled(t *testing.T) {
 	}
 }
 
+// The budget guard has to sit in the path that actually links functions, not
+// only in a helper the tests call directly: deleting the check from
+// reconcileLinks must break something. This drives an over-budget set through
+// reconcileLinks and asserts both that it is refused and that the tree was left
+// alone — the set that did fit stays linked rather than being torn down for one
+// the UDC cannot serve.
+func TestReconcileLinksRefusesAnOverBudgetSet(t *testing.T) {
+	g := gadgetOverTemp(t)
+	g.cfg = config.UsbGadget{Enabled: true, Disk: true, Ethernet: EthernetNCM, HID: true}
+
+	if err := g.build(); err != nil {
+		t.Fatalf("build the in-budget composite: %v", err)
+	}
+	linked := g.linkedFunctions()
+	if len(linked) != 4 {
+		t.Fatalf("in-budget composite linked %v, want 4 functions", linked)
+	}
+
+	// A second network function is the realistic way to overrun the budget;
+	// desiredFunctions cannot produce one, so inject it the way a new toggle
+	// would and drive the real link path.
+	orig := inEndpointCosts["hid"]
+	inEndpointCosts["hid"] = 3 // as if someone re-added the separate touchpad
+	t.Cleanup(func() { inEndpointCosts["hid"] = orig })
+
+	err := g.reconcileLinks()
+	if err == nil {
+		t.Fatal("reconcileLinks accepted a set over the IN-endpoint budget")
+	}
+	if !strings.Contains(err.Error(), "budget") {
+		t.Errorf("reconcileLinks error %q does not name the budget", err)
+	}
+
+	// Refused before the tree was touched: whatever was linked is still linked.
+	if after := g.linkedFunctions(); len(after) != len(linked) {
+		t.Fatalf("a refused reconcile changed the linked set: %v → %v", linked, after)
+	}
+}
+
 // The device node is read back from port_num rather than hardcoded: u_serial
 // numbers its ports by allocation order, so gser.GS0 is not necessarily
 // ttyGS0 once anything else claims a u_serial port first.
@@ -193,6 +232,7 @@ func TestSerialConsoleDeviceReadsPortNum(t *testing.T) {
 			g := gadgetOverTemp(t)
 			g.cfg = config.UsbGadget{Enabled: true, SerialConsole: true}
 			writeGserPortNum(t, g, tc.portNum)
+			linkGser(t, g)
 
 			if got := g.SerialConsoleDevice(); got != tc.want {
 				t.Fatalf("SerialConsoleDevice() = %q, want %q", got, tc.want)
@@ -222,15 +262,64 @@ func TestSerialConsoleDeviceEmptyWhenFunctionMissing(t *testing.T) {
 	}
 }
 
+// The toggle is what the operator asked for; the symlink is what the gadget is
+// presenting. When the function exists and reports a port but was never linked
+// — the link failed, or reconcileLinks refused the set on the endpoint budget —
+// the broker must keep the operator's serial.device rather than be handed a
+// dead node for a console the host cannot see.
+func TestSerialConsoleDeviceEmptyWhenFunctionIsNotLinked(t *testing.T) {
+	g := gadgetOverTemp(t)
+	g.cfg = config.UsbGadget{Enabled: true, SerialConsole: true}
+	writeGserPortNum(t, g, "0\n")
+
+	if got := g.SerialConsoleDevice(); got != "" {
+		t.Fatalf("SerialConsoleDevice() = %q for an unlinked gser function, want \"\"", got)
+	}
+
+	// And once it really is linked, the same tree answers.
+	linkGser(t, g)
+	if got := g.SerialConsoleDevice(); got != "/dev/ttyGS0" {
+		t.Fatalf("SerialConsoleDevice() = %q once gser is linked, want /dev/ttyGS0", got)
+	}
+}
+
 // A port_num the kernel never wrote (or that something truncated) must not
 // produce "/dev/ttyGS" and send the broker off to open a nonexistent node.
 func TestSerialConsoleDeviceEmptyOnUnparseablePortNum(t *testing.T) {
 	g := gadgetOverTemp(t)
 	g.cfg = config.UsbGadget{Enabled: true, SerialConsole: true}
 	writeGserPortNum(t, g, "\n")
+	linkGser(t, g)
 
 	if got := g.SerialConsoleDevice(); got != "" {
 		t.Fatalf("SerialConsoleDevice() = %q for an empty port_num, want \"\"", got)
+	}
+}
+
+// A failed reconcile must not leave the toggle persisted as on: the panel would
+// claim a console the gadget never composed while the broker stayed on
+// serial.device.
+func TestSetSerialConsoleRollsBackWhenReconcileFails(t *testing.T) {
+	g := gadgetOverTemp(t)
+	g.cfg = config.UsbGadget{Enabled: true, Disk: true, Ethernet: EthernetNCM, HID: true}
+	if err := g.build(); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	// Make the gser link push the composite over budget, so reconcileLinks
+	// refuses it — the same refusal an over-budget set gets in production.
+	orig := inEndpointCosts["gser"]
+	inEndpointCosts["gser"] = 2
+	t.Cleanup(func() { inEndpointCosts["gser"] = orig })
+
+	if err := g.SetSerialConsole(true); err == nil {
+		t.Fatal("SetSerialConsole succeeded on a set reconcileLinks must refuse")
+	}
+	if g.cfg.SerialConsole {
+		t.Error("SetSerialConsole left the toggle on after the reconcile failed")
+	}
+	if got := g.SerialConsoleDevice(); got != "" {
+		t.Errorf("SerialConsoleDevice() = %q after a failed enable, want \"\"", got)
 	}
 }
 
@@ -242,6 +331,21 @@ func writeGserPortNum(t *testing.T, g *Gadget, value string) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "port_num"), []byte(value), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// linkGser symlinks gser.GS0 into configs/c.1, which is what reconcileLinks
+// does when the function is actually composed.
+func linkGser(t *testing.T, g *Gadget) {
+	t.Helper()
+
+	if err := os.MkdirAll(g.configPath(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := os.Symlink(filepath.Join(g.functionsPath(), serialFuncName),
+		filepath.Join(g.configPath(), serialFuncName))
+	if err != nil && !os.IsExist(err) {
 		t.Fatal(err)
 	}
 }

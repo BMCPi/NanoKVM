@@ -242,16 +242,23 @@ func (h *handlers) patchMDNS(c *gin.Context) {
 
 func serialModel() components.SettingsSerial {
 	s := config.GetInstance().Serial
+	// Resolved, not stored: the broker picks the gadget's ttyGS over
+	// serial.device at open time, so this form's Device field is only the
+	// console port while the gadget console is off. Showing both is what keeps
+	// the form from quietly presenting a UART nobody is reading.
+	consoleDevice, fromGadget := serial.ConsoleDeviceInfo()
 	return components.SettingsSerial{
-		Device:         s.Device,
-		BaudRate:       strconv.Itoa(s.BaudRate),
-		DataBits:       strconv.Itoa(s.DataBits),
-		Parity:         strings.ToLower(s.Parity),
-		StopBits:       strconv.Itoa(s.StopBits),
-		FlowControl:    strings.ToLower(s.FlowControl),
-		CaptureEnabled: s.Capture.Enabled,
-		CaptureFile:    s.Capture.File,
-		CaptureMaxKB:   strconv.Itoa(s.Capture.MaxSizeKB),
+		Device:              s.Device,
+		BaudRate:            strconv.Itoa(s.BaudRate),
+		DataBits:            strconv.Itoa(s.DataBits),
+		Parity:              strings.ToLower(s.Parity),
+		StopBits:            strconv.Itoa(s.StopBits),
+		FlowControl:         strings.ToLower(s.FlowControl),
+		ConsoleDevice:       consoleDevice,
+		GadgetConsoleActive: fromGadget,
+		CaptureEnabled:      s.Capture.Enabled,
+		CaptureFile:         s.Capture.File,
+		CaptureMaxKB:        strconv.Itoa(s.Capture.MaxSizeKB),
 	}
 }
 
