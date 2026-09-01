@@ -93,7 +93,7 @@ func (s *Service) PatchEthernetInterface(c *gin.Context) {
 	if !ok {
 		return
 	}
-	for _, k := range []string{"Id", "@odata.id", "@odata.type", "@odata.context"} {
+	for _, k := range []string{"Id", odataIDKey, odataTypeKey, "@odata.context"} {
 		delete(body, k)
 	}
 	if len(body) == 0 {

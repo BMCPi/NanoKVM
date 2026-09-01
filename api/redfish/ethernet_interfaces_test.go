@@ -67,7 +67,8 @@ func TestPostEthernetInterfaceReturnsLocation(t *testing.T) {
 		t.Errorf("member = %v; the POSTed report must be served back verbatim", m)
 	}
 	dhcp, ok := m["DHCPv4"].(map[string]any)
-	if !ok || dhcp["DHCPEnabled"] != true {
+	enabled, isBool := dhcp["DHCPEnabled"].(bool)
+	if !ok || !isBool || !enabled {
 		t.Errorf("DHCPv4 = %v; want the host-reported object untouched", m["DHCPv4"])
 	}
 }
@@ -107,7 +108,7 @@ func TestPatchEthernetInterfaceMergesForHostConsume(t *testing.T) {
 
 	m, _ := getNIC(t, r)
 	dhcp, _ := m["DHCPv4"].(map[string]any)
-	if dhcp["DHCPEnabled"] != false {
+	if enabled, isBool := dhcp["DHCPEnabled"].(bool); !isBool || enabled {
 		t.Errorf("DHCPv4 = %v; want DHCPEnabled=false stored for the host to consume", m["DHCPv4"])
 	}
 	statics, ok := m["IPv4StaticAddresses"].([]any)
@@ -119,7 +120,7 @@ func TestPatchEthernetInterfaceMergesForHostConsume(t *testing.T) {
 		entry["Gateway"] != "10.4.0.1" {
 		t.Errorf("static entry = %v", entry)
 	}
-	if dns, _ := m["IPv4StaticAddresses"]; dns == nil {
+	if dns := m["IPv4StaticAddresses"]; dns == nil {
 		t.Error("merge dropped the array")
 	}
 	// Properties the PATCH did not name survive.
@@ -191,7 +192,8 @@ func TestPatchEthernetInterfaceIfMatch(t *testing.T) {
 		t.Errorf("stale If-Match = %d, want 412", w.Code)
 	}
 	m, _ := getNIC(t, r)
-	if dhcp, _ := m["DHCPv4"].(map[string]any); dhcp["DHCPEnabled"] != true {
+	dhcp, _ := m["DHCPv4"].(map[string]any)
+	if enabled, isBool := dhcp["DHCPEnabled"].(bool); !isBool || !enabled {
 		t.Error("a 412 write changed the member")
 	}
 }

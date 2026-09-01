@@ -215,7 +215,7 @@ func checkDefaultValue() error {
 		return err
 	}
 
-	instance.Hardware = getHardware()
+	applyHardwareDefaults()
 
 	// Persist generated values (the JWT secret) and the discovery migration
 	// so neither has to be redone on the next boot.
@@ -244,6 +244,22 @@ func applyPowerDefaults() error {
 			instance.Power.Reset, PowerResetAuto, PowerResetLine, PowerResetCycle)
 	}
 	return nil
+}
+
+// applyHardwareDefaults resolves Hardware from the running board: GPIO line
+// wiring plus FanControl's profile default. getHardware() rebuilds the whole
+// struct from scratch every boot, which would silently discard an operator's
+// hardware.fanControl override already sitting in instance.Hardware (decoded
+// by viper.Unmarshal before checkDefaultValue ran) — so that value is
+// captured first and reapplied after. A nil pointer (the field's zero value)
+// means the key was absent, never that the operator wrote "false"; a plain
+// bool couldn't make that distinction.
+func applyHardwareDefaults() {
+	override := instance.Hardware.FanControl
+	instance.Hardware = getHardware()
+	if override != nil {
+		instance.Hardware.FanControl = override
+	}
 }
 
 // applyJWTDefaults seeds the signing secret and token lifetime. It reports

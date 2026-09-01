@@ -35,7 +35,13 @@ type Config struct {
 	Discovery Discovery `yaml:"discovery"`
 	Network   Network   `yaml:"network"`
 	TimeSync  TimeSync  `yaml:"timeSync"`
-	Hardware  Hardware  `yaml:"-"`
+	// Hardware is mostly runtime-resolved (GPIO lines below), not
+	// operator-authored — but FanControl is a real config knob, so the
+	// struct participates in the file rather than being excluded wholesale
+	// (contrast the legacy top-level MDNS field above). omitempty keeps a
+	// freshly-generated default file from growing a "hardware: {}" stanza
+	// before checkDefaultValue has ever resolved one.
+	Hardware Hardware `yaml:"hardware,omitempty"`
 
 	// Macros are the operator's keyboard macros (see macros.go). Stored with
 	// the config so every client and every session sees the same set.
@@ -260,6 +266,14 @@ type Hardware struct {
 	GPIOPower    GPIOPin   `yaml:"-"`
 	GPIOPowerLED GPIOPin   `yaml:"-"`
 	GPIOHDDLed   GPIOPin   `yaml:"-"`
+
+	// FanControl gates the Chassis Oem.PiBmc.FanOverrideLevel knob: boards
+	// without a fan header (or without a host firmware that speaks
+	// RPI_FAN_PROTOCOL) must not advertise a control the host will never
+	// act on. getHardware() sets the running profile's default; a *bool
+	// (not plain bool) because an absent key must mean "use the profile
+	// default", never "false" — see applyHardwareDefaults.
+	FanControl *bool `yaml:"fanControl,omitempty"`
 }
 
 // Power holds power-control configuration.

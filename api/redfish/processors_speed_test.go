@@ -37,7 +37,8 @@ func TestProcessorOperatorSpeedPatch(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &m); err != nil {
 		t.Fatalf("bad JSON: %v", err)
 	}
-	if m["SpeedLimitMHz"] != float64(2800) || m["SpeedLocked"] != true {
+	locked, isBool := m["SpeedLocked"].(bool)
+	if m["SpeedLimitMHz"] != float64(2800) || !isBool || !locked {
 		t.Errorf("merged member = %v; want the staged pair", m)
 	}
 	// The inventory the host reported survives the merge.
@@ -67,7 +68,8 @@ func TestProcessorRepostPreservesStagedSpeed(t *testing.T) {
 	if !ok {
 		t.Fatal("member gone after re-POST")
 	}
-	if stored["SpeedLimitMHz"] != float64(2800) || stored["SpeedLocked"] != false {
+	locked, isBool := stored["SpeedLocked"].(bool)
+	if stored["SpeedLimitMHz"] != float64(2800) || !isBool || locked {
 		t.Errorf("staged pair wiped by inventory re-POST: %v", stored)
 	}
 

@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/stmcginnis/gofish/schemas"
 
 	"github.com/pi-bmc/nanokvm-app/pkg/platform/streamio"
 )
@@ -62,15 +61,15 @@ func (h *handlers) GetUpdateService(c *gin.Context) {
 }
 
 // GetFirmwareInventoryCollection returns the firmware inventory collection:
-// the members the host has PATCHed, or the synthesized BiosFirmware entry
-// before the first report so the branch is never empty.
+// exactly the members the host has PATCHed. Empty before the first report —
+// no synthesized placeholder — because the member id is no longer pinned to
+// a compiled-in name (a RPi host reports "BiosFirmware"; a NUC reports its
+// own), so there is nothing honest to synthesize before the host says what
+// it has.
 func (h *handlers) GetFirmwareInventoryCollection(c *gin.Context) {
 	links := Links{}
 	for _, id := range hostCollectionIDs(firmwareOf) {
 		links = append(links, Link(firmwareInventoryPath+"/"+id))
-	}
-	if len(links) == 0 {
-		links = Links{Link(firmwareBiosFirmwarePath)}
 	}
 	c.JSON(http.StatusOK, newCollection(
 		"SoftwareInventoryCollection", "Firmware Inventory Collection", firmwareInventoryPath,
@@ -79,44 +78,22 @@ func (h *handlers) GetFirmwareInventoryCollection(c *gin.Context) {
 }
 
 // GetFirmwareInventoryMember returns one firmware inventory entry: the
-// SoftwareInventory document the host PATCHed if there is one, else — for the
-// BiosFirmware member and its legacy "BIOS" spelling — a minimal entry built
-// from the BiosVersion the host reported on Systems/1. The BMC has no other
-// window into what the host is actually running.
+// SoftwareInventory document the host PATCHed, or a 404 — the same as any
+// other host-reported collection. There is no synthesized fallback member
+// (formerly pinned to "BiosFirmware"/"BIOS"): a member id is whatever the
+// host's own firmware chooses to report.
 func (h *handlers) GetFirmwareInventoryMember(c *gin.Context) {
 	id := c.Param("id")
 	resPath := firmwareInventoryPath + "/" + id
 
-	if stored, ok := hostCollectionGet(firmwareOf, id); ok {
-		writeHostResource(c, renderHostMember(stored, resPath, id,
-			"#SoftwareInventory.v1_2_3.SoftwareInventory",
-			"SoftwareInventory.SoftwareInventory", id))
-		return
-	}
-	if id != firmwareBiosMemberID && id != firmwareBiosLegacyID {
+	stored, ok := hostCollectionGet(firmwareOf, id)
+	if !ok {
 		redfishErrorResponse(c, http.StatusNotFound, "no such firmware inventory member")
 		return
 	}
-
-	reported, _ := HostReported()
-	version := reported.BiosVersion
-	if version == "" {
-		version = "Unknown"
-	}
-	c.JSON(http.StatusOK, SoftwareInventory{
-		Resource: Resource{
-			ODataType:    "#SoftwareInventory.v1_8_0.SoftwareInventory",
-			ODataID:      resPath,
-			ODataContext: odataContext("SoftwareInventory.SoftwareInventory"),
-			ID:           id,
-			Name:         "BIOS",
-			Description:  "Host boot firmware version, as reported by the host",
-		},
-		SoftwareID: "BIOS",
-		Version:    version,
-		Updateable: true,
-		Status:     &Status{State: schemas.EnabledState, Health: schemas.OKHealth},
-	})
+	writeHostResource(c, renderHostMember(stored, resPath, id,
+		"#SoftwareInventory.v1_2_3.SoftwareInventory",
+		"SoftwareInventory.SoftwareInventory", id))
 }
 
 // PatchFirmwareInventoryMember stores the host's SoftwareInventory report

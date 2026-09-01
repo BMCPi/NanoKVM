@@ -55,23 +55,31 @@ const noLine = -1
 type hwProfile struct {
 	version                        HWVersion
 	power, powerLED, hddLED, reset int
+	// fanControl is this profile's default for Hardware.FanControl —
+	// whether the board exposes the Chassis Oem.PiBmc.FanOverrideLevel
+	// knob before any operator override. True for every profile today: all
+	// three are NanoKVM boards driving an RPi host's RPI_FAN_PROTOCOL. A
+	// future BMC hardware profile without that wiring defaults it false.
+	fanControl bool
 }
 
 var (
-	profileAlpha = hwProfile{version: HWVersionAlpha, power: 23, powerLED: 24, hddLED: 25, reset: 27}
-	profileBeta  = hwProfile{version: HWVersionBeta, power: 23, powerLED: 24, hddLED: noLine, reset: 25}
-	profilePcie  = hwProfile{version: HWVersionPcie, power: 23, powerLED: 24, hddLED: noLine, reset: 25}
+	profileAlpha = hwProfile{version: HWVersionAlpha, power: 23, powerLED: 24, hddLED: 25, reset: 27, fanControl: true}
+	profileBeta  = hwProfile{version: HWVersionBeta, power: 23, powerLED: 24, hddLED: noLine, reset: 25, fanControl: true}
+	profilePcie  = hwProfile{version: HWVersionPcie, power: 23, powerLED: 24, hddLED: noLine, reset: 25, fanControl: true}
 )
 
 // hardware resolves the profile's lines against the running kernel.
 func (p hwProfile) hardware() Hardware {
 	var r lineResolver
+	fanControl := p.fanControl
 	return Hardware{
 		Version:      p.version,
 		GPIOPower:    r.resolve(lineNamePower, p.power),
 		GPIOPowerLED: r.resolve(lineNamePowerLED, p.powerLED),
 		GPIOHDDLed:   r.resolve(lineNameHDDLed, p.hddLED),
 		GPIOReset:    r.resolve(lineNameReset, p.reset),
+		FanControl:   &fanControl,
 	}
 }
 

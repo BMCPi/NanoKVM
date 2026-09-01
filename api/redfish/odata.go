@@ -150,14 +150,8 @@ const (
 
 	updateServicePath     = schemas.DefaultServiceRoot + "UpdateService"
 	firmwareInventoryPath = updateServicePath + "/FirmwareInventory"
-	// firmwareBiosMemberID is the member the host firmware PATCHes
-	// (RpiRedfishSyncDxe's RPI_REDFISH_FIRMWARE_INVENTORY_ID); "BIOS" is the
-	// pre-sync spelling, kept readable as an alias.
-	firmwareBiosMemberID     = "BiosFirmware"
-	firmwareBiosLegacyID     = "BIOS"
-	firmwareBiosFirmwarePath = firmwareInventoryPath + "/" + firmwareBiosMemberID
-	simpleUpdatePath         = updateServicePath + "/Actions/UpdateService.SimpleUpdate"
-	httpPushURIPath          = updateServicePath + "/update"
+	simpleUpdatePath      = updateServicePath + "/Actions/UpdateService.SimpleUpdate"
+	httpPushURIPath       = updateServicePath + "/update"
 )
 
 // odataTypeKey is the @odata.type property name. Typed resources get it from

@@ -201,9 +201,9 @@ func Register(r *gin.Engine, d *deps.Deps) {
 		api.DELETE("/SessionService/Sessions/:id", h.DeleteSession)
 
 		// UpdateService (FMP capsule staging; the host applies at next boot).
-		// The inventory members are host reports: RpiRedfishSyncDxe PATCHes
-		// SoftwareInventory member "BiosFirmware" once per boot ("BIOS" is the
-		// legacy spelling of the synthesized fallback member).
+		// The inventory members are host reports, keyed on whatever member id
+		// the host's own firmware chooses (the RPi host PATCHes
+		// "BiosFirmware"); no member id is pinned or synthesized here.
 		api.GET("/UpdateService", h.GetUpdateService)
 		api.GET("/UpdateService/FirmwareInventory", h.GetFirmwareInventoryCollection)
 		api.GET("/UpdateService/FirmwareInventory/:id", h.GetFirmwareInventoryMember)
