@@ -19,6 +19,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/ui/components/input"
 	"github.com/pi-bmc/nanokvm-app/ui/components/item"
 	"github.com/pi-bmc/nanokvm-app/ui/components/progress"
+	"github.com/pi-bmc/nanokvm-app/ui/components/spinner"
 	"github.com/pi-bmc/nanokvm-app/ui/components/tabs"
 	"github.com/pi-bmc/nanokvm-app/ui/utils"
 )
@@ -69,19 +70,7 @@ templ SettingsFirmwareBody(m SettingsFirmware) {
 				}
 				@settingsFieldsetNote("The host applies these at ITS next boot, then deletes each one it applies. A capsule disappearing from this list is how you know it landed — staging it again is not needed and not harmless.")
 				if m.Staging {
-					@item.Item(item.Props{Variant: item.VariantOutline, Class: "border-dashed"}) {
-						@item.Media(item.MediaProps{Variant: item.MediaVariantIcon}) {
-							@icon.HardDriveUpload()
-						}
-						@item.Content() {
-							@item.Title() {
-								Staging { m.StagingName }…
-							}
-							@item.Description(item.DescriptionProps{Class: "text-xs"}) {
-								Fetching from a URL. Controls below are disabled until this finishes.
-							}
-						}
-					}
+					@firmwareStagingRow(m)
 				}
 				if len(m.Capsules) == 0 {
 					@item.Item(item.Props{Variant: item.VariantOutline, Class: "border-dashed"}) {
@@ -141,6 +130,7 @@ templ SettingsFirmwareBody(m SettingsFirmware) {
 							hx-target="#settings-firmware-body"
 							hx-swap="outerHTML"
 							hx-disabled-elt="find button"
+							data-upload-progress="#fw-upload-progress"
 						>
 							@input.Input(input.Props{
 								ID:       "fw-upload-file",
@@ -217,6 +207,51 @@ templ SettingsFirmwareBody(m SettingsFirmware) {
 			}
 		}
 	</div>
+}
+
+// firmwareStagingRow is the in-flight URL fetch: what is being downloaded and
+// how far it has got.
+//
+// A capsule is up to 128 MiB over whatever link the BMC has, so this can run
+// for minutes. It used to be a static line of text, which is indistinguishable
+// from a wedged transfer — the operator's only recourse was to wait and guess.
+// The byte counts come from the download's own copy loop
+// (firmware.WithProgress), so movement here means movement on the wire.
+//
+// Two shapes, because a chunked response declares no length: with a total, a
+// determinate bar and "X of Y"; without one, a spinner and a running count.
+// Inventing a denominator would be worse than admitting there isn't one.
+templ firmwareStagingRow(m SettingsFirmware) {
+	@item.Item(item.Props{Variant: item.VariantOutline, Class: "border-dashed"}) {
+		@item.Media(item.MediaProps{Variant: item.MediaVariantIcon}) {
+			@icon.HardDriveUpload()
+		}
+		@item.Content() {
+			@item.Title() {
+				Staging { m.StagingName }…
+			}
+			@item.Description(item.DescriptionProps{Class: "text-xs"}) {
+				Fetching from a URL. Controls below are disabled until this finishes.
+			}
+			<div class="mt-2 space-y-1">
+				if m.StagingDeterminate() {
+					@progress.Progress(progress.Props{Value: m.StagingPercent(), Max: 100})
+					<div class="text-xs text-muted-foreground">
+						{ formatBytes(m.StagingLoaded) } / { formatBytes(m.StagingTotal) }
+					</div>
+				} else {
+					<div class="flex items-center gap-2 text-xs text-muted-foreground">
+						@spinner.Spinner(spinner.Props{Class: "size-3.5"})
+						if m.StagingLoaded > 0 {
+							{ formatBytes(m.StagingLoaded) } downloaded…
+						} else {
+							Connecting…
+						}
+					</div>
+				}
+			</div>
+		}
+	}
 }
 
 // firmwareCapsuleRow is one queued capsule: name, size, and a delete control

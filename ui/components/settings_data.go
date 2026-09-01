@@ -183,7 +183,32 @@ type SettingsFirmware struct {
 	// not be conflated). StagingName names the capsule being fetched.
 	Staging     bool
 	StagingName string
+	// StagingLoaded and StagingTotal are the download's byte counts. Total is
+	// 0 when the remote declared no Content-Length, which the panel renders as
+	// an indeterminate spinner rather than inventing a denominator.
+	StagingLoaded int64
+	StagingTotal  int64
 }
+
+// StagingPercent is the download's completion for the progress bar. Only
+// meaningful when StagingDeterminate.
+func (m SettingsFirmware) StagingPercent() int {
+	if m.StagingTotal <= 0 {
+		return 0
+	}
+	pct := int(m.StagingLoaded * 100 / m.StagingTotal)
+	// A remote that under-declares its Content-Length would otherwise drive
+	// the bar past its own track.
+	if pct > 100 {
+		return 100
+	}
+	return pct
+}
+
+// StagingDeterminate reports whether the download has a total to measure
+// against. A chunked response has none, and a bar with no denominator is a bar
+// that lies.
+func (m SettingsFirmware) StagingDeterminate() bool { return m.StagingTotal > 0 }
 
 // SettingsAdvanced backs the Advanced panel.
 type SettingsAdvanced struct {

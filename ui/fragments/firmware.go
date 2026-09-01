@@ -27,6 +27,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/app/firmware"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/platform/streamio"
 	"github.com/pi-bmc/nanokvm-app/ui/components"
@@ -63,6 +64,12 @@ type firmwareFetchStatus struct {
 	Name   string
 	Done   bool
 	Err    error
+	// Loaded and Total drive the progress bar. Total is 0 until the remote
+	// declares a Content-Length, and stays 0 for a chunked response — the
+	// panel shows an indeterminate spinner rather than a percentage then,
+	// since a bar with no denominator is a bar that lies.
+	Loaded int64
+	Total  int64
 	// Reported marks that the terminal outcome has already been toasted, so a
 	// second poller landing after the first (a request already in flight when
 	// the fetch settled) does not raise the toast twice.
@@ -84,6 +91,20 @@ func firmwareFetchStart(name string) {
 	firmwareFetchMu.Lock()
 	defer firmwareFetchMu.Unlock()
 	firmwareFetchState = firmwareFetchStatus{Active: true, Name: name}
+}
+
+// firmwareFetchProgress records download progress. Called from inside the
+// download's copy loop, so it does the least possible work under the lock.
+//
+// Guarded on Active: a callback from a previous transfer that has already been
+// cleared must not resurrect the panel's staging state.
+func firmwareFetchProgress(loaded, total int64) {
+	firmwareFetchMu.Lock()
+	defer firmwareFetchMu.Unlock()
+	if !firmwareFetchState.Active || firmwareFetchState.Done {
+		return
+	}
+	firmwareFetchState.Loaded, firmwareFetchState.Total = loaded, total
 }
 
 func firmwareFetchFinish(err error) {
@@ -125,13 +146,15 @@ func firmwarePanel(d *deps.Deps) components.SettingsFirmware {
 	status := d.Firmware.GetStatus()
 	snap := firmwareFetchSnapshot()
 	return components.SettingsFirmware{
-		VolumeReady: status.VolumeReady,
-		Presented:   status.Presented,
-		VolumeSize:  status.VolumeSize,
-		CapsuleDir:  status.CapsuleDir,
-		Capsules:    status.Capsules,
-		Staging:     snap.Active && !snap.Done,
-		StagingName: snap.Name,
+		VolumeReady:   status.VolumeReady,
+		Presented:     status.Presented,
+		VolumeSize:    status.VolumeSize,
+		CapsuleDir:    status.CapsuleDir,
+		Capsules:      status.Capsules,
+		Staging:       snap.Active && !snap.Done,
+		StagingName:   snap.Name,
+		StagingLoaded: snap.Loaded,
+		StagingTotal:  snap.Total,
 	}
 }
 
@@ -231,7 +254,8 @@ func (h *handlers) postFirmwareCapsuleFetch(c *gin.Context) {
 	ctx, cancel := h.d.ActionContext(capsuleFetchTimeout)
 	go func(rawURL, name string) {
 		defer cancel()
-		if err := h.d.Firmware.StageCapsuleFromURL(ctx, rawURL, name); err != nil {
+		if err := h.d.Firmware.StageCapsuleFromURL(ctx, rawURL, name,
+			firmware.WithProgress(firmwareFetchProgress)); err != nil {
 			h.log.ErrorContext(ctx, "ui: capsule fetch failed", slog.Any("err", err))
 			firmwareFetchFinish(err)
 			return
