@@ -442,12 +442,7 @@ paths:
         "404": { description: No such processor. }
     patch:
       tags: [Systems]
-      summary: |
-        Merge changes into a processor member. The host updates its
-        report here; an operator caps the CPU by PATCHing the standard
-        SpeedLimitMHz (0 = no cap) and SpeedLocked properties, which the
-        host firmware consumes and applies via config.txt on its next
-        boot. Identity keys are not writable.
+      summary: (Host interface only) Merge changes into a reported processor.
       parameters:
         - {
             name: processor,
@@ -457,7 +452,7 @@ paths:
           }
       responses:
         "200": { description: Updated Processor resource. }
-        "400": { description: No writable properties in the request. }
+        "403": { description: Not the host interface. }
         "404": { description: No such processor. }
         "412": { description: If-Match did not match. }
     delete:
