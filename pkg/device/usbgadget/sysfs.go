@@ -168,7 +168,7 @@ func (s *sysfs) writeAttr(path, value string) error {
 
 // attrCutset is everything a configfs attribute may carry around its value.
 // The NUL is the load-bearing member: the gadget driver formats MAC addresses
-// with %pM into a fixed-size buffer, so ncm.usb0/host_addr reads back as
+// with %pM into a fixed-size buffer, so eem.usb0/host_addr reads back as
 // "da:c0:ff:ee:10:02\x00\n". strings.TrimSpace stops at the NUL (it is not
 // whitespace), so a value trimmed with it alone never compares equal to the one
 // we would write — and the resulting rewrite is exactly what EBUSYs on a bound

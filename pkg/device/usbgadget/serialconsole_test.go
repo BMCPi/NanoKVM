@@ -1,8 +1,8 @@
 package usbgadget
 
-// serialconsole_test.go covers the optional bulk-only USB serial function
-// (gser.GS0): the IN-endpoint budget that decides what can be composed at all,
-// where gser lands in the canonical function order, and how the console device
+// serialconsole_test.go covers the optional CDC-ACM USB serial function
+// (acm.GS0): the IN-endpoint budget that decides what can be composed at all,
+// where acm lands in the canonical function order, and how the console device
 // node is resolved.
 
 import (
@@ -15,40 +15,40 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 )
 
-// The live composite before this feature: 5 of the 6 IN endpoints the SG2002's
-// dwc2 core implements. Adding gser lands exactly on the limit.
+// The composite without the console: 4 of the 6 IN endpoints the SG2002's
+// dwc2 core implements. Adding acm lands exactly on the limit.
 func TestEndpointBudgetCurrentCompositeFits(t *testing.T) {
-	current := []string{"mass_storage.disk0", "ncm.usb0", "hid.GS0", "hid.GS1"}
+	current := []string{"mass_storage.disk0", "eem.usb0", "hid.GS0", "hid.GS1"}
 
-	if got := totalINEndpoints(current); got != 5 {
-		t.Fatalf("current composite costs %d IN endpoints, want 5", got)
+	if got := totalINEndpoints(current); got != 4 {
+		t.Fatalf("current composite costs %d IN endpoints, want 4", got)
 	}
 	if err := checkEndpointBudget(current); err != nil {
 		t.Fatalf("current composite refused: %v", err)
 	}
 }
 
-func TestEndpointBudgetWithGserIsExactlyAtLimit(t *testing.T) {
-	withGser := []string{"mass_storage.disk0", "ncm.usb0", "hid.GS0", "hid.GS1", "gser.GS0"}
+func TestEndpointBudgetWithACMIsExactlyAtLimit(t *testing.T) {
+	withACM := []string{"mass_storage.disk0", "eem.usb0", "hid.GS0", "hid.GS1", "acm.GS0"}
 
-	if got := totalINEndpoints(withGser); got != maxINEndpoints {
-		t.Fatalf("composite with gser costs %d IN endpoints, want %d", got, maxINEndpoints)
+	if got := totalINEndpoints(withACM); got != maxINEndpoints {
+		t.Fatalf("composite with acm costs %d IN endpoints, want %d", got, maxINEndpoints)
 	}
-	if err := checkEndpointBudget(withGser); err != nil {
-		t.Fatalf("composite with gser refused, but it fits at %d/%d: %v",
+	if err := checkEndpointBudget(withACM); err != nil {
+		t.Fatalf("composite with acm refused, but it fits at %d/%d: %v",
 			maxINEndpoints, maxINEndpoints, err)
 	}
 }
 
-// f_acm is the function this design exists to avoid: its notify interrupt-IN
-// is unconditional, so it needs 2 IN endpoints and pushes the composite to 7.
-// The refusal must say so in words, not leave the kernel to fail the
-// SET_CONFIGURATION with "No suitable fifo found".
-func TestEndpointBudgetRefusesACM(t *testing.T) {
+// acm fits only because the RHI NIC gave back an endpoint. Pair it with a
+// notify-carrying network function — ncm, ecm or rndis — and the composite is
+// 7, one past what the silicon serves. The refusal must say so in words, not
+// leave the kernel to fail the SET_CONFIGURATION with "No suitable fifo found".
+func TestEndpointBudgetRefusesACMAlongsideNCM(t *testing.T) {
 	withACM := []string{"mass_storage.disk0", "ncm.usb0", "hid.GS0", "hid.GS1", "acm.GS0"}
 
 	if got := totalINEndpoints(withACM); got != 7 {
-		t.Fatalf("composite with acm costs %d IN endpoints, want 7", got)
+		t.Fatalf("composite with ncm+acm costs %d IN endpoints, want 7", got)
 	}
 	err := checkEndpointBudget(withACM)
 	if err == nil {
@@ -86,6 +86,7 @@ func TestINEndpointCost(t *testing.T) {
 		{"ecm.usb0", 2},
 		{"rndis.usb0", 2},
 		{"eem.usb0", 1},
+		{"geth.usb0", 1},
 		{"hid.GS0", 1},
 		{"gser.GS0", 1},
 		{"acm.GS0", 2},
@@ -109,7 +110,7 @@ func TestMaximalConfigFitsTheBudget(t *testing.T) {
 	g.cfg = config.UsbGadget{
 		Enabled:       true,
 		Disk:          true,
-		Ethernet:      EthernetNCM,
+		Ethernet:      EthernetEEM,
 		HID:           true,
 		SerialConsole: true,
 	}
@@ -120,29 +121,29 @@ func TestMaximalConfigFitsTheBudget(t *testing.T) {
 	}
 }
 
-// gser goes LAST. Interface numbering follows symlink creation order, and
+// acm goes LAST. Interface numbering follows symlink creation order, and
 // reconcileLinks does a full unbind/relink — i.e. a host re-enumeration — on
 // any topology change, so the canonical order may be extended, never reordered.
-func TestDesiredFunctionsAppendsGserLast(t *testing.T) {
+func TestDesiredFunctionsAppendsACMLast(t *testing.T) {
 	g := gadgetOverTemp(t)
 	g.cfg = config.UsbGadget{
 		Disk:          true,
-		Ethernet:      EthernetNCM,
+		Ethernet:      EthernetEEM,
 		HID:           true,
 		SerialConsole: true,
 	}
 
-	want := []string{"mass_storage.disk0", "ncm.usb0", "hid.GS0", "hid.GS1", "gser.GS0"}
+	want := []string{"mass_storage.disk0", "eem.usb0", "hid.GS0", "hid.GS1", "acm.GS0"}
 	if got := g.desiredFunctions(); !slices.Equal(got, want) {
 		t.Fatalf("desiredFunctions() = %v, want %v", got, want)
 	}
 }
 
-func TestDesiredFunctionsOmitsGserWhenDisabled(t *testing.T) {
+func TestDesiredFunctionsOmitsACMWhenDisabled(t *testing.T) {
 	g := gadgetOverTemp(t)
-	g.cfg = config.UsbGadget{Disk: true, Ethernet: EthernetNCM, HID: true}
+	g.cfg = config.UsbGadget{Disk: true, Ethernet: EthernetEEM, HID: true}
 
-	want := []string{"mass_storage.disk0", "ncm.usb0", "hid.GS0", "hid.GS1"}
+	want := []string{"mass_storage.disk0", "eem.usb0", "hid.GS0", "hid.GS1"}
 	if got := g.desiredFunctions(); !slices.Equal(got, want) {
 		t.Fatalf("desiredFunctions() = %v, want %v", got, want)
 	}
@@ -185,7 +186,7 @@ func TestBuildSkipsGserWhenDisabled(t *testing.T) {
 // the UDC cannot serve.
 func TestReconcileLinksRefusesAnOverBudgetSet(t *testing.T) {
 	g := gadgetOverTemp(t)
-	g.cfg = config.UsbGadget{Enabled: true, Disk: true, Ethernet: EthernetNCM, HID: true}
+	g.cfg = config.UsbGadget{Enabled: true, Disk: true, Ethernet: EthernetEEM, HID: true}
 
 	if err := g.build(); err != nil {
 		t.Fatalf("build the in-budget composite: %v", err)
@@ -217,7 +218,7 @@ func TestReconcileLinksRefusesAnOverBudgetSet(t *testing.T) {
 }
 
 // The device node is read back from port_num rather than hardcoded: u_serial
-// numbers its ports by allocation order, so gser.GS0 is not necessarily
+// numbers its ports by allocation order, so acm.GS0 is not necessarily
 // ttyGS0 once anything else claims a u_serial port first.
 func TestSerialConsoleDeviceReadsPortNum(t *testing.T) {
 	for _, tc := range []struct {
@@ -231,8 +232,8 @@ func TestSerialConsoleDeviceReadsPortNum(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			g := gadgetOverTemp(t)
 			g.cfg = config.UsbGadget{Enabled: true, SerialConsole: true}
-			writeGserPortNum(t, g, tc.portNum)
-			linkGser(t, g)
+			writeACMPortNum(t, g, tc.portNum)
+			linkACM(t, g)
 
 			if got := g.SerialConsoleDevice(); got != tc.want {
 				t.Fatalf("SerialConsoleDevice() = %q, want %q", got, tc.want)
@@ -246,7 +247,7 @@ func TestSerialConsoleDeviceEmptyWhenDisabled(t *testing.T) {
 	g.cfg = config.UsbGadget{Enabled: true}
 	// The function directory survives a toggle-off (only the symlink goes),
 	// so a stale port_num must not resurrect the console device.
-	writeGserPortNum(t, g, "0\n")
+	writeACMPortNum(t, g, "0\n")
 
 	if got := g.SerialConsoleDevice(); got != "" {
 		t.Fatalf("SerialConsoleDevice() = %q with serialConsole off, want \"\"", got)
@@ -258,7 +259,7 @@ func TestSerialConsoleDeviceEmptyWhenFunctionMissing(t *testing.T) {
 	g.cfg = config.UsbGadget{Enabled: true, SerialConsole: true}
 
 	if got := g.SerialConsoleDevice(); got != "" {
-		t.Fatalf("SerialConsoleDevice() = %q with no gser function, want \"\"", got)
+		t.Fatalf("SerialConsoleDevice() = %q with no acm function, want \"\"", got)
 	}
 }
 
@@ -270,16 +271,16 @@ func TestSerialConsoleDeviceEmptyWhenFunctionMissing(t *testing.T) {
 func TestSerialConsoleDeviceEmptyWhenFunctionIsNotLinked(t *testing.T) {
 	g := gadgetOverTemp(t)
 	g.cfg = config.UsbGadget{Enabled: true, SerialConsole: true}
-	writeGserPortNum(t, g, "0\n")
+	writeACMPortNum(t, g, "0\n")
 
 	if got := g.SerialConsoleDevice(); got != "" {
-		t.Fatalf("SerialConsoleDevice() = %q for an unlinked gser function, want \"\"", got)
+		t.Fatalf("SerialConsoleDevice() = %q for an unlinked acm function, want \"\"", got)
 	}
 
 	// And once it really is linked, the same tree answers.
-	linkGser(t, g)
+	linkACM(t, g)
 	if got := g.SerialConsoleDevice(); got != "/dev/ttyGS0" {
-		t.Fatalf("SerialConsoleDevice() = %q once gser is linked, want /dev/ttyGS0", got)
+		t.Fatalf("SerialConsoleDevice() = %q once acm is linked, want /dev/ttyGS0", got)
 	}
 }
 
@@ -288,8 +289,8 @@ func TestSerialConsoleDeviceEmptyWhenFunctionIsNotLinked(t *testing.T) {
 func TestSerialConsoleDeviceEmptyOnUnparseablePortNum(t *testing.T) {
 	g := gadgetOverTemp(t)
 	g.cfg = config.UsbGadget{Enabled: true, SerialConsole: true}
-	writeGserPortNum(t, g, "\n")
-	linkGser(t, g)
+	writeACMPortNum(t, g, "\n")
+	linkACM(t, g)
 
 	if got := g.SerialConsoleDevice(); got != "" {
 		t.Fatalf("SerialConsoleDevice() = %q for an empty port_num, want \"\"", got)
@@ -301,16 +302,18 @@ func TestSerialConsoleDeviceEmptyOnUnparseablePortNum(t *testing.T) {
 // serial.device.
 func TestSetSerialConsoleRollsBackWhenReconcileFails(t *testing.T) {
 	g := gadgetOverTemp(t)
-	g.cfg = config.UsbGadget{Enabled: true, Disk: true, Ethernet: EthernetNCM, HID: true}
+	g.cfg = config.UsbGadget{Enabled: true, Disk: true, Ethernet: EthernetEEM, HID: true}
 	if err := g.build(); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 
-	// Make the gser link push the composite over budget, so reconcileLinks
+	// Make the acm link push the composite over budget, so reconcileLinks
 	// refuses it — the same refusal an over-budget set gets in production.
-	orig := inEndpointCosts["gser"]
-	inEndpointCosts["gser"] = 2
-	t.Cleanup(func() { inEndpointCosts["gser"] = orig })
+	// acm already costs 2 of the 6 and the rest of the composite costs 4, so
+	// it takes a third endpoint to overrun.
+	orig := inEndpointCosts["acm"]
+	inEndpointCosts["acm"] = 3
+	t.Cleanup(func() { inEndpointCosts["acm"] = orig })
 
 	if err := g.SetSerialConsole(true); err == nil {
 		t.Fatal("SetSerialConsole succeeded on a set reconcileLinks must refuse")
@@ -323,7 +326,7 @@ func TestSetSerialConsoleRollsBackWhenReconcileFails(t *testing.T) {
 	}
 }
 
-func writeGserPortNum(t *testing.T, g *Gadget, value string) {
+func writeACMPortNum(t *testing.T, g *Gadget, value string) {
 	t.Helper()
 
 	dir := filepath.Join(g.functionsPath(), serialFuncName)
@@ -335,9 +338,9 @@ func writeGserPortNum(t *testing.T, g *Gadget, value string) {
 	}
 }
 
-// linkGser symlinks gser.GS0 into configs/c.1, which is what reconcileLinks
+// linkACM symlinks acm.GS0 into configs/c.1, which is what reconcileLinks
 // does when the function is actually composed.
-func linkGser(t *testing.T, g *Gadget) {
+func linkACM(t *testing.T, g *Gadget) {
 	t.Helper()
 
 	if err := os.MkdirAll(g.configPath(), 0o755); err != nil {

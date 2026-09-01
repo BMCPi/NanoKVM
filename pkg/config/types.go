@@ -74,7 +74,7 @@ type Network struct {
 	Enabled bool `yaml:"enabled" json:"enabled"`
 	// Eth0 is the primary wired uplink.
 	Eth0 InterfaceConfig `yaml:"eth0" json:"eth0"`
-	// RHI is the USB host-facing management link (the ncm gadget's usb0), a
+	// RHI is the USB host-facing management link (the eem gadget's usb0), a
 	// point-to-point IPv4 link-local segment in the Redfish Host Interface
 	// (DSP0270) style: no gateway, and only a single-lease DHCP server that
 	// hands the host a peer address with no router/DNS options — so the link
@@ -104,7 +104,7 @@ type InterfaceConfig struct {
 
 // RHIConfig is the static link-local addressing for the USB host interface.
 type RHIConfig struct {
-	// Interface is the gadget netdev name (the ncm function registers usb0).
+	// Interface is the gadget netdev name (the eem function registers usb0).
 	Interface string `yaml:"interface" json:"interface"`
 	// Address is the BMC-side CIDR on the link (default 169.254.10.1/16, per
 	// RFC 3927 link-local so the host stays reachable even on an IPv4LL host).
@@ -459,9 +459,16 @@ type UsbGadget struct {
 	BmAttributes string `yaml:"bmAttributes"`
 
 	// Ethernet selects the USB network function exposed to the host: "off",
-	// "ncm" (CDC-NCM). Toggled at runtime via the virtual-
-	// device API, which persists the change back here. Formerly the
-	// the runtime state file.
+	// "eem" (CDC-EEM). Toggled at runtime via the virtual-device API, which
+	// persists the change back here. Formerly the runtime state file.
+	//
+	// CDC-EEM and not CDC-NCM: ncm carries an interrupt-IN notification
+	// endpoint and eem does not, and that one endpoint is what pays for the
+	// CDC-ACM serial console (see SerialConsole and the budget in
+	// pkg/device/usbgadget). The cost is that no stock EDK2 driver binds it —
+	// NetworkPkg ships Ecm/Ncm/Rndis only — so the managed host's firmware
+	// must carry a custom SNP driver, and EEM has no link-state signalling
+	// for it to read. See .claude/docs/host-firmware-contract.md.
 	Ethernet string `yaml:"ethernet"`
 	// Disk controls whether the mass-storage disk (mass_storage.disk0) is linked
 	// into configs/c.1 and so visible to the host. The function and its LUNs
@@ -481,33 +488,28 @@ type UsbGadget struct {
 	// can wake a suspended host. Formerly the absence of /boot/usb.notwakeup.
 	WakeupOnWrite bool `yaml:"wakeupOnWrite"`
 
-	// SerialConsole composes a bulk-only USB serial function (gser.GS0) and
-	// makes the resulting /dev/ttyGS* the console for the web terminal and
-	// IPMI SOL — both go through the one serial broker, so pointing it at the
-	// gadget device covers both. The host sees a plain bulk serial port (no
-	// CDC-ACM control interface, so no DTR and no line-coding requests).
+	// SerialConsole composes a CDC-ACM USB serial function (acm.GS0) and makes
+	// the resulting /dev/ttyGS* the console for the web terminal and IPMI SOL
+	// — both go through the one serial broker, so pointing it at the gadget
+	// device covers both.
 	//
-	// The host will NOT bind a driver to it on its own. f_serial presents a
-	// vendor-specific interface (class 0xFF), which matches no host class
-	// driver, so nothing enumerates as a tty until something claims the
-	// VID/PID — on Linux either
-	//
-	//	modprobe usbserial vendor=0x3346 product=0x1009
-	//
-	// (the gadget's default VendorID/ProductID, below) or the equivalent udev
-	// rule writing the pair to /sys/bus/usb-serial/drivers/generic/new_id.
-	// Without that the operator sees the device in lsusb and no /dev/ttyUSB*,
-	// which reads as a broken cable rather than a missing driver bind. The
-	// trade is deliberate: f_acm would auto-bind, and does not fit the
-	// endpoint budget below.
+	// The host binds it by itself. CDC-ACM is interface class 0x02 subclass
+	// 0x02, which Linux's cdc_acm matches with a wildcard VID/PID, so the
+	// managed host gets a /dev/ttyACM* with no modprobe, no udev rule and no
+	// firmware driver — which is what makes it usable as an OS console for
+	// SOL. (The predecessor here was f_serial/gser, class 0xFF, which matches
+	// no host class driver and needed an explicit usbserial bind before any
+	// tty appeared.)
 	//
 	// Defaults to false, and false is a real answer rather than "unset": the
-	// function costs one device IN endpoint, and the SG2002's dwc2 core
-	// implements exactly six of them, of which the standing composite
-	// (mass_storage 1, ncm 2, hid.GS0 1, hid.GS1 1) already uses five. Turning
-	// this on spends the last one — see the endpoint budget in
-	// pkg/device/usbgadget (maxINEndpoints) for why f_acm cannot be offered
-	// here instead and what refuses an over-budget set.
+	// function costs two device IN endpoints — acm_bind() autoconfigures a
+	// notification interrupt-IN it will not do without — and the SG2002's
+	// dwc2 core implements exactly six, of which the standing composite
+	// (mass_storage 1, eem 1, hid.GS0 1, hid.GS1 1) uses four. Turning this on
+	// spends the last two and lands the composite at exactly 6/6. It fits only
+	// while Ethernet is "eem"; with "ncm" or "ecm" the set is 7 and
+	// reconcileLinks refuses it. See the endpoint budget in
+	// pkg/device/usbgadget (maxINEndpoints).
 	SerialConsole bool `yaml:"serialConsole"`
 
 	// BindUDC binds the gadget to a UDC at startup. Formerly the absence of

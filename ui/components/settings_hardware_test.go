@@ -78,17 +78,23 @@ func TestHardwarePanelShowsTheConsoleDevice(t *testing.T) {
 	}
 }
 
-// f_serial presents a vendor-specific interface (class 0xFF), so no host class
-// driver claims it and no /dev/ttyUSB* appears until something binds the
-// VID/PID. Without that said here, the operator's report is "the port never
-// showed up" and the BMC looks broken.
-func TestHardwarePanelWarnsTheHostNeedsADriverBind(t *testing.T) {
+// f_acm costs two of the six IN endpoints the silicon serves, so the console
+// composes only while the RHI NIC is off or CDC-EEM. Enabling it against a
+// notify-carrying NIC is refused by the endpoint budget, and without that said
+// here the operator's report is "the switch does nothing" — the one failure
+// mode this copy exists to pre-empt. (The old vendor-specific gser warning is
+// gone with gser: cdc_acm binds on class, so no manual usbserial bind is
+// needed any more, and telling the operator to run one would be wrong.)
+func TestHardwarePanelExplainsTheEndpointConstraint(t *testing.T) {
 	html := renderHardwarePanel(t, SettingsHardware{USBSerialConsole: true, ConsoleDevice: "/dev/ttyGS0"})
 
-	for _, want := range []string{"usbserial", "0x3346", "0x1009"} {
+	for _, want := range []string{"CDC-ACM", "ttyACM", "endpoint"} {
 		if !strings.Contains(html, want) {
-			t.Errorf("the serial console copy never mentions %q, so nothing tells the operator the host will not auto-bind a driver", want)
+			t.Errorf("the serial console copy never mentions %q, so nothing tells the operator what the console is or when it will not compose", want)
 		}
+	}
+	if strings.Contains(html, "usbserial") {
+		t.Error("the copy still tells the operator to bind usbserial by hand; cdc_acm binds CDC-ACM on class")
 	}
 }
 

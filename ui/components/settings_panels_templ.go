@@ -1935,7 +1935,7 @@ func SettingsHardwareBody(m SettingsHardware) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				templ_7745c5c3_Err = settingsSwitchRow("usb-network", "network", "USB Ethernet",
-					"Present a CDC-NCM adapter to the host — the transport for the Redfish host interface.", m.USBNetwork).Render(ctx, templ_7745c5c3_Buffer)
+					"Present a CDC-EEM adapter to the host — the transport for the Redfish host interface. Bound by the host firmware's own driver; stock EDK2 UsbNetworkPkg does not carry one.", m.USBNetwork).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1953,7 +1953,7 @@ func SettingsHardwareBody(m SettingsHardware) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				templ_7745c5c3_Err = settingsSwitchRow("usb-serial-console", "serialConsole", "USB Serial Console",
-					"Present a bulk USB serial port to the host and make it the console for the web terminal and IPMI SOL, in place of serial.device. Re-enumerates the USB device and reconnects the console. The port is vendor-specific (USB class 0xFF), so the host binds no driver by itself: on Linux run modprobe usbserial vendor=0x3346 product=0x1009, or add the equivalent udev rule, or no /dev/ttyUSB* will appear.", m.USBSerialConsole).Render(ctx, templ_7745c5c3_Buffer)
+					"Present a CDC-ACM serial port to the host and make it the console for the web terminal and IPMI SOL, in place of serial.device. Re-enumerates the USB device and reconnects the console. The host binds it without help — Linux gets a /dev/ttyACM* from cdc_acm. Costs two of the six USB IN endpoints, so it fits only while USB Ethernet is off or CDC-EEM.", m.USBSerialConsole).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

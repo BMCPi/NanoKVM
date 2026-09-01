@@ -51,6 +51,64 @@ before the first report — an honest-empty collection, not a fabricated
 `BiosFirmware`; a NUC (or any other board) is free to PATCH under its own
 id, matching whatever its FMP driver's `ImageIdName`/GUID naturally is.
 
+## USB transport: what the host must drive
+
+The BMC's composite is bounded by silicon, and that bound decides which USB
+classes the host firmware has to support. The SG2002's dwc2 core implements
+six device IN endpoints (`GHWCFG4.num_dev_in_eps`; the FIFO count in
+`/sys/kernel/debug/usb/4340000.usb/fifo` is the same number and the only way
+to read it without `/dev/mem`). The composite spends all six:
+
+| function | IN endpoints | |
+| --- | --- | --- |
+| `mass_storage.disk0` | 1 | the FMP capsule volume, above |
+| `eem.usb0` | 1 | the RHI NIC |
+| `hid.GS0` | 1 | boot-protocol keyboard |
+| `hid.GS1` | 1 | pointer (relative + absolute) |
+| `acm.GS0` | 2 | serial console, optional |
+
+### The RHI NIC is CDC-EEM, and stock UsbNetworkPkg will not bind it
+
+`NetworkPkg/UsbNetwork` ships `UsbCdcEcm`, `UsbCdcNcm` and `UsbRndis`. All
+three describe a NIC with an interrupt-IN notification endpoint, which costs
+two IN endpoints — one more than the budget above leaves once the console is
+composed. CDC-EEM has no notification interface at all, so it costs one, and
+that is the only reason both a NIC and a CDC-ACM console fit at once.
+
+Consequence for host firmware: **ship a custom EEM SNP driver.** EEM framing
+is one 2-byte header per packet (`bmType`, CRC flag, 14-bit length), an
+optional Ethernet CRC that may be sent as the `0xdeadbeef` sentinel, and
+command packets (echo/echo-response) that a minimal driver may answer or
+drop. Two things follow from the missing notification endpoint:
+
+- **No link-state signalling.** ECM/NCM report connect/disconnect over the
+  interrupt endpoint; EEM cannot. The driver must assume link-up whenever the
+  device is enumerated, and must not wait for a notification that never
+  arrives.
+- **No speed change notification.** Report a fixed link speed.
+
+A Linux host binds `cdc_eem` on class (02/0C/07) with a wildcard VID/PID, so
+the RHI NIC *is* visible to a booted OS. This is a change of policy from the
+earlier vendor-specific plan: hiding the NIC from the OS was rejected because
+it is not a boundary — `new_id` binds any driver in one line — and the real
+control has to live on the BMC side. Note that `CheckAuth` still passes
+host-interface requests unauthenticated
+(`api/redfish/middleware.go:29-33`), so a booted OS reaching `usb0` reaches
+Redfish without credentials. That is unchanged, and unchanged deliberately;
+if it ever needs tightening, tighten it there and not in the descriptors.
+
+### The serial console is CDC-ACM
+
+`acm.GS0` is optional and off by default. When on, the host sees a standard
+CDC-ACM port (class 02/02) that `cdc_acm` binds with no help, giving a booted
+Linux a `/dev/ttyACM*` usable as `console=`. The BMC side is `/dev/ttyGS*`
+either way, feeding the web terminal and IPMI SOL through one broker.
+
+EDK2 has no in-tree CDC-ACM `SerialIo` driver — `UsbSerialDxe` in
+edk2-platforms is FTDI-specific — so firmware console redirection over this
+port needs a custom driver too. It is independent of the NIC: the console is
+a convenience, the NIC is the RHI.
+
 ## Redfish Host Interface (RHI) conventions
 
 The BMC's design deliberately departs from two things a stock

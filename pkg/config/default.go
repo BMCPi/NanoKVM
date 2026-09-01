@@ -117,7 +117,7 @@ var defaultConfig = &Config{
 		Product:       "NanoKVM",
 		MaxPower:      120,
 		BmAttributes:  "0xE0",
-		Ethernet:      "ncm", // "off"|"ncm"; matches usbgadget.EthernetNCM
+		Ethernet:      "eem", // "off"|"eem"; matches usbgadget.EthernetEEM
 		Disk:          true,
 		HID:           true,
 		BIOSMode:      true, // boot-subclass HID: EDK2's UsbKbDxe only binds subclass-1 keyboards
@@ -480,8 +480,8 @@ func applyUsbGadgetDefaults() {
 
 	// Function toggles. Each default-true bool is seeded only when its key is
 	// absent, so an operator's explicit false is preserved. Ethernet is a
-	// two-valued string ("off"/"ncm"); anything else (empty, invalid, or the
-	// retired "ecm") falls back to the default.
+	// two-valued string ("off"/"eem"); anything else (empty, invalid, or a
+	// retired "ecm"/"ncm") falls back to the default.
 	if !viper.IsSet("usbgadget.enabled") {
 		instance.UsbGadget.Enabled = defaultConfig.UsbGadget.Enabled
 	}
@@ -498,7 +498,7 @@ func applyUsbGadgetDefaults() {
 		instance.UsbGadget.Disk = defaultConfig.UsbGadget.Disk
 	}
 	switch instance.UsbGadget.Ethernet {
-	case "off", "ncm":
+	case "off", "eem":
 		// keep the operator's value
 	default:
 		instance.UsbGadget.Ethernet = defaultConfig.UsbGadget.Ethernet

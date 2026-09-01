@@ -1,7 +1,7 @@
 package config
 
 // usbgadget_test.go covers usbGadget.serialConsole defaulting. Unlike the
-// other gadget toggles it defaults OFF: composing the gser function costs the
+// other gadget toggles it defaults OFF: composing the acm function costs the
 // one free IN endpoint the SG2002's dwc2 core has left, so an existing
 // /etc/kvm/server.yaml that predates the key must come up exactly as it did
 // before — the same composite, the same endpoint budget.
@@ -47,8 +47,8 @@ func TestSerialConsoleDoesNotDisturbOtherGadgetToggles(t *testing.T) {
 	if !c.UsbGadget.Disk {
 		t.Error("UsbGadget.Disk = false, want the default true")
 	}
-	if c.UsbGadget.Ethernet != "ncm" {
-		t.Errorf("UsbGadget.Ethernet = %q, want the default \"ncm\"", c.UsbGadget.Ethernet)
+	if c.UsbGadget.Ethernet != "eem" {
+		t.Errorf("UsbGadget.Ethernet = %q, want the default \"eem\"", c.UsbGadget.Ethernet)
 	}
 }
 

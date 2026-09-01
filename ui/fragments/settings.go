@@ -459,7 +459,7 @@ func (h *handlers) postHardware(c *gin.Context) {
 
 	mode := usbgadget.EthernetOff
 	if checked(c, "network") {
-		mode = usbgadget.EthernetNCM
+		mode = usbgadget.EthernetEEM
 	}
 	if err := gadget.SetEthernet(mode); err != nil {
 		h.log.ErrorContext(c.Request.Context(), "ui: set ethernet failed", slog.String("mode", mode), slog.Any("err", err))

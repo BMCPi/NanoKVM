@@ -8,22 +8,43 @@ import (
 )
 
 // serialFuncName is the configfs function directory for the optional USB
-// serial console: f_serial (gser), not f_acm.
+// serial console: f_acm (CDC-ACM), not f_serial (gser).
 //
-// gser is bulk-IN + bulk-OUT and nothing else. f_acm would be the friendlier
-// device on the host side (a CDC-ACM /dev/ttyACM* with line coding and DTR),
-// but acm_bind() makes three unguarded usb_ep_autoconfig() calls — its notify
+// acm_bind() makes three unguarded usb_ep_autoconfig() calls — its notify
 // interrupt-IN is not optional — so it costs 2 IN endpoints where gser costs
-// 1, and there is exactly one left (see maxINEndpoints). Both sit on the same
-// u_serial core, so the BMC side is /dev/ttyGS* either way.
-const serialFuncName = "gser.GS0"
+// 1. That second endpoint is affordable only because the RHI NIC moved from
+// ncm (bulk-IN + notify interrupt-IN, 2) to eem (bulk-IN alone, 1): the swap
+// is endpoint-neutral and the composite still lands at exactly 6 (see
+// maxINEndpoints). Reverting either half alone overruns the budget.
+//
+// What the second endpoint buys is a host that binds a driver by itself.
+// CDC-ACM is class 0x02/0x02, which cdc_acm matches with a wildcard VID/PID,
+// so a Linux host gets /dev/ttyACM0 with no modprobe and no udev rule — the
+// thing IPMI SOL actually wants. gser is class 0xFF and matches nothing.
+// Both sit on the same u_serial core, so the BMC side is /dev/ttyGS* either
+// way.
+const serialFuncName = "acm.GS0"
 
 // maxINEndpoints is how many device IN endpoints the SG2002's dwc2 core
-// implements: GHWCFG4 bits[29:26] read 6 on the live board, and
-// dwc2_hsotg_ep_enable() scans `for (i = 1; i <= num_dev_in_eps; ++i)`. It is
-// a silicon parameter — no device-tree property raises it — so the composite
-// has a hard ceiling of 6 IN endpoints regardless of what configfs will let
-// you link.
+// implements. It is a silicon parameter — GHWCFG4's num_dev_in_eps — and no
+// device-tree property raises it, so the composite has a hard ceiling of 6 IN
+// endpoints regardless of what configfs will let you link.
+//
+// The board looks like it has seven, and that trap has been walked into once
+// already. /sys/kernel/debug/usb/4340000.usb/hw_params reports num_dev_ep 7,
+// the driver exposes ep1in..ep7in, and the FIFO layout comes from a
+// g-tx-fifo-size array in the DT — all of which suggests declaring a seventh
+// entry buys a seventh IN endpoint. It does not. dwc2_hsotg_ep_enable()
+// searches `for (i = 1; i <= fifo_count; ++i)` with fifo_count from
+// dwc2_hsotg_tx_fifo_count(), which in dedicated-FIFO mode (this core:
+// en_multiple_tx_fifo 1) returns num_dev_in_eps and nothing else. DT entries
+// past that index are never programmed; the endpoint fails to enable with
+// "No suitable fifo found" and -ENOMEM.
+//
+// To re-measure on a live board without /dev/mem: count the DPTXFIFO lines in
+// /sys/kernel/debug/usb/4340000.usb/fifo. fifo_show() bounds that same loop by
+// dwc2_hsotg_tx_fifo_count(), so the line count *is* num_dev_in_eps. It reads
+// 6.
 //
 // Overrunning it does not fail at link time. The kernel accepts the symlinks
 // and then fails the host's SET_CONFIGURATION with -ENOMEM and a
@@ -36,12 +57,17 @@ const maxINEndpoints = 6
 // type (the part before the "." in a configfs instance name).
 //
 //   - mass_storage: bulk-IN.
-//   - ncm/ecm/rndis: bulk-IN plus an interrupt-IN notification endpoint.
-//   - eem: bulk-IN only, no notification interface.
+//   - ncm/ecm/rndis: bulk-IN plus an interrupt-IN notification endpoint. Any
+//     of the three costs the endpoint acm needs, which is why the RHI NIC is
+//     eem — see serialFuncName.
+//   - eem: bulk-IN only. CDC-EEM has no notification interface at all, so it
+//     also has no link-state signalling; the host must assume link-up.
+//   - geth: bulk-IN only, like eem, but a vendor-specific class no host binds
+//     unclaimed. Not composed today; costed so a future toggle cannot add it
+//     silently.
 //   - hid: one interrupt-IN per function (this composite has two).
 //   - gser: bulk-IN only.
-//   - acm: bulk-IN plus an unconditional interrupt-IN — the reason it is not
-//     an option here.
+//   - acm: bulk-IN plus an unconditional interrupt-IN.
 //
 // OUT endpoints are not budgeted: the dwc2 core's OUT direction is not the
 // scarce resource, and nothing in this composite comes close to its limit.
@@ -51,13 +77,14 @@ var inEndpointCosts = map[string]int{
 	"ecm":          2,
 	"rndis":        2,
 	"eem":          1,
+	"geth":         1,
 	"hid":          1,
 	"gser":         1,
 	"acm":          2,
 }
 
 // inEndpointCost returns the IN endpoints one configfs function costs. fn may
-// be a full instance name ("ncm.usb0") or a bare function type ("ncm").
+// be a full instance name ("eem.usb0") or a bare function type ("eem").
 //
 // An unrecognised function is charged one endpoint rather than zero: a
 // function nobody costed is far more likely to need an endpoint than not, and
@@ -97,7 +124,7 @@ func checkEndpointBudget(fns []string) error {
 		total, maxINEndpoints, strings.Join(costs, ", "))
 }
 
-// ensureSerialFunc creates the gser function directory. gser has no writable
+// ensureSerialFunc creates the acm function directory. f_acm has no writable
 // attributes — u_serial allocates its port at function-instance creation and
 // reports it read-only in port_num — so this is a bare, idempotent mkdir.
 // Caller holds g.mu.
@@ -116,7 +143,7 @@ func (g *Gadget) ensureSerialFunc() error {
 //
 // The port number is read back from configfs rather than assumed to be 0:
 // u_serial numbers its ports by allocation order across every f_serial/f_acm
-// instance, so gser.GS0 is only ttyGS0 while it is the first one allocated.
+// instance, so acm.GS0 is only ttyGS0 while it is the first one allocated.
 func (g *Gadget) SerialConsoleDevice() string {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -155,7 +182,7 @@ func (g *Gadget) SerialConsoleDevice() string {
 // host re-enumerates the device. The caller is responsible for restarting the
 // serial broker afterwards — the console device changes with the topology.
 //
-// Turning it off leaves functions/gser.GS0 in place and only removes the
+// Turning it off leaves functions/acm.GS0 in place and only removes the
 // symlink, the same way mass_storage.disk0 is kept: removing a u_serial
 // function instance releases its port number, which would renumber every
 // other ttyGS on the system.

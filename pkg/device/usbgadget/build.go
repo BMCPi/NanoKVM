@@ -146,11 +146,15 @@ func (g *Gadget) ensureHIDFuncs() error {
 	return nil
 }
 
-// ensureEthernetFunc creates the ncm function directory for mode and pins
-// both MAC addresses. The host side MUST be RHIHostMAC: EDK2's UsbNetworkPkg
-// driver on the managed host correlates the RHI NIC by station address, and a
-// random kernel-assigned MAC breaks that discovery on every boot. Both are
-// locally-administered unicast addresses. Caller holds g.mu.
+// ensureEthernetFunc creates the eem function directory for mode and pins
+// both MAC addresses. The host side MUST be RHIHostMAC: the managed host's
+// EDK2 SNP driver correlates the RHI NIC by station address, and a random
+// kernel-assigned MAC breaks that discovery on every boot. Both are
+// locally-administered unicast addresses.
+//
+// f_eem exposes the same u_ether attributes f_ncm did (dev_addr, host_addr,
+// qmult, ifname), so the swap needs nothing here beyond the function name.
+// Caller holds g.mu.
 func (g *Gadget) ensureEthernetFunc(mode string) error {
 	name := ethernetFuncName(mode)
 	if name == "" {
@@ -181,8 +185,8 @@ func (g *Gadget) ensureEthernetFunc(mode string) error {
 
 func ethernetFuncName(mode string) string {
 	switch mode {
-	case EthernetNCM:
-		return ncmFuncName
+	case EthernetEEM:
+		return eemFuncName
 	default:
 		return ""
 	}
