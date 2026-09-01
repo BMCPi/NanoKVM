@@ -253,9 +253,15 @@ if get_ok "GET Chassis/1/Thermal" /redfish/v1/Chassis/1/Thermal; then
   else
     skip "SoC temperature reading plausible" "sensor not fresh; Thermal omits stale readings"
   fi
-  body_check "ActiveCooler fan reported (percent + PiBmc level)" \
-    '[.Fans[]? | select(.MemberId == "ActiveCooler")][0] as $f
-     | $f != null and $f.ReadingUnits == "Percent" and ($f.Oem.PiBmc.MaxLevel | type == "number")'
+  # Fans is emitted only when the I2C sensor block has a valid fan reading
+  # (api/redfish/chassis.go thermalBody); fan-less platforms omit it entirely.
+  if jq -e '.Fans' >/dev/null 2>&1 <<<"$RF_BODY"; then
+    body_check "ActiveCooler fan reported (percent + PiBmc level)" \
+      '[.Fans[]? | select(.MemberId == "ActiveCooler")][0] as $f
+       | $f != null and $f.ReadingUnits == "Percent" and ($f.Oem.PiBmc.MaxLevel | type == "number")'
+  else
+    skip "ActiveCooler fan reported" "no fan telemetry on this platform"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
