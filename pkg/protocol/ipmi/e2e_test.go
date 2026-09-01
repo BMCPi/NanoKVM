@@ -9,7 +9,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"hash/crc32"
 	"io"
 	"log/slog"
 	"net"
@@ -23,7 +22,7 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/api/redfish"
 	"github.com/pi-bmc/nanokvm-app/pkg/app/firmware"
-	"github.com/pi-bmc/nanokvm-app/pkg/device/bmcsensor"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/hostsensor"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/serial"
 )
 
@@ -126,32 +125,26 @@ func (b *fakeBroker) Write(p []byte) (int, error) {
 	return b.keystroke.Write(p)
 }
 
-type fakeSensors struct{ reading bmcsensor.Reading }
+// fakeSensors is the sensorSource this suite hands the HAL: a canned
+// hostsensor.Reading, since sensorHAL now speaks the board-agnostic seam
+// rather than this package's own wire format.
+type fakeSensors struct{ reading hostsensor.Reading }
 
-func (f fakeSensors) Read() (bmcsensor.Reading, error) { return f.reading, nil }
+func (f fakeSensors) Latest() (hostsensor.Reading, bool) { return f.reading, true }
 
-// sensorReading builds a Reading through the real wire parser, since the
-// fan-block validity flag is not settable from outside the package.
-func sensorReading(t *testing.T, milliC int32, dutyPct uint8) bmcsensor.Reading {
-	t.Helper()
-	b := make([]byte, bmcsensor.RecordSize)
-	binary.LittleEndian.PutUint32(b[0:4], bmcsensor.RecordMagic)
-	binary.LittleEndian.PutUint16(b[4:6], bmcsensor.RecordVersion)
-	binary.LittleEndian.PutUint16(b[6:8], bmcsensor.RecordSize)
-	binary.LittleEndian.PutUint32(b[8:12], 7) // seq
-	binary.LittleEndian.PutUint32(b[12:16], uint32(milliC))
-	binary.LittleEndian.PutUint32(b[20:24], bmcsensor.StatusTempValid)
-	b[24] = 2 // fan level
-	b[25] = 4
-	b[26] = dutyPct
-	b[27] = bmcsensor.FanValidFlag
-	binary.LittleEndian.PutUint32(b[bmcsensor.RecordSize-4:], crc32.ChecksumIEEE(b[:bmcsensor.RecordSize-4]))
-
-	rec, err := bmcsensor.ParseRecord(b)
-	if err != nil {
-		t.Fatalf("build sensor record: %v", err)
+// sensorReading builds a live host reading directly: TempValid/FanValid are
+// plain exported fields on hostsensor.Reading, so — unlike bmcsensor's own
+// wire-format Reading — there is no parser to round-trip through to set them.
+func sensorReading(milliC int32, dutyPct uint8) hostsensor.Reading {
+	return hostsensor.Reading{
+		At:          time.Now(),
+		TempC:       float64(milliC) / 1000,
+		TempValid:   true,
+		FanDutyPct:  float64(dutyPct),
+		FanLevel:    2,
+		FanMaxLevel: 4,
+		FanValid:    true,
 	}
-	return bmcsensor.Reading{Record: rec, At: time.Now()}
 }
 
 // --- the test ----------------------------------------------------------------
@@ -168,7 +161,7 @@ func TestEndToEnd(t *testing.T) {
 		power:    fp,
 		firmware: fakeFirmware{status: firmware.Status{VolumeReady: true, Staging: true, VolumeSize: 48 << 20}},
 		broker:   &fakeBroker{},
-		sensors:  fakeSensors{reading: sensorReading(t, 55400, 49)},
+		sensors:  fakeSensors{reading: sensorReading(55400, 49)},
 		log:      slog.New(slog.DiscardHandler),
 	})
 	if err != nil {

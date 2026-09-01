@@ -7,7 +7,7 @@ import (
 
 	"github.com/bougou/go-ipmi/pkg/hal"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/device/bmcsensor"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/hostsensor"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/serial"
 )
 
@@ -35,9 +35,11 @@ type consoleBroker interface {
 	Write(p []byte) (int, error)
 }
 
-// sensorSource is the slice of bmcsensor.Reader the sensor HAL needs.
+// sensorSource is the slice of hostsensor.Source the sensor HAL needs. nil
+// on a board with no registered Source (see pkg/device/hostsensor); sensorHAL
+// treats that the same as "not found" rather than panicking on it.
 type sensorSource interface {
-	Read() (bmcsensor.Reading, error)
+	Latest() (hostsensor.Reading, bool)
 }
 
 // appHAL is this BMC's hal.HAL: chassis power via the GPIO power controller,

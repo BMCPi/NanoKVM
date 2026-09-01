@@ -24,7 +24,7 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/app/firmware"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
-	"github.com/pi-bmc/nanokvm-app/pkg/device/bmcsensor"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/hostsensor"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/power"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/serial"
 	"github.com/pi-bmc/nanokvm-app/pkg/logger"
@@ -85,6 +85,16 @@ type deps struct {
 // arrives as a datagram and the requester does not stay on the line — so it
 // is what carries telemetry and bounds the detached power sequences.
 func Start(ctx context.Context, cfg *config.Config, powerCtrl *power.Controller, fwCtrl *firmware.Controller, log *slog.Logger) (*Server, error) {
+	// The registered hostsensor.Source, or nil on a board with no
+	// host-telemetry channel — sensorHAL treats a nil source as "no
+	// sensors" rather than panicking on it. Read once here rather than
+	// through hostsensor.Get() on every request: main registers it (if at
+	// all) during startup, before this ever runs.
+	var sensors sensorSource
+	if s, ok := hostsensor.Get(); ok {
+		sensors = s
+	}
+
 	return startServer(ctx, deps{
 		port:        cfg.IPMI.Port,
 		username:    cfg.IPMI.Username,
@@ -93,11 +103,8 @@ func Start(ctx context.Context, cfg *config.Config, powerCtrl *power.Controller,
 		resetPolicy: cfg.Power.Reset,
 		firmware:    fwCtrl,
 		broker:      serial.GetBroker(),
-		// The shared sampler, not a Reader of its own: staleness is measured
-		// from when the sequence was first observed, so a consumer with its own
-		// reader calls a long-dead host's last sample fresh.
-		sensors: bmcsensor.Default(),
-		log:     log,
+		sensors:     sensors,
+		log:         log,
 	})
 }
 

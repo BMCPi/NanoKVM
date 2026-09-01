@@ -35,7 +35,7 @@ func TestClientConformance(t *testing.T) {
 		power:    fp,
 		firmware: fakeFirmware{status: firmware.Status{VolumeReady: true, VolumeSize: 48 << 20}},
 		broker:   &fakeBroker{},
-		sensors:  fakeSensors{reading: sensorReading(t, 61200, 75)},
+		sensors:  fakeSensors{reading: sensorReading(61200, 75)},
 		log:      slog.New(slog.DiscardHandler),
 	})
 	if err != nil {
