@@ -210,6 +210,20 @@ func initialize(ctx context.Context) {
 	// the Redfish routes both read it.
 	redfish.LoadHostState(rootLog.With("component", "redfish"))
 
+	// Build the USB gadget (g0 + all functions + UDC bind) before presenting the
+	// capsule volume. usbgadget is the sole owner of the gadget configfs — this
+	// replaces the old S03usbdev init script — so the host-visible topology and
+	// a bound UDC come up independent of the capsule volume's availability.
+	//
+	// Also before the serial capture below: when usbGadget.serialConsole is on,
+	// the console is the gadget's own /dev/ttyGS*, which does not exist until
+	// the gser function has been created here. (The capture would recover
+	// either way — its first open would ENOENT and retry on the 5s interval —
+	// but there is no reason to lose the first seconds of host output.)
+	if err := usbgadget.Get().Init(rootLog.With("component", "usbgadget")); err != nil {
+		slog.ErrorContext(ctx, "USB gadget init failed", slog.Any("err", err))
+	}
+
 	// Begin the always-on capture of the host's serial console to a bounded
 	// file on the data partition, so its boot/crash logs are retained even
 	// when no terminal or SOL session is watching. Holds the port open for
@@ -223,14 +237,6 @@ func initialize(ctx context.Context) {
 		} else {
 			ipmiServer = srv
 		}
-	}
-
-	// Build the USB gadget (g0 + all functions + UDC bind) before presenting the
-	// capsule volume. usbgadget is the sole owner of the gadget configfs — this
-	// replaces the old S03usbdev init script — so the host-visible topology and
-	// a bound UDC come up independent of the capsule volume's availability.
-	if err := usbgadget.Get().Init(rootLog.With("component", "usbgadget")); err != nil {
-		slog.ErrorContext(ctx, "USB gadget init failed", slog.Any("err", err))
 	}
 
 	// Configure the host-facing interfaces via netlink: eth0 (static or an

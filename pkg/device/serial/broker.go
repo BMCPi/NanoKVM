@@ -6,6 +6,7 @@ package serial
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/serial/circular"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/usbgadget"
 	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 	"github.com/pi-bmc/nanokvm-app/pkg/platform/telemetry"
 )
@@ -110,6 +112,14 @@ type Broker struct {
 
 	// sessionCount is an atomic counter for fast len checks and unique ID generation.
 	sessionCount atomic.Int32
+
+	// writeSlot admits one writer to the port at a time, including a writer
+	// that has already timed out and been abandoned — so a port nobody is
+	// draining accumulates one parked goroutine rather than one per
+	// keystroke, and no two writes can land out of order. Created lazily
+	// under b.mu (Write takes it anyway to read stdin) so a zero-value Broker
+	// still writes.
+	writeSlot chan struct{}
 }
 
 // newScrollback allocates the shared history buffer.
@@ -233,18 +243,83 @@ func (b *Broker) Disconnect(id string) {
 	pkgLog().Info("serial: session disconnected", slog.String("session", id), slog.Int("remaining", int(remaining)))
 }
 
+// ErrWriteTimeout is returned by Write when the port did not accept the data
+// within writeTimeout, and by any further Write while that one is still
+// parked. Callers get an error rather than a silent drop: a console that is
+// swallowing keystrokes must say so.
+var ErrWriteTimeout = errors.New("serial write timed out: the port is not being drained")
+
+// writeTimeout bounds one Broker.Write. A var so tests can shorten it.
+//
+// A real UART drains at line rate and never gets near this. The bound is for
+// the USB gadget console: u_serial buffers WRITE_BUF_SIZE (8 KB) and then
+// blocks the writer indefinitely while no host is reading the port, and gser
+// carries no DTR, so the BMC cannot tell "the host enumerated the device"
+// from "something on the host has the port open". Write is called from the
+// WebSocket keystroke pump and the IPMI SOL engine; neither may be pinned to
+// a goroutine forever by a host that never reads.
+var writeTimeout = 2 * time.Second
+
 // Write sends data to the serial port. Safe to call from any goroutine.
+//
+// The port write runs on its own goroutine so a port that never accepts it
+// cannot hold the caller: after writeTimeout the caller gets ErrWriteTimeout
+// and the write is abandoned, still parked until the port drains or is
+// closed. writeSlot keeps exactly one write outstanding, so concurrent
+// callers (the keystroke pump, the SOL engine) still get in one after another
+// on a healthy port, while a stuck one costs a single parked goroutine and
+// drops what arrives behind it rather than queueing it up.
 func (b *Broker) Write(data []byte) (int, error) {
 	b.mu.Lock()
 	stdin := b.stdin
+	if b.writeSlot == nil {
+		b.writeSlot = make(chan struct{}, 1)
+	}
+	slot := b.writeSlot
 	b.mu.Unlock()
 
 	if stdin == nil {
 		return 0, fmt.Errorf("serial port not active")
 	}
-	n, err := stdin.Write(data)
-	telemetry.SerialBytesTx(context.Background(), n)
-	return n, err
+
+	deadline := time.NewTimer(writeTimeout)
+	defer deadline.Stop()
+
+	select {
+	case slot <- struct{}{}:
+	case <-deadline.C:
+		return 0, writeGaveUp(len(data), "waiting behind an earlier write")
+	}
+
+	type writeResult struct {
+		n   int
+		err error
+	}
+	// Buffered: an abandoned write must be able to report and exit rather
+	// than block on a send nobody is receiving.
+	done := make(chan writeResult, 1)
+	go func() {
+		n, err := stdin.Write(data)
+		<-slot
+		done <- writeResult{n, err}
+	}()
+
+	select {
+	case res := <-done:
+		telemetry.SerialBytesTx(context.Background(), res.n)
+		return res.n, res.err
+	case <-deadline.C:
+		return 0, writeGaveUp(len(data), "the port is not draining")
+	}
+}
+
+// writeGaveUp logs and builds the error for a dropped write. Keystrokes are
+// dropped loudly: a console silently swallowing input is indistinguishable
+// from a wedged host.
+func writeGaveUp(n int, why string) error {
+	pkgLog().Warn("serial: write not accepted; dropping input",
+		slog.Int("bytes", n), slog.Duration("timeout", writeTimeout), slog.String("reason", why))
+	return fmt.Errorf("%w (%s, gave up after %s)", ErrWriteTimeout, why, writeTimeout)
 }
 
 // Active reports whether the serial port process is running.
@@ -313,11 +388,38 @@ func mapStopBits(bits int) goserial.StopBits {
 	}
 }
 
+// gadgetConsoleDevice reports the USB gadget's serial console device, or ""
+// when the gadget is not composing one. It is a var so tests can resolve a
+// device without a configfs tree; production always reads the live gadget.
+//
+// The dependency only points this way: pkg/device/usbgadget knows nothing
+// about this package.
+var gadgetConsoleDevice = func() string { return usbgadget.Get().SerialConsoleDevice() }
+
+// resolveDevice picks the port the broker opens. The USB gadget console wins
+// when it is enabled — that is the approved policy, and it is why nothing
+// writes the ttyGS path back into Serial.Device: resolution happens here, at
+// open time, so turning the gadget console off restores the operator's
+// configured port instead of leaving a persisted default behind.
+func resolveDevice(configured string) string {
+	if dev := gadgetConsoleDevice(); dev != "" {
+		return dev
+	}
+	return configured
+}
+
+// ConsoleDevice reports the device the next port open will use, for callers
+// that display it (the settings UI). It answers from live state, so it tracks
+// a gadget toggle without a restart.
+func ConsoleDevice() string {
+	return resolveDevice(config.GetInstance().Serial.Device)
+}
+
 // startLocked opens the serial port with the configured parameters.
 // Caller must hold b.mu.
 func (b *Broker) startLocked() error {
 	cfg := config.GetInstance()
-	device := cfg.Serial.Device
+	device := resolveDevice(cfg.Serial.Device)
 
 	mode := &goserial.Mode{
 		BaudRate: cfg.Serial.BaudRate,

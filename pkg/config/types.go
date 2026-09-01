@@ -481,6 +481,21 @@ type UsbGadget struct {
 	// can wake a suspended host. Formerly the absence of /boot/usb.notwakeup.
 	WakeupOnWrite bool `yaml:"wakeupOnWrite"`
 
+	// SerialConsole composes a bulk-only USB serial function (gser.GS0) and
+	// makes the resulting /dev/ttyGS* the console for the web terminal and
+	// IPMI SOL — both go through the one serial broker, so pointing it at the
+	// gadget device covers both. The host sees a plain bulk serial port (no
+	// CDC-ACM control interface, so no DTR and no line-coding requests).
+	//
+	// Defaults to false, and false is a real answer rather than "unset": the
+	// function costs one device IN endpoint, and the SG2002's dwc2 core
+	// implements exactly six of them, of which the standing composite
+	// (mass_storage 1, ncm 2, hid.GS0 1, hid.GS1 1) already uses five. Turning
+	// this on spends the last one — see the endpoint budget in
+	// pkg/device/usbgadget (maxINEndpoints) for why f_acm cannot be offered
+	// here instead and what refuses an over-budget set.
+	SerialConsole bool `yaml:"serialConsole"`
+
 	// BindUDC binds the gadget to a UDC at startup. Formerly the absence of
 	// /boot/udc.disable.
 	BindUDC bool `yaml:"bindUDC"`

@@ -98,7 +98,7 @@ type hidSpec struct {
 // largest report including the ID byte (absolute: 1+6).
 func hidSpecs() []hidSpec {
 	return []hidSpec{
-		{name: "hid.GS0", protocol: 1, reportLength: 8, reportDesc: keyboardReportDesc},
-		{name: "hid.GS1", protocol: 2, reportLength: 7, reportDesc: combinedMouseReportDesc},
+		{name: hidKeyboardFuncName, protocol: 1, reportLength: 8, reportDesc: keyboardReportDesc},
+		{name: hidPointerFuncName, protocol: 2, reportLength: 7, reportDesc: combinedMouseReportDesc},
 	}
 }

@@ -54,5 +54,6 @@ func (g *Gadget) persistHardwareLocked() {
 	inst := config.GetInstance()
 	inst.UsbGadget.Ethernet = g.cfg.Ethernet
 	inst.UsbGadget.Disk = g.cfg.Disk
+	inst.UsbGadget.SerialConsole = g.cfg.SerialConsole
 	config.Save()
 }

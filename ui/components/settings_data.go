@@ -101,6 +101,13 @@ type SettingsHardware struct {
 	USBDisk    bool
 	MediaState string
 
+	// USBSerialConsole is the optional bulk-only serial function, and
+	// ConsoleDevice is the port the console actually opens with it in its
+	// current state — the gadget's /dev/ttyGS* when it is on, the configured
+	// serial.device when it is off.
+	USBSerialConsole bool
+	ConsoleDevice    string
+
 	GadgetEnabled bool
 	HID           bool
 	BIOSMode      bool

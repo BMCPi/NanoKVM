@@ -8,4 +8,8 @@ package usbgadget
 type State struct {
 	Ethernet string `json:"ethernet"` // "off" | "ncm"
 	Disk     bool   `json:"disk"`     // whether mass_storage.disk0 is linked into c.1
+	// SerialConsole reports whether gser.GS0 is composed — and therefore
+	// whether the web terminal and IPMI SOL are on the gadget's /dev/ttyGS*
+	// instead of the configured serial.device.
+	SerialConsole bool `json:"serialConsole"`
 }

@@ -1,0 +1,166 @@
+package usbgadget
+
+import (
+	"fmt"
+	"path/filepath"
+	"strconv"
+	"strings"
+)
+
+// serialFuncName is the configfs function directory for the optional USB
+// serial console: f_serial (gser), not f_acm.
+//
+// gser is bulk-IN + bulk-OUT and nothing else. f_acm would be the friendlier
+// device on the host side (a CDC-ACM /dev/ttyACM* with line coding and DTR),
+// but acm_bind() makes three unguarded usb_ep_autoconfig() calls — its notify
+// interrupt-IN is not optional — so it costs 2 IN endpoints where gser costs
+// 1, and there is exactly one left (see maxINEndpoints). Both sit on the same
+// u_serial core, so the BMC side is /dev/ttyGS* either way.
+const serialFuncName = "gser.GS0"
+
+// maxINEndpoints is how many device IN endpoints the SG2002's dwc2 core
+// implements: GHWCFG4 bits[29:26] read 6 on the live board, and
+// dwc2_hsotg_ep_enable() scans `for (i = 1; i <= num_dev_in_eps; ++i)`. It is
+// a silicon parameter — no device-tree property raises it — so the composite
+// has a hard ceiling of 6 IN endpoints regardless of what configfs will let
+// you link.
+//
+// Overrunning it does not fail at link time. The kernel accepts the symlinks
+// and then fails the host's SET_CONFIGURATION with -ENOMEM and a
+// "No suitable fifo found" line in dmesg, which reads as a host or cable
+// problem. checkEndpointBudget exists to turn that into an error naming the
+// functions that did not fit.
+const maxINEndpoints = 6
+
+// inEndpointCosts is the per-function IN-endpoint cost, keyed by function
+// type (the part before the "." in a configfs instance name).
+//
+//   - mass_storage: bulk-IN.
+//   - ncm/ecm/rndis: bulk-IN plus an interrupt-IN notification endpoint.
+//   - eem: bulk-IN only, no notification interface.
+//   - hid: one interrupt-IN per function (this composite has two).
+//   - gser: bulk-IN only.
+//   - acm: bulk-IN plus an unconditional interrupt-IN — the reason it is not
+//     an option here.
+//
+// OUT endpoints are not budgeted: the dwc2 core's OUT direction is not the
+// scarce resource, and nothing in this composite comes close to its limit.
+var inEndpointCosts = map[string]int{
+	"mass_storage": 1,
+	"ncm":          2,
+	"ecm":          2,
+	"rndis":        2,
+	"eem":          1,
+	"hid":          1,
+	"gser":         1,
+	"acm":          2,
+}
+
+// inEndpointCost returns the IN endpoints one configfs function costs. fn may
+// be a full instance name ("ncm.usb0") or a bare function type ("ncm").
+//
+// An unrecognised function is charged one endpoint rather than zero: a
+// function nobody costed is far more likely to need an endpoint than not, and
+// undercounting by one still refuses the sets that are furthest over budget.
+func inEndpointCost(fn string) int {
+	kind, _, _ := strings.Cut(fn, ".")
+	if cost, ok := inEndpointCosts[kind]; ok {
+		return cost
+	}
+	return 1
+}
+
+// totalINEndpoints sums the IN-endpoint cost of a function set.
+func totalINEndpoints(fns []string) int {
+	total := 0
+	for _, fn := range fns {
+		total += inEndpointCost(fn)
+	}
+	return total
+}
+
+// checkEndpointBudget refuses a function set the UDC cannot serve. The error
+// names the total, the ceiling and every function's cost, because the whole
+// point is to say what did not fit while the operator can still act on it.
+func checkEndpointBudget(fns []string) error {
+	total := totalINEndpoints(fns)
+	if total <= maxINEndpoints {
+		return nil
+	}
+
+	costs := make([]string, 0, len(fns))
+	for _, fn := range fns {
+		costs = append(costs, fmt.Sprintf("%s=%d", fn, inEndpointCost(fn)))
+	}
+	return fmt.Errorf(
+		"usb IN-endpoint budget exceeded: %d needed, %d available (SG2002 dwc2 GHWCFG4 num_dev_in_eps, a silicon limit); functions: %s",
+		total, maxINEndpoints, strings.Join(costs, ", "))
+}
+
+// ensureSerialFunc creates the gser function directory. gser has no writable
+// attributes — u_serial allocates its port at function-instance creation and
+// reports it read-only in port_num — so this is a bare, idempotent mkdir.
+// Caller holds g.mu.
+func (g *Gadget) ensureSerialFunc() error {
+	dir := filepath.Join(g.functionsPath(), serialFuncName)
+	if err := g.fs.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create %s: %w", serialFuncName, err)
+	}
+	return nil
+}
+
+// SerialConsoleDevice returns the BMC-side device node of the USB serial
+// console — /dev/ttyGS<port_num> — or "" when the console is disabled or the
+// function does not exist. pkg/device/serial resolves the port it opens
+// through this at open time; nothing persists the path.
+//
+// The port number is read back from configfs rather than assumed to be 0:
+// u_serial numbers its ports by allocation order across every f_serial/f_acm
+// instance, so gser.GS0 is only ttyGS0 while it is the first one allocated.
+func (g *Gadget) SerialConsoleDevice() string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	// Checked before touching the tree: the function directory outlives a
+	// toggle-off (reconcileLinks only drops the symlink), so a stale port_num
+	// must not resurrect a console the operator turned off.
+	if !g.cfg.SerialConsole {
+		return ""
+	}
+
+	raw, err := g.fs.ReadFile(filepath.Join(g.functionsPath(), serialFuncName, "port_num"))
+	if err != nil {
+		return ""
+	}
+	port, err := strconv.Atoi(trimAttr(string(raw)))
+	if err != nil || port < 0 {
+		return ""
+	}
+	return fmt.Sprintf("/dev/ttyGS%d", port)
+}
+
+// SetSerialConsole composes (or drops) the USB serial function and persists
+// the choice. Like the other function toggles this relinks the config, so the
+// host re-enumerates the device. The caller is responsible for restarting the
+// serial broker afterwards — the console device changes with the topology.
+//
+// Turning it off leaves functions/gser.GS0 in place and only removes the
+// symlink, the same way mass_storage.disk0 is kept: removing a u_serial
+// function instance releases its port number, which would renumber every
+// other ttyGS on the system.
+func (g *Gadget) SetSerialConsole(on bool) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if on == g.cfg.SerialConsole {
+		return nil
+	}
+	if on {
+		if err := g.ensureSerialFunc(); err != nil {
+			return err
+		}
+	}
+	g.cfg.SerialConsole = on
+	g.persistHardwareLocked()
+	return g.reconcileLinks()
+}

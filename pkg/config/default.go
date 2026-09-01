@@ -122,6 +122,12 @@ var defaultConfig = &Config{
 		HID:           true,
 		BIOSMode:      true, // boot-subclass HID: EDK2's UsbKbDxe only binds subclass-1 keyboards
 		WakeupOnWrite: true,
+		// Off by default, and deliberately not seeded through viper.IsSet like
+		// the toggles above: the default and the zero value agree, so an
+		// upgraded config that predates the key composes exactly the gadget it
+		// did before — which matters here because the function spends the
+		// board's last free USB IN endpoint.
+		SerialConsole: false,
 		BindUDC:       true,
 		UDCName:       "", // auto-detect (this board: 4340000.usb)
 		OTGRolePath:   "/proc/cviusb/otg_role",
