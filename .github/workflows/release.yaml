@@ -16,9 +16,6 @@ env:
   IMAGE: ghcr.io/${{ github.repository }}
   CGO_ENABLED: 0
   GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
-  # .goreleaser.yaml's rpiboot build reads this (BOARD_TOOLS packaging axis,
-  # see the Makefile header comment); keeps today's RPi release contents.
-  BOARD_TOOLS: rpiboot bmc-sensord
 
 jobs:
   release:

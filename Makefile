@@ -14,8 +14,10 @@ PWD := $(shell pwd)
 # keeps both, matching today's RPi deploys; override to exclude, e.g.:
 #   make deploy BOARD_TOOLS=
 #   make snapshot BOARD_TOOLS=
-# .goreleaser.yaml's rpiboot build reads the same variable (passed through
-# by the `snapshot` target below) to skip that binary the same way.
+# .goreleaser.yaml's rpiboot build reads the same variable to skip that
+# binary the same way (its own `envOrDefault` fallback mirrors the default
+# above for CI's goreleaser-action steps, which don't go through `make`);
+# this is the single place that default list is written.
 BOARD_TOOLS ?= rpiboot bmc-sensord
 
 # Deploy configuration (override on the command line: make deploy KVM_HOST=...)
@@ -113,9 +115,9 @@ sensord:
 	fi
 
 # Build snapshot release using goreleaser (no publish). BOARD_TOOLS is passed
-# through explicitly: .goreleaser.yaml's rpiboot build must see it in its
-# environment (its `skip` template has no other way to tell "excluded" from
-# "not asked"), even when it is empty.
+# through explicitly so a `make snapshot BOARD_TOOLS=...` override reaches
+# .goreleaser.yaml's rpiboot build; goreleaser's own envOrDefault fallback
+# only matters for invocations that bypass make entirely (CI).
 snapshot:
 	@BOARD_TOOLS='$(BOARD_TOOLS)' goreleaser release --snapshot --clean --skip=publish
 
