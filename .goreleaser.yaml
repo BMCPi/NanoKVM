@@ -48,7 +48,7 @@ archives:
       - rpiboot
     formats:
       - tar.gz
-    name_template: "{{ .ProjectName }}_{{ .Version }}"
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - LICENSE
       - README.md
