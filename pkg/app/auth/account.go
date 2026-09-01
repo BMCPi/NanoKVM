@@ -6,11 +6,17 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"golang.org/x/crypto/bcrypt"
 )
 
 const accountFile = "/etc/kvm/pwd"
+
+// compareHash is bcrypt.CompareHashAndPassword behind a variable so tests can
+// count and pace the deliberately expensive comparison. Never reassigned
+// outside tests.
+var compareHash = bcrypt.CompareHashAndPassword
 
 type Account struct {
 	Username string `json:"username"`
@@ -120,7 +126,19 @@ func (s *Service) ComparePlainAccount(username string, plainPassword string) boo
 	if username != account.Username {
 		return false
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(account.Password), []byte(plainPassword)); err == nil {
+	// Serialize from here: everything above is a cheap read, the comparison
+	// below is the ~3.2s CPU burn. See Service.bcryptMu.
+	s.bcryptMu.Lock()
+	defer s.bcryptMu.Unlock()
+
+	// Re-check under the gate. While this goroutine queued, another may have
+	// validated and cached this exact credential -- that is what turns a
+	// concurrent burst of identical logins into a single bcrypt.
+	if s.cache.get(username, plainPassword) {
+		return true
+	}
+
+	if err := compareHash([]byte(account.Password), []byte(plainPassword)); err == nil {
 		s.cache.put(username, plainPassword)
 		return true
 	}
@@ -144,11 +162,29 @@ func (s *Service) DelAccount() error {
 	return nil
 }
 
-func getDefaultAccount() *Account {
-	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte("admin"), bcrypt.DefaultCost)
+// defaultAccountHash is the bcrypt digest of the fallback password, computed
+// at most once per process.
+//
+// This is a hot path, not a cold one: a unit with no /etc/kvm/pwd -- which is
+// the state of a freshly provisioned BMC -- reaches getDefaultAccount on EVERY
+// authentication. Generating the digest per call meant each auth paid a full
+// bcrypt to build a hash it then immediately compared against and discarded,
+// doubling the CPU cost of every login on a single-core SoC. The salt differs
+// per process, which is all a throwaway default credential needs.
+var defaultAccountHash = sync.OnceValue(func() string {
+	hashed, err := bcrypt.GenerateFromPassword([]byte("admin"), bcrypt.DefaultCost)
+	if err != nil {
+		// Cannot happen for a fixed short password at a valid cost, and a
+		// wrong-but-present digest is safer than an empty one: an empty
+		// Password would make CompareHashAndPassword fail closed anyway.
+		return ""
+	}
+	return string(hashed)
+})
 
+func getDefaultAccount() *Account {
 	return &Account{
 		Username: "admin",
-		Password: string(hashedPassword),
+		Password: defaultAccountHash(),
 	}
 }
