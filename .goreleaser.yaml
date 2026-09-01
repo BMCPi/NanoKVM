@@ -35,6 +35,15 @@ builds:
       - linux
     goarch:
       - riscv64
+    # BOARD_TOOLS packaging axis (Makefile header comment): this RPi-only
+    # companion binary is skipped when BOARD_TOOLS is set empty (e.g. a
+    # NUC/non-RPi deploy). The archive below still references this build's
+    # id unconditionally — goreleaser just omits it from the tarball when
+    # skipped, so no archive change is needed. BOARD_TOOLS must be present
+    # in the environment (empty is a valid value, missing is not): `make
+    # snapshot` passes it through; CI workflows default it in their own env
+    # blocks so a plain `goreleaser release`/`build` keeps today's behavior.
+    skip: '{{ eq .Env.BOARD_TOOLS "" }}'
 
 upx:
   - enabled: true

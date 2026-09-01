@@ -36,3 +36,4 @@ Go BMC/KVM server for NanoKVM hardware (riscv64 target). Gin HTTP + templ server
 ## Subsystem designs
 
 @discovery-design.md
+@host-firmware-contract.md
