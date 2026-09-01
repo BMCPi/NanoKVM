@@ -25,6 +25,7 @@ func (s *Service) GetServiceRoot(c *gin.Context) {
 		Chassis:        Link(chassisPath),
 		SessionService: Link(sessionServicePath),
 		UpdateService:  Link(updateServicePath),
+		Tasks:          Link(taskServicePath),
 		Registries:     Link(registriesPath),
 		// Links.Sessions is what gofish and other DMTF-conformant clients
 		// POST to during Login() — without it they fail with "unable to

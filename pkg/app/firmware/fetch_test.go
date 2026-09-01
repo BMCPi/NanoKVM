@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -85,6 +86,47 @@ func TestStageCapsuleFromURLDoesNotUseTempDir(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("capsule not staged into the volume; got %v", capsules)
+	}
+}
+
+// WithProgress feeds the Redfish task monitor's PercentComplete: the callback
+// must see the declared total and a byte count that reaches it.
+func TestStageCapsuleFromURLReportsProgress(t *testing.T) {
+	c := newTestController(t)
+	if err := c.ensureVolumeLocked(); err != nil {
+		t.Fatalf("ensureVolumeLocked: %v", err)
+	}
+
+	payload := bytes.Repeat([]byte("PROGRESS"), 128*1024) // 1 MiB
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// Declare the length the way a real file server does — otherwise a
+		// body past Go's write buffer goes chunked and progress has no total.
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+		_, _ = w.Write(payload)
+	}))
+	defer srv.Close()
+
+	var lastLoaded, lastTotal int64
+	var calls int
+	err := c.StageCapsuleFromURL(t.Context(), srv.URL+"/p.cap", "p.cap",
+		WithProgress(func(loaded, total int64) {
+			if loaded < lastLoaded {
+				t.Errorf("progress went backwards: %d after %d", loaded, lastLoaded)
+			}
+			lastLoaded, lastTotal = loaded, total
+			calls++
+		}))
+	if err != nil {
+		t.Fatalf("StageCapsuleFromURL: %v", err)
+	}
+	if calls == 0 {
+		t.Fatal("progress callback never ran")
+	}
+	if lastLoaded != int64(len(payload)) {
+		t.Errorf("final loaded = %d, want %d", lastLoaded, len(payload))
+	}
+	if lastTotal != int64(len(payload)) {
+		t.Errorf("reported total = %d, want the declared Content-Length %d", lastTotal, len(payload))
 	}
 }
 

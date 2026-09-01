@@ -73,6 +73,9 @@ type ServiceRoot struct {
 	Chassis        Link   `json:"Chassis"`
 	SessionService Link   `json:"SessionService"`
 	UpdateService  Link   `json:"UpdateService"`
+	// Tasks links the TaskService (the schema names the property Tasks, not
+	// TaskService) — what a client polls after a 202 with a Location.
+	Tasks Link `json:"Tasks"`
 	// Registries is where EDK2's BiosAttributeRegistryDxe starts its walk;
 	// without it the driver gives up before ever asking for the registry.
 	Registries Link             `json:"Registries,omitempty"`

@@ -1,6 +1,7 @@
 package redfish
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stmcginnis/gofish/schemas"
@@ -24,6 +26,12 @@ import (
 // straight to the media directory on the data partition (constant memory), so
 // this bounds what a client can force onto that partition, not RAM.
 const maxMediaUploadBytes = 8 << 30 // 8 GiB
+
+// mediaFetchTimeout bounds a BMC-initiated media download started by
+// InsertMedia's Stream path. Generous because the link may be slow and an ISO
+// is installer-sized, but finite so a stalled transfer cannot hold the
+// single-in-flight insert slot until the next reboot.
+const mediaFetchTimeout = 30 * time.Minute
 
 // insertMediaRequest is the JSON body for VirtualMedia.InsertMedia.
 // Accepted both as the application/json body for TransferMethod=Stream
@@ -99,6 +107,14 @@ func (h *handlers) InsertMedia(c *gin.Context) {
 
 // insertMediaStream handles TransferMethod=Stream: BMC fetches the image
 // from an HTTP(S) URL named in the JSON body.
+//
+// The fetch is asynchronous — a DELIBERATE behaviour change on this path
+// only: it used to run on c.Request.Context(), so a client-side timeout
+// mid-multi-GB download aborted the transfer. Validation still fails fast
+// with a 400; everything that touches the network runs detached, reported
+// through the task the 202's Location points at. The multipart path
+// (insertMediaUpload) stays synchronous: its body streams in-request and
+// cannot be detached.
 func (h *handlers) insertMediaStream(c *gin.Context) {
 	var req insertMediaRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -127,13 +143,37 @@ func (h *handlers) insertMediaStream(c *gin.Context) {
 		name = "vm.iso"
 	}
 
-	// Download the ISO into the media staging directory. streamio.FetchURL caps
-	// the transfer and bounds the connection: the remote, not the operator,
-	// decides how many bytes this BMC is asked to store.
-	remote, err := streamio.FetchURL(c.Request.Context(), req.Image, maxMediaUploadBytes)
-	if err != nil {
-		redfishErrorResponse(c, http.StatusBadGateway, "fetch failed: "+err.Error())
+	// Single fetch in flight — the media path's IsStaging analogue.
+	if !h.tasks.beginMediaInsert() {
+		redfishErrorResponse(c, http.StatusConflict, "a media insert is already in progress")
 		return
+	}
+	t := h.tasks.newTask("InsertMedia: fetch " + name)
+
+	// Detached from the request but bounded, and cancelled at shutdown —
+	// same shape as SimpleUpdate's capsule fetch. No PercentComplete here:
+	// on-the-fly decompression makes the wire total meaningless.
+	ctx, cancel := h.d.ActionContext(mediaFetchTimeout)
+	go func() {
+		defer cancel()
+		defer h.tasks.endMediaInsert()
+		t.complete(h.fetchAndInsertMedia(ctx, req.Image, parsed.Scheme, name))
+	}()
+
+	acceptedTask(c, t)
+}
+
+// fetchAndInsertMedia is insertMediaStream's detached half: download,
+// decompress, stage, insert. Error text matches what the handler used to
+// return synchronously, so the task's Messages read the same as the old
+// response bodies.
+func (h *handlers) fetchAndInsertMedia(ctx context.Context, image, scheme, name string) error {
+	// streamio.FetchURL caps the transfer and bounds the connection: the
+	// remote, not the operator, decides how many bytes this BMC is asked to
+	// store.
+	remote, err := streamio.FetchURL(ctx, image, maxMediaUploadBytes)
+	if err != nil {
+		return fmt.Errorf("fetch failed: %w", err)
 	}
 	defer remote.Close()
 
@@ -143,22 +183,19 @@ func (h *handlers) insertMediaStream(c *gin.Context) {
 	// inflated side, since a compressed body can expand far past it.
 	dr, format, err := streamio.DecompressingReader(remote)
 	if err != nil {
-		redfishErrorResponse(c, http.StatusBadRequest, "decompress failed: "+err.Error())
-		return
+		return fmt.Errorf("decompress failed: %w", err)
 	}
 	defer dr.Close()
 	name = streamio.StripCompressionSuffix(name, format)
 
-	if err := stageAndInsert(h.d.Firmware, name, streamio.LimitDecompressedReader(dr, maxMediaUploadBytes)); err != nil {
-		redfishErrorResponse(c, err.status, err.msg)
-		return
+	if ierr := stageAndInsert(h.d.Firmware, name, streamio.LimitDecompressedReader(dr, maxMediaUploadBytes)); ierr != nil {
+		return ierr
 	}
 
-	protocol := strings.ToUpper(parsed.Scheme)
-	recordTransfer("Stream", protocol, req.Image)
-	h.log.InfoContext(c.Request.Context(), "redfish: virtual media inserted (stream)",
+	recordTransfer("Stream", strings.ToUpper(scheme), image)
+	h.log.InfoContext(ctx, "redfish: virtual media inserted (stream)",
 		slog.String("name", name))
-	c.JSON(http.StatusOK, buildVirtualMediaResource(h.d.Firmware))
+	return nil
 }
 
 // insertMediaUpload handles TransferMethod=Upload: the client pushes the

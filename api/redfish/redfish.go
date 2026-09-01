@@ -20,6 +20,10 @@ import (
 type handlers struct {
 	d   *deps.Deps
 	log *slog.Logger
+
+	// tasks is the TaskService registry (tasks.go), created fresh per
+	// Register call — per the DI direction, not a package singleton.
+	tasks *taskRegistry
 }
 
 // pkgLogHolder backs the "redfish" component logger for package-level helpers
@@ -44,7 +48,11 @@ func pkgLog() *slog.Logger {
 
 func Register(r *gin.Engine, d *deps.Deps) {
 	service := NewService(d)
-	h := &handlers{d: d, log: logger.Or(d.Log).With("component", "redfish")}
+	h := &handlers{
+		d:     d,
+		log:   logger.Or(d.Log).With("component", "redfish"),
+		tasks: newTaskRegistry(),
+	}
 	pkgLogHolder.Set(h.log)
 
 	// Public endpoints. HostTrace records requests arriving over the USB
@@ -210,5 +218,12 @@ func Register(r *gin.Engine, d *deps.Deps) {
 		api.PATCH("/UpdateService/FirmwareInventory/:id", h.PatchFirmwareInventoryMember)
 		api.POST("/UpdateService/Actions/UpdateService.SimpleUpdate", h.SimpleUpdate)
 		api.POST("/UpdateService/update", h.PushCapsule)
+
+		// TaskService — the monitors behind SimpleUpdate's and InsertMedia's
+		// 202s. Operator-only (the host client tolerates its absence and
+		// never polls tasks), read-only, in-memory (see tasks.go).
+		api.GET("/TaskService", h.GetTaskService)
+		api.GET("/TaskService/Tasks", h.GetTaskCollection)
+		api.GET("/TaskService/Tasks/:id", h.GetTask)
 	}
 }

@@ -148,6 +148,9 @@ const (
 	sessionServicePath = schemas.DefaultServiceRoot + "SessionService"
 	sessionsPath       = sessionServicePath + "/Sessions"
 
+	taskServicePath = schemas.DefaultServiceRoot + "TaskService"
+	tasksPath       = taskServicePath + "/Tasks"
+
 	updateServicePath     = schemas.DefaultServiceRoot + "UpdateService"
 	firmwareInventoryPath = updateServicePath + "/FirmwareInventory"
 	// firmwareBiosMemberID is the member the host firmware PATCHes

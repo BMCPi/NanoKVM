@@ -62,6 +62,10 @@ tags:
     description: BMC itself + serial interfaces + virtual media.
   - name: UpdateService
     description: UEFI FMP capsule staging over the USB mass-storage gadget.
+  - name: TaskService
+    description: |
+      In-memory task monitors for the BMC-side downloads started by
+      SimpleUpdate and InsertMedia (Stream). Forgotten at BMC restart.
 
 security:
   - XAuthToken: []
@@ -885,11 +889,12 @@ paths:
         Two transfer methods are supported:
 
         * **Stream** (default) — `application/json` body names an HTTP(S)
-          URL; the BMC pulls the image.
+          URL; the BMC pulls the image in the background and answers 202
+          with a `Location` header pointing at the Task to poll.
         * **Upload** — `multipart/form-data` push from the client. Include
           the binary as a file part named `Image` (or `file`), plus an
           optional `InsertMediaRequestBody` JSON part to override the
-          staged filename.
+          staged filename. Synchronous: the 200 carries the final result.
       requestBody:
         required: true
         content:
@@ -928,8 +933,21 @@ paths:
                     filename via `Image`.
                   example: '{"TransferMethod":"Upload","Image":"ubuntu.iso"}'
       responses:
-        "200": { description: Media inserted. }
+        "200": { description: Media inserted (multipart Upload path). }
+        "202":
+          description: |
+            Stream path: fetch started. `Location` names the Task resource
+            to poll; the body is that Task document.
+          headers:
+            Location:
+              schema: { type: string }
+              description: URI of the Task tracking the fetch.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "409":
+          { description: A media insert is already in progress (Stream path). }
         "500": { $ref: "#/components/responses/ServerError" }
 
   /redfish/v1/Managers/1/VirtualMedia/CD/Actions/VirtualMedia.EjectMedia:
@@ -1058,7 +1076,17 @@ paths:
                 TransferProtocol: HTTPS
       responses:
         "202":
-          { description: Staging accepted; the download runs in background. }
+          description: |
+            Staging accepted; the download runs in background. `Location`
+            names the Task resource to poll for completion; the body is
+            that Task document.
+          headers:
+            Location:
+              schema: { type: string }
+              description: URI of the Task tracking the staging.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "409": { description: A capsule is already being staged. }
 
@@ -1093,6 +1121,57 @@ paths:
         "202": { description: Capsule staged for the host's next boot. }
         "400": { $ref: "#/components/responses/BadRequest" }
         "409": { description: A capsule is already being staged. }
+
+  # ----------------------------------------------------------- TaskService
+
+  /redfish/v1/TaskService:
+    get:
+      tags: [TaskService]
+      summary: |
+        The TaskService root. Tasks are in-memory only — a BMC restart
+        forgets them — and are created solely by SimpleUpdate and the
+        InsertMedia Stream path; there is no POST/DELETE surface.
+      responses:
+        "200":
+          description: TaskService document.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskService" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /redfish/v1/TaskService/Tasks:
+    get:
+      tags: [TaskService]
+      summary: |
+        The Task collection. At most 16 tasks are retained; completed
+        tasks are evicted oldest-first (CompletedTaskOverWritePolicy:
+        Oldest) and dropped 24 hours after finishing.
+      responses:
+        "200": { $ref: "#/components/responses/Collection" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /redfish/v1/TaskService/Tasks/{taskId}:
+    get:
+      tags: [TaskService]
+      summary: |
+        One Task — what the 202 responses' Location header points at.
+        Poll TaskState: Running until the download finishes, then
+        Completed (TaskStatus OK) or Exception (TaskStatus Critical,
+        with the error in Messages).
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema: { type: string }
+          description: Task identifier from the 202's Location header.
+      responses:
+        "200":
+          description: Task document.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
 components:
   securitySchemes:
@@ -1176,6 +1255,61 @@ components:
           { type: object, properties: { "@odata.id": { type: string } } }
         UpdateService:
           { type: object, properties: { "@odata.id": { type: string } } }
+        Tasks: { type: object, properties: { "@odata.id": { type: string } } }
+
+    TaskService:
+      type: object
+      properties:
+        "@odata.type":
+          { type: string, example: "#TaskService.v1_2_0.TaskService" }
+        "@odata.id": { type: string, example: "/redfish/v1/TaskService" }
+        Id: { type: string, example: TaskService }
+        Name: { type: string, example: Task Service }
+        ServiceEnabled: { type: boolean }
+        CompletedTaskOverWritePolicy:
+          { type: string, enum: [Oldest], example: Oldest }
+        LifeCycleEventOnTaskStateChange:
+          type: boolean
+          description: Always false — this BMC has no EventService.
+        Status:
+          type: object
+          properties:
+            State: { type: string, example: Enabled }
+            Health: { type: string, example: OK }
+        Tasks: { type: object, properties: { "@odata.id": { type: string } } }
+
+    Task:
+      type: object
+      properties:
+        "@odata.type": { type: string, example: "#Task.v1_4_3.Task" }
+        "@odata.id":
+          { type: string, example: "/redfish/v1/TaskService/Tasks/1" }
+        Id: { type: string, example: "1" }
+        Name: { type: string, example: "SimpleUpdate: stage capsule" }
+        TaskState:
+          type: string
+          enum: [Running, Completed, Exception]
+        TaskStatus: { type: string, enum: [OK, Critical] }
+        StartTime: { type: string, format: date-time }
+        EndTime:
+          type: string
+          format: date-time
+          description: Present once the task has finished.
+        PercentComplete:
+          type: integer
+          description: |
+            Download progress, 0–100. Omitted when the remote declared no
+            length, and always omitted on media fetches (on-the-fly
+            decompression makes the wire total meaningless).
+        Messages:
+          type: array
+          items:
+            type: object
+            properties:
+              MessageId: { type: string, example: Base.1.0.GeneralError }
+              Message: { type: string }
+              Severity: { type: string, example: Critical }
+        HidePayload: { type: boolean, example: true }
 
     Session:
       type: object

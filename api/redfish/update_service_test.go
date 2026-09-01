@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -41,12 +42,16 @@ func updateServiceRouter(t *testing.T) (*gin.Engine, *firmware.Controller) {
 			Power:    power.NewController(config.Hardware{}, config.Power{}, slog.New(slog.DiscardHandler)),
 			Firmware: fw,
 		},
-		log: slog.New(slog.DiscardHandler),
+		log:   slog.New(slog.DiscardHandler),
+		tasks: newTaskRegistry(),
 	}
 	r := gin.New()
 	r.GET(updateServicePath, h.GetUpdateService)
 	r.POST(simpleUpdatePath, h.SimpleUpdate)
 	r.POST(httpPushURIPath, h.PushCapsule)
+	// The task monitor a 202's Location points at — polled by the new
+	// SimpleUpdate tests exactly the way redfish_command/gofish would.
+	r.GET(tasksPath+"/:id", h.GetTask)
 	return r, fw
 }
 
@@ -168,6 +173,109 @@ func TestSimpleUpdateRequiresImageURI(t *testing.T) {
 	capsules, err := fw.ListCapsules()
 	if err == nil && len(capsules) != 0 {
 		t.Errorf("rejected SimpleUpdate left %+v staged", capsules)
+	}
+}
+
+// A 202 with nothing to poll is what this feature retires: SimpleUpdate must
+// hand back a Location an operator tool can watch, and the task must reach
+// Completed once the capsule is staged — with the old UpdateInProgress
+// message folded into Task.Messages so no information is lost.
+func TestSimpleUpdateReturnsTaskMonitorAndCompletes(t *testing.T) {
+	r, fw := updateServiceRouter(t)
+
+	payload := bytes.Repeat([]byte("FMP-CAPSULE."), 512)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// Declare the length the way a real file server does — otherwise a
+		// body past Go's write buffer goes chunked and progress has no total.
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+		_, _ = w.Write(payload)
+	}))
+	defer srv.Close()
+
+	req := httptest.NewRequest(http.MethodPost, simpleUpdatePath,
+		strings.NewReader(`{"ImageURI":"`+srv.URL+`/host.cap"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("SimpleUpdate = %d (%s), want 202", w.Code, w.Body.String())
+	}
+	loc := w.Header().Get("Location")
+	if !strings.HasPrefix(loc, tasksPath+"/") {
+		t.Fatalf("Location = %q, want a task under %s", loc, tasksPath)
+	}
+	var accepted map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &accepted); err != nil {
+		t.Fatalf("202 body: %v", err)
+	}
+	if got, _ := accepted["@odata.id"].(string); got != loc {
+		t.Errorf("202 body @odata.id = %q, want the Location %q", got, loc)
+	}
+	var folded bool
+	for _, m := range taskMessages(t, accepted) {
+		if m["MessageId"] == "Update.1.0.UpdateInProgress" {
+			folded = true
+		}
+	}
+	if !folded {
+		t.Errorf("202 task Messages = %v, want Update.1.0.UpdateInProgress folded in", accepted["Messages"])
+	}
+
+	final := waitForTask(t, r, loc)
+	if got, _ := final["TaskState"].(string); got != "Completed" {
+		t.Fatalf("TaskState = %q (%v), want Completed", got, final)
+	}
+	if got, _ := final["TaskStatus"].(string); got != "OK" {
+		t.Errorf("TaskStatus = %q, want OK", got)
+	}
+	// The remote declared a Content-Length, so progress was measurable and
+	// must have reached 100.
+	if got, _ := final["PercentComplete"].(float64); got != 100 {
+		t.Errorf("PercentComplete = %v, want 100", final["PercentComplete"])
+	}
+	assertStaged(t, fw, "host.cap", int64(len(payload)))
+}
+
+// A staging failure used to be visible only in the BMC log; now the task the
+// 202 pointed at must carry it.
+func TestSimpleUpdateFailedFetchDrivesTaskToException(t *testing.T) {
+	r, fw := updateServiceRouter(t)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "no such capsule", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	req := httptest.NewRequest(http.MethodPost, simpleUpdatePath,
+		strings.NewReader(`{"ImageURI":"`+srv.URL+`/missing.cap"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("SimpleUpdate = %d (%s), want 202", w.Code, w.Body.String())
+	}
+	final := waitForTask(t, r, w.Header().Get("Location"))
+	if got, _ := final["TaskState"].(string); got != "Exception" {
+		t.Fatalf("TaskState = %q, want Exception", got)
+	}
+	if got, _ := final["TaskStatus"].(string); got != "Critical" {
+		t.Errorf("TaskStatus = %q, want Critical", got)
+	}
+	var carried bool
+	for _, m := range taskMessages(t, final) {
+		if msg, _ := m["Message"].(string); strings.Contains(msg, "500") {
+			carried = true
+		}
+	}
+	if !carried {
+		t.Errorf("Messages = %v, want the fetch error carried to the operator", final["Messages"])
+	}
+
+	capsules, err := fw.ListCapsules()
+	if err == nil && len(capsules) != 0 {
+		t.Errorf("failed staging left %+v behind", capsules)
 	}
 }
 

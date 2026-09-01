@@ -28,5 +28,5 @@ func testDeps() *deps.Deps {
 // sessions.go, systems.go, update_service.go, virtual_media.go) now serve —
 // the rest of the package's routes still come off NewService.
 func testHandlers() *handlers {
-	return &handlers{d: testDeps(), log: slog.New(slog.DiscardHandler)}
+	return &handlers{d: testDeps(), log: slog.New(slog.DiscardHandler), tasks: newTaskRegistry()}
 }

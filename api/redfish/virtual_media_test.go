@@ -63,11 +63,14 @@ func virtualMediaRouter(t *testing.T) (*gin.Engine, string) {
 			Power:    power.NewController(config.Hardware{}, config.Power{}, slog.New(slog.DiscardHandler)),
 			Firmware: fw,
 		},
-		log: slog.New(slog.DiscardHandler),
+		log:   slog.New(slog.DiscardHandler),
+		tasks: newTaskRegistry(),
 	}
 	r := gin.New()
 	r.POST(insertMediaPath, h.InsertMedia)
 	r.POST(ejectMediaPath, h.EjectMedia)
+	// The task monitor the stream path's 202 points at.
+	r.GET(tasksPath+"/:id", h.GetTask)
 	return r, mediaDir
 }
 
@@ -273,8 +276,10 @@ func TestInsertMediaUploadIsEphemeralAcrossEject(t *testing.T) {
 	}
 }
 
-// The Stream transfer method (BMC pulls the image from a URL) carries the same
-// transient lifecycle as an upload.
+// The Stream transfer method (BMC pulls the image from a URL) is async now:
+// the 202 hands back a task monitor, the fetch runs detached from the request
+// (a client-side timeout can no longer abort a multi-GB download), and the
+// staged image carries the same transient lifecycle as an upload.
 func TestInsertMediaStreamIsEphemeralAcrossEject(t *testing.T) {
 	r, mediaDir := virtualMediaRouter(t)
 
@@ -288,8 +293,17 @@ func TestInsertMediaStreamIsEphemeralAcrossEject(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("insert status = %d, want 200 (body: %s)", w.Code, w.Body.String())
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("insert status = %d, want 202 (body: %s)", w.Code, w.Body.String())
+	}
+	loc := w.Header().Get("Location")
+	if !strings.HasPrefix(loc, tasksPath+"/") {
+		t.Fatalf("Location = %q, want a task under %s", loc, tasksPath)
+	}
+
+	final := waitForTask(t, r, loc)
+	if got, _ := final["TaskState"].(string); got != "Completed" {
+		t.Fatalf("TaskState = %q (%v), want Completed", got, final)
 	}
 	got, err := os.ReadFile(filepath.Join(mediaDir, "remote.iso"))
 	if err != nil {
@@ -306,6 +320,95 @@ func TestInsertMediaStreamIsEphemeralAcrossEject(t *testing.T) {
 	}
 	if names := staged(t, mediaDir); len(names) != 0 {
 		t.Errorf("media dir has %v after eject; a streamed insert must not outlive its mount", names)
+	}
+}
+
+// Only one URL-fetch may be in flight: a second insert while the first is
+// still downloading must 409, mirroring SimpleUpdate's IsStaging conflict.
+func TestInsertMediaStreamSecondInsertConflicts(t *testing.T) {
+	r, _ := virtualMediaRouter(t)
+
+	release := make(chan struct{})
+	iso := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("SLOW-"))
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		<-release
+		_, _ = w.Write([]byte("ISO"))
+	}))
+	defer iso.Close()
+	defer close(release)
+
+	first := httptest.NewRequest(http.MethodPost, insertMediaPath,
+		strings.NewReader(`{"Image":"`+iso.URL+`/slow.iso"}`))
+	first.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, first)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("first insert = %d (%s), want 202", w.Code, w.Body.String())
+	}
+	loc := w.Header().Get("Location")
+
+	second := httptest.NewRequest(http.MethodPost, insertMediaPath,
+		strings.NewReader(`{"Image":"`+iso.URL+`/other.iso"}`))
+	second.Header.Set("Content-Type", "application/json")
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, second)
+	if w2.Code != http.StatusConflict {
+		t.Fatalf("second insert = %d (%s), want 409", w2.Code, w2.Body.String())
+	}
+
+	release <- struct{}{} // matched by the deferred close; unblock the remote
+	final := waitForTask(t, r, loc)
+	if got, _ := final["TaskState"].(string); got != "Completed" {
+		t.Errorf("TaskState = %q, want Completed once the slow fetch finishes", got)
+	}
+}
+
+// A bad remote used to be a synchronous 502; the failure now lands on the
+// task — and must release the single-flight guard so the operator can retry.
+func TestInsertMediaStreamBadRemoteDrivesTaskToException(t *testing.T) {
+	r, mediaDir := virtualMediaRouter(t)
+
+	iso := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "gone", http.StatusInternalServerError)
+	}))
+	defer iso.Close()
+
+	post := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, insertMediaPath,
+			strings.NewReader(`{"Image":"`+iso.URL+`/missing.iso"}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	w := post()
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("insert = %d (%s), want 202", w.Code, w.Body.String())
+	}
+	final := waitForTask(t, r, w.Header().Get("Location"))
+	if got, _ := final["TaskState"].(string); got != "Exception" {
+		t.Fatalf("TaskState = %q, want Exception", got)
+	}
+	var carried bool
+	for _, m := range taskMessages(t, final) {
+		if msg, _ := m["Message"].(string); strings.Contains(msg, "fetch failed") {
+			carried = true
+		}
+	}
+	if !carried {
+		t.Errorf("Messages = %v, want the old handler's fetch-failed text", final["Messages"])
+	}
+	if names := staged(t, mediaDir); len(names) != 0 {
+		t.Errorf("failed fetch left %v staged", names)
+	}
+
+	// The guard must be free again: a retry is a fresh 202, not a 409.
+	if w := post(); w.Code != http.StatusAccepted {
+		t.Errorf("retry after failure = %d, want 202 (guard not released)", w.Code)
 	}
 }
 

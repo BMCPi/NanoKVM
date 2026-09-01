@@ -56,6 +56,13 @@ const (
 	// schema the resource is actually written against rather than to a
 	// feature driver's version.
 	odataTypeSensor = "#Sensor.v1_2_0.Sensor"
+
+	// TaskService/Task are operator-only (the host client never polls tasks);
+	// pinned to published DMTF versions, Task ≥ v1_4_0 for PercentComplete.
+	odataTypeTaskService = "#TaskService.v1_2_0.TaskService"
+	// Task v1_4_3 is the published errata of the first PercentComplete-bearing
+	// Task schema.
+	odataTypeTask = "#Task.v1_4_3.Task"
 )
 
 // Schema names, the unversioned counterpart to the odataTypeXxx constants

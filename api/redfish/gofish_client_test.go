@@ -22,6 +22,14 @@ import (
 // testServer mounts the read-only surface with no auth so gofish can walk it.
 func testServer(t *testing.T) *httptest.Server {
 	t.Helper()
+	ts, _ := testServerAndHandlers(t)
+	return ts
+}
+
+// testServerAndHandlers additionally exposes the handlers, so a test can seed
+// state (a task in the registry) the walked surface should render.
+func testServerAndHandlers(t *testing.T) (*httptest.Server, *handlers) {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	svc := NewService(testDeps())
 	h := testHandlers()
@@ -42,10 +50,13 @@ func testServer(t *testing.T) *httptest.Server {
 	r.GET(serialInterfacePath, h.GetSerialInterface)
 	r.GET(virtualMediaPath, h.GetVirtualMediaCollection)
 	r.GET(virtualMediaCDPath, h.GetVirtualMedia)
+	r.GET(taskServicePath, h.GetTaskService)
+	r.GET(tasksPath, h.GetTaskCollection)
+	r.GET(tasksPath+"/:id", h.GetTask)
 
 	ts := httptest.NewServer(r)
 	t.Cleanup(ts.Close)
-	return ts
+	return ts, h
 }
 
 // ConnectDefault GETs schemas.DefaultServiceRoot — proving the trailing-slash
@@ -146,6 +157,42 @@ func TestGofishParsesSerialInterface(t *testing.T) {
 	}
 	if len(ifaces) != 1 {
 		t.Fatalf("discovered %d serial interfaces, want 1", len(ifaces))
+	}
+}
+
+// The TaskService walk is what redfish_command/gofish do after a 202: follow
+// the service root's Tasks link, then the collection, then the member.
+func TestGofishWalksTaskService(t *testing.T) {
+	ts, h := testServerAndHandlers(t)
+	tk := h.tasks.newTask("Stage capsule")
+	tk.complete(nil)
+
+	client, err := gofish.ConnectDefault(ts.URL)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer client.Logout()
+
+	tsvc, err := client.GetService().Tasks()
+	if err != nil {
+		t.Fatalf("gofish could not follow the Tasks link: %v", err)
+	}
+	if tsvc.CompletedTaskOverWritePolicy != schemas.OldestTaskServiceOverWritePolicy {
+		t.Errorf("CompletedTaskOverWritePolicy = %q, want Oldest", tsvc.CompletedTaskOverWritePolicy)
+	}
+
+	tasks, err := tsvc.Tasks()
+	if err != nil {
+		t.Fatalf("gofish could not parse our Task collection: %v", err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("discovered %d tasks, want 1", len(tasks))
+	}
+	if tasks[0].TaskState != schemas.CompletedTaskState {
+		t.Errorf("TaskState = %q, want Completed", tasks[0].TaskState)
+	}
+	if tasks[0].TaskStatus != schemas.OKHealth {
+		t.Errorf("TaskStatus = %q, want OK", tasks[0].TaskStatus)
 	}
 }
 

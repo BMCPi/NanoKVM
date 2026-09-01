@@ -25,6 +25,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stmcginnis/gofish/schemas"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/app/firmware"
 	"github.com/pi-bmc/nanokvm-app/pkg/platform/streamio"
 )
 
@@ -176,6 +177,19 @@ func (h *handlers) SimpleUpdate(c *gin.Context) {
 		return
 	}
 
+	// The task is what turns the old fire-and-forget 202 into something an
+	// operator tool (Ansible redfish_command, gofish, redfishtool) can poll:
+	// Location points at it, and the goroutine below drives it to
+	// Completed/Exception. The old bare-202 body's UpdateInProgress message
+	// is folded into Task.Messages so no information is lost.
+	t := h.tasks.newTask("SimpleUpdate: stage capsule")
+	t.addMessage(Message{
+		ODataType: "#Message.v1_1_0.Message",
+		MessageID: "Update.1.0.UpdateInProgress",
+		Message:   "Capsule staging started; the host applies it at its next boot",
+		Severity:  "OK",
+	})
+
 	// Detached from the request — the 202 below returns immediately and the
 	// download runs on past it — but NOT from the process: the context comes
 	// from deps, so SIGTERM aborts a transfer in flight instead of leaving it
@@ -183,17 +197,20 @@ func (h *handlers) SimpleUpdate(c *gin.Context) {
 	ctx, cancel := h.d.ActionContext(capsuleStageTimeout)
 	go func(url string) {
 		defer cancel()
-		if err := ctrl.StageCapsuleFromURL(ctx, url, ""); err != nil {
+		err := ctrl.StageCapsuleFromURL(ctx, url, "",
+			firmware.WithProgress(func(loaded, total int64) {
+				if total <= 0 {
+					return // no declared length: leave PercentComplete unset
+				}
+				t.setPercent(int(loaded * 100 / total))
+			}))
+		if err != nil {
 			h.log.ErrorContext(ctx, "redfish: capsule staging failed", slog.Any("err", err))
 		}
+		t.complete(err)
 	}(req.ImageURI)
 
-	c.JSON(http.StatusAccepted, Message{
-		ODataType: "#Message.v1_1_0.Message",
-		MessageID: "Update.1.0.UpdateInProgress",
-		Message:   "Capsule staging started; the host applies it at its next boot",
-		Severity:  "OK",
-	})
+	acceptedTask(c, t)
 }
 
 // PushCapsule is the HttpPushUri handler: the client POSTs the capsule bytes

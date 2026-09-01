@@ -38,6 +38,37 @@ const maxCapsuleFetchBytes = 128 << 20 // 128 MiB
 // it to reject a second concurrent update rather than queue one.
 func (c *Controller) IsStaging() bool { return isStaging() }
 
+// FetchOption configures a capsule fetch started by StageCapsuleFromURL.
+type FetchOption func(*fetchOptions)
+
+type fetchOptions struct {
+	progress func(loaded, total int64)
+}
+
+// WithProgress registers fn to be called as the download advances, with the
+// bytes received so far and the remote's declared total (-1 when the remote
+// declared nothing — never trusted as a bound, only offered for reporting).
+// fn runs on the fetch goroutine after every write, so it must be cheap and
+// must synchronise anything it shares.
+func WithProgress(fn func(loaded, total int64)) FetchOption {
+	return func(o *fetchOptions) { o.progress = fn }
+}
+
+// progressWriter counts bytes into w and reports each step to fn.
+type progressWriter struct {
+	w      io.Writer
+	loaded int64
+	total  int64
+	fn     func(loaded, total int64)
+}
+
+func (p *progressWriter) Write(b []byte) (int, error) {
+	n, err := p.w.Write(b)
+	p.loaded += int64(n)
+	p.fn(p.loaded, p.total)
+	return n, err
+}
+
 // StageCapsuleFromURL downloads the capsule at rawURL and stages it into
 // \EFI\UpdateCapsule\ on the capsule volume. name overrides the filename
 // derived from the URL path when non-empty. The host applies the capsule at
@@ -48,7 +79,12 @@ func (c *Controller) IsStaging() bool { return isStaging() }
 // so ctx should be the process-lifetime context, not the request's. Cancelling
 // it aborts the transfer and the staging file is removed by the deferred
 // cleanup, leaving no half-written capsule for firmware to trip over.
-func (c *Controller) StageCapsuleFromURL(ctx context.Context, rawURL, name string) (retErr error) {
+func (c *Controller) StageCapsuleFromURL(ctx context.Context, rawURL, name string, opts ...FetchOption) (retErr error) {
+	var options fetchOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+
 	parsed, err := url.ParseRequestURI(rawURL)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return fmt.Errorf("capsule URL must be http or https")
@@ -94,7 +130,7 @@ func (c *Controller) StageCapsuleFromURL(ctx context.Context, rawURL, name strin
 	}()
 
 	c.log.InfoContext(ctx, "firmware: downloading capsule", slog.String("name", fileName), slog.String("url", rawURL))
-	if err := c.downloadTo(ctx, rawURL, tmp, maxCapsuleFetchBytes); err != nil {
+	if err := c.downloadTo(ctx, rawURL, tmp, maxCapsuleFetchBytes, options.progress); err != nil {
 		return err
 	}
 	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
@@ -125,15 +161,20 @@ func (c *Controller) stagingDir() (string, error) {
 
 // downloadTo copies the body at rawURL into w, refusing anything larger than
 // maxBytes. streamio.FetchURL owns the scheme check, the transport timeouts and
-// the cap; everything here is a straight stream to disk.
-func (c *Controller) downloadTo(ctx context.Context, rawURL string, w io.Writer, maxBytes int64) error {
+// the cap; everything here is a straight stream to disk. A non-nil progress fn
+// is fed the running byte count against the remote's declared Content-Length.
+func (c *Controller) downloadTo(ctx context.Context, rawURL string, w io.Writer, maxBytes int64, progress func(loaded, total int64)) error {
 	remote, err := streamio.FetchURL(ctx, rawURL, maxBytes)
 	if err != nil {
 		return err
 	}
 	defer remote.Close()
 
-	written, err := io.Copy(w, remote)
+	dst := w
+	if progress != nil {
+		dst = &progressWriter{w: w, total: remote.ContentLength, fn: progress}
+	}
+	written, err := io.Copy(dst, remote)
 	if err != nil {
 		return fmt.Errorf("download: %w", err)
 	}
