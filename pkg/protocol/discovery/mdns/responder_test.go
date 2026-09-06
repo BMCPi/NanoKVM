@@ -3,6 +3,8 @@ package mdns
 import (
 	"context"
 	"net"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -283,5 +285,69 @@ func TestIncrementLabel(t *testing.T) {
 		if got := incrementLabel(tc.in, 2); got != tc.want {
 			t.Errorf("incrementLabel(%q, 2) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+// --- socket lifecycle ---------------------------------------------------------
+
+// sockets5353 counts UDP sockets bound to port 5353 (0x14E9) process-wide.
+func sockets5353(t *testing.T) int {
+	t.Helper()
+	n := 0
+	for _, f := range []string{"/proc/net/udp", "/proc/net/udp6"} {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Skip("no /proc/net/udp on this platform")
+		}
+		for _, line := range strings.Split(string(b), "\n")[1:] {
+			if fields := strings.Fields(line); len(fields) > 2 && strings.HasSuffix(fields[1], ":14E9") {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// A responder must release its sockets on Stop, every time.
+//
+// On hardware this went wrong in a way that is invisible until you count file
+// descriptors: two generations ended up holding the multicast group at once,
+// so the kernel delivered every packet twice and the work doubled. The
+// shutdown path is also where conn's fields were being mutated underneath the
+// read loops, so this runs the cycle repeatedly and is meant to be run under
+// -race, where that mutation is a reported data race rather than a rare leak.
+func TestStartStopCyclesReleaseEverySocket(t *testing.T) {
+	base := sockets5353(t)
+
+	for i := range 6 {
+		r := New("cycletest.local", "lo", []Service{{Type: "_cyc._tcp", Port: 9}})
+		if err := r.Start(context.Background()); err != nil {
+			t.Skipf("no multicast here: %v", err)
+		}
+		// Vary where Stop lands: mid-probe on some iterations, after
+		// announcing on others, because those are different code paths.
+		time.Sleep(time.Duration(10+40*i) * time.Millisecond)
+		r.Stop()
+
+		if got := sockets5353(t) - base; got != 0 {
+			t.Fatalf("cycle %d: %d socket(s) still bound after Stop", i, got)
+		}
+	}
+}
+
+// Stop must be safe on a responder that was never started, and repeatable.
+func TestStopWithoutStartAndDoubleStop(t *testing.T) {
+	base := sockets5353(t)
+	r := New("nostart.local", "lo", nil)
+	r.Stop()
+	r.Stop()
+
+	if err := r.Start(context.Background()); err != nil {
+		t.Skipf("no multicast here: %v", err)
+	}
+	r.Stop()
+	r.Stop()
+	if got := sockets5353(t) - base; got != 0 {
+		t.Errorf("%d socket(s) left bound after a double Stop", got)
 	}
 }

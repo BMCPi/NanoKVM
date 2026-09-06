@@ -140,7 +140,13 @@ func (r *Responder) Name() (string, bool) {
 
 // serve owns one generation: probe, announce, answer, say goodbye.
 func (r *Responder) serve(ctx context.Context, g *generation, c *conn, ifi *net.Interface) {
+	// Ordering matters: the sockets must be shut before g.done is closed,
+	// because Stop treats g.done as "this generation has released its group
+	// membership" and the next Start joins immediately after. Deferred rather
+	// than only called on the exit paths below, so a future early return
+	// cannot silently leave the group joined for the life of the process.
 	defer close(g.done)
+	defer c.close()
 
 	var state atomic.Pointer[phase]
 	conflicts := make(chan struct{}, 4)

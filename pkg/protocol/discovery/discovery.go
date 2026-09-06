@@ -294,6 +294,12 @@ func (r *Responder) startMDNSLocked(cfg *config.Config, host string) error {
 	})
 	mr := mdns.New(host, r.ifaceName, svcs)
 	if err := mr.Start(r.ctx); err != nil {
+		// Stop the instance we are about to discard. A Start that fails
+		// after binding leaves nothing else holding the responder, so its
+		// sockets would stay bound and its multicast group joined for the
+		// life of the process, with no way to reach it. Stop is a no-op on a
+		// responder that never got as far as opening anything.
+		mr.Stop()
 		return fmt.Errorf("mdns: %w", err)
 	}
 	r.mdnsR = mr
@@ -328,6 +334,7 @@ func (r *Responder) startSSDPLocked(cfg *config.Config) error {
 		MaxAge:   cfg.Discovery.SSDP.MaxAge,
 	})
 	if err := sr.Start(r.ctx); err != nil {
+		sr.Stop() // see the matching comment in startMDNSLocked
 		return fmt.Errorf("ssdp: %w", err)
 	}
 	r.ssdpR = sr

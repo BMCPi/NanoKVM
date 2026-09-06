@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sync"
 	"syscall"
 
 	"golang.org/x/net/ipv4"
@@ -38,10 +39,19 @@ type packet struct {
 }
 
 // conn is the responder's socket pair.
+//
+// v4 and v6 are set once by listen and never reassigned. A nil one means that
+// family could not be joined at all. They must stay immutable because the two
+// read loops and the sender goroutine all touch them concurrently with close:
+// clearing them on close would be a data race, and one that lands precisely
+// on the shutdown path, where a lost close leaves the multicast group joined
+// and the sockets bound for the life of the process.
 type conn struct {
 	iface *net.Interface
 	v4    *ipv4.PacketConn
 	v6    *ipv6.PacketConn
+
+	closeOnce sync.Once
 }
 
 // reusePort lets this responder share :5353 with any other mDNS stack on the
@@ -112,14 +122,14 @@ func listen(iface *net.Interface) (*conn, error) {
 // delivering packets to a responder that no longer exists — which is how a
 // restart ends up with two live generations both being handed every packet.
 func (c *conn) close() {
-	if c.v4 != nil {
-		_ = c.v4.Close()
-		c.v4 = nil
-	}
-	if c.v6 != nil {
-		_ = c.v6.Close()
-		c.v6 = nil
-	}
+	c.closeOnce.Do(func() {
+		if c.v4 != nil {
+			_ = c.v4.Close()
+		}
+		if c.v6 != nil {
+			_ = c.v6.Close()
+		}
+	})
 }
 
 // readV4 and readV6 block for one datagram each, reusing buf.
