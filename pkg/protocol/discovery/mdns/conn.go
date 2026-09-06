@@ -72,6 +72,14 @@ func reusePort(_, _ string, c syscall.RawConn) error {
 	return opErr
 }
 
+// Counting sockets on :5353 is a common way to look for a leak here, so know
+// what to expect: this responder binds exactly two, one per family, for its
+// whole life. Four is also normal — pion/ice opens its own multicast DNS
+// listener (another v4/v6 pair) to resolve .local ICE candidates whenever a
+// WebRTC video session starts, and that pair is not ours. Confirmed on
+// hardware: a device with no video session since boot holds two, and the
+// count rises to four the moment /api/vm/video is hit.
+//
 // listen opens and joins both families on iface.
 //
 // A family that cannot be joined is left nil rather than failing the whole
