@@ -552,6 +552,14 @@ func (m *Manager) reconcileRHI() {
 func (m *Manager) monitorLinks(done <-chan struct{}) {
 	defer m.wg.Done()
 
+	// Record the carrier that is already in effect before any event can be
+	// seen. eth0Carrier starts false, so without this the first netlink
+	// message for a link that was up the whole time reads as a rising edge and
+	// fires a reacquire — which threw away the lease the runner had just
+	// bound, and put a second full DISCOVER/OFFER/REQUEST/ACK on the wire
+	// within the same second, on every single start-up.
+	m.seedEth0Carrier()
+
 	events := make(chan netlink.LinkUpdate, 16)
 	if err := netlink.LinkSubscribe(events, done); err != nil {
 		m.log.Warn("network: link monitor unavailable; relying on periodic reconcile", slog.Any("err", err))
@@ -581,6 +589,20 @@ func (m *Manager) monitorLinks(done <-chan struct{}) {
 			m.reconcile()
 		}
 	}
+}
+
+// seedEth0Carrier primes the edge detector with the carrier state already in
+// effect, without signalling. An absent or unreadable link leaves the zero
+// value, which is the correct starting point for a link that is not up.
+func (m *Manager) seedEth0Carrier() {
+	link, err := netlink.LinkByName(m.cfg.Eth0.Name)
+	if err != nil {
+		return
+	}
+	up := hasCarrier(link.Attrs())
+	m.mu.Lock()
+	m.eth0Carrier = up
+	m.mu.Unlock()
 }
 
 // noteEth0Carrier records the carrier state and, on the transition to carrier

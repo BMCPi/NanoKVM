@@ -53,9 +53,10 @@ var dhcpLeaseDir = "/var/lib/nanokvm"
 type dhcpOutcome int
 
 const (
-	dhcpStopped dhcpOutcome = iota // shutting down
-	dhcpRenewed                    // fresh ACK in hand; re-apply and keep going
-	dhcpExpired                    // binding gone; start again from DISCOVER
+	dhcpStopped    dhcpOutcome = iota // shutting down
+	dhcpRenewed                       // fresh ACK in hand; re-apply and keep going
+	dhcpExpired                       // binding gone; start again from DISCOVER
+	dhcpReacquired                    // carrier returned; re-request the same address
 )
 
 // dhcpRunner drives an in-process DHCPv4 client (insomniacslk/dhcp) for one
@@ -145,13 +146,27 @@ func (d *dhcpRunner) run() {
 			slog.Duration("renewIn", until(t1)), slog.Duration("rebindIn", until(t2)),
 			slog.Duration("expiresIn", until(expiry)))
 
+		held := leaseAddr(lease)
 		outcome, renewed := d.maintain(lease)
 		switch outcome {
 		case dhcpStopped:
 			return
 		case dhcpRenewed:
 			lease = renewed
+		case dhcpReacquired:
+			// INIT-REBOOT for the address we were just holding. A link flap,
+			// a switch port settling or a VLAN change must not silently move
+			// the BMC's management address, which is exactly what a bare
+			// DISCOVER does: the server is free to offer something else, and
+			// on a segment with more than one subnet it will.
+			if held != nil {
+				remembered = held
+			}
+			lease = nil
 		case dhcpExpired:
+			// NAK or a genuinely expired binding: the address is not ours to
+			// ask for any more.
+			remembered = nil
 			lease = nil
 		}
 	}
@@ -179,7 +194,10 @@ func (d *dhcpRunner) maintain(lease *nclient4.Lease) (dhcpOutcome, *nclient4.Lea
 				return dhcpStopped, nil
 			}
 			if reacquire {
-				return dhcpExpired, nil
+				// Hand the lease back: a carrier event is not evidence the
+				// binding is gone, so the caller re-requests this same address
+				// rather than gambling on whatever a fresh DISCOVER offers.
+				return dhcpReacquired, lease
 			}
 
 		case now.Before(expiry):
@@ -217,7 +235,7 @@ func (d *dhcpRunner) maintain(lease *nclient4.Lease) (dhcpOutcome, *nclient4.Lea
 				return dhcpStopped, nil
 			}
 			if reacquire {
-				return dhcpExpired, nil
+				return dhcpReacquired, lease
 			}
 
 		default:
@@ -637,4 +655,17 @@ func sleepOrDone(done <-chan struct{}, d time.Duration) (stopped bool) {
 	case <-time.After(d):
 		return false
 	}
+}
+
+// leaseAddr is the address a lease assigned, or nil when there is none to
+// reclaim.
+func leaseAddr(lease *nclient4.Lease) net.IP {
+	if lease == nil || lease.ACK == nil {
+		return nil
+	}
+	ip := lease.ACK.YourIPAddr
+	if ip == nil || ip.IsUnspecified() {
+		return nil
+	}
+	return ip
 }

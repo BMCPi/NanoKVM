@@ -314,3 +314,67 @@ func TestDiscoverWithoutHardwareAddress(t *testing.T) {
 		t.Error("broadcast flag lost")
 	}
 }
+
+// --- carrier-driven reacquire ---------------------------------------------------
+
+func leaseFor(t *testing.T, ip net.IP) *nclient4.Lease {
+	t.Helper()
+	ack, err := dhcpv4.New(
+		dhcpv4.WithMessageType(dhcpv4.MessageTypeAck),
+		dhcpv4.WithHwAddr(testHW),
+		dhcpv4.WithYourIP(ip),
+		dhcpv4.WithOption(dhcpv4.OptIPAddressLeaseTime(time.Hour)),
+	)
+	if err != nil {
+		t.Fatalf("build ack: %v", err)
+	}
+	return &nclient4.Lease{ACK: ack}
+}
+
+// A carrier event says the link came back, not that the binding is gone. The
+// runner must re-request the address it was holding (INIT-REBOOT) instead of
+// discarding it, or a link flap silently moves the BMC's management address --
+// and on a segment offering more than one subnet, it does: observed hopping
+// 10.0.199.135 -> 10.1.9.89 -> 10.0.199.135 across three re-acquisitions.
+func TestReacquireKeepsTheAddressToReRequest(t *testing.T) {
+	want := net.IPv4(10, 0, 199, 135)
+	reacquire := make(chan struct{}, 1)
+	reacquire <- struct{}{} // carrier came back while we held the lease
+
+	d := &dhcpRunner{iface: "lo", reacquire: reacquire, log: discardLog()}
+	lease := leaseFor(t, want)
+
+	outcome, back := d.maintain(lease)
+
+	if outcome != dhcpReacquired {
+		t.Fatalf("outcome = %v, want dhcpReacquired", outcome)
+	}
+	if got := leaseAddr(back); !got.Equal(want) {
+		t.Errorf("handed back %v, want the held address %v", got, want)
+	}
+}
+
+// dhcpExpired and dhcpReacquired must stay distinct: only the latter may
+// re-request the old address. Collapsing them is what a bare DISCOVER after a
+// flap looks like.
+func TestReacquireIsDistinctFromExpired(t *testing.T) {
+	if dhcpReacquired == dhcpExpired {
+		t.Fatal("dhcpReacquired and dhcpExpired are the same value")
+	}
+}
+
+func TestLeaseAddr(t *testing.T) {
+	if got := leaseAddr(nil); got != nil {
+		t.Errorf("leaseAddr(nil) = %v, want nil", got)
+	}
+	if got := leaseAddr(&nclient4.Lease{}); got != nil {
+		t.Errorf("leaseAddr(no ACK) = %v, want nil", got)
+	}
+	if got := leaseAddr(leaseFor(t, net.IPv4zero)); got != nil {
+		t.Errorf("leaseAddr(0.0.0.0) = %v, want nil — there is nothing to reclaim", got)
+	}
+	want := net.IPv4(10, 1, 9, 89)
+	if got := leaseAddr(leaseFor(t, want)); !got.Equal(want) {
+		t.Errorf("leaseAddr = %v, want %v", got, want)
+	}
+}

@@ -207,3 +207,69 @@ func TestGrowBackoff(t *testing.T) {
 		t.Errorf("growBackoff(45s) = %s, want cap %s", got, supRetryCap)
 	}
 }
+
+// A link that was already up before the monitor started must not look like a
+// rising edge to the first netlink event it sees.
+//
+// This is what put two full DHCP exchanges on the wire in the same second, on
+// every start-up: eth0Carrier begins false, the first event reports the
+// carrier that had been up all along, noteEth0Carrier calls that a rise, and
+// the runner throws away the lease it had just bound to go and DISCOVER again.
+func TestSeededCarrierSuppressesTheFalseRisingEdge(t *testing.T) {
+	m := newCarrierTestManager("dhcp")
+
+	// What seedEth0Carrier does for a link that is already up.
+	m.mu.Lock()
+	m.eth0Carrier = true
+	m.mu.Unlock()
+
+	m.noteEth0Carrier(true)
+	if signalled(m) {
+		t.Error("an already-up carrier was reported as a rising edge; the lease would be discarded and re-DISCOVERed")
+	}
+
+	// A genuine flap must still be seen.
+	m.noteEth0Carrier(false)
+	m.noteEth0Carrier(true)
+	if !signalled(m) {
+		t.Error("a real down/up flap did not signal a reacquire")
+	}
+}
+
+// seedEth0Carrier reads the live link rather than assuming. Loopback is always
+// up, so it is a usable stand-in for "the link was up before we looked".
+func TestSeedEth0CarrierReadsTheLiveLink(t *testing.T) {
+	if _, err := netlink.LinkByName("lo"); err != nil {
+		t.Skipf("no loopback link here: %v", err)
+	}
+	m := newCarrierTestManager("dhcp")
+	m.cfg.Eth0.Name = "lo"
+
+	m.seedEth0Carrier()
+
+	m.mu.Lock()
+	got := m.eth0Carrier
+	m.mu.Unlock()
+	if !got {
+		t.Error("seedEth0Carrier did not record the carrier of an up link")
+	}
+	if signalled(m) {
+		t.Error("seeding must not signal a reacquire; it only primes the edge detector")
+	}
+}
+
+// An interface that does not exist leaves the zero value, which is the right
+// starting point: there is no carrier to have missed.
+func TestSeedEth0CarrierToleratesAMissingLink(t *testing.T) {
+	m := newCarrierTestManager("dhcp")
+	m.cfg.Eth0.Name = "nosuchif0"
+
+	m.seedEth0Carrier()
+
+	m.mu.Lock()
+	got := m.eth0Carrier
+	m.mu.Unlock()
+	if got {
+		t.Error("a missing link was recorded as having carrier")
+	}
+}
