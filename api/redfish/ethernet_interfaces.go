@@ -48,6 +48,26 @@ func (s *Service) GetEthernetInterface(c *gin.Context) {
 		odataTypeEthernetInterface, "EthernetInterface.EthernetInterface", id))
 }
 
+// operatorNICProperties are the member properties an operator writes and the
+// host consumes, rather than ones the host reports. A re-POST carries them
+// forward when the report omits them.
+//
+// The firmware POSTs its whole NIC report on boot, and that report describes
+// what the adapter IS — MAC, link state, the addresses currently in effect —
+// not what it has been asked to become. A plain replace therefore erased any
+// configuration staged since the last boot, in the very window before the
+// host had read it. Processors has the same operator/host shared-member shape
+// and the same fix (see hostCollectionPutPreserving).
+//
+// Once the host has applied a change it reports the new value back, and that
+// report wins: preservation only covers keys the host said nothing about.
+var operatorNICProperties = []string{
+	"DHCPv4",
+	"IPv4StaticAddresses",
+	"StaticNameServers",
+	"MTUSize",
+}
+
 // PostEthernetInterface is the host's member-creation lane. Keyed upsert —
 // same Id, same member. The 201 + Location contract is load-bearing: the
 // feature driver records the Location URI into its configure-language map,
@@ -64,7 +84,7 @@ func (s *Service) PostEthernetInterface(c *gin.Context) {
 	// Preference order tracks the firmware contract: the eth<N> Id it
 	// assigns, then the MAC (older reports), then a generated ethN.
 	id := hostMemberID(ethernetOf, body, "eth", "Id", "MACAddress")
-	hostCollectionPut(ethernetOf, id, body)
+	hostCollectionPutPreserving(ethernetOf, id, body, operatorNICProperties...)
 
 	path := ethernetInterfacesPath + "/" + id
 	c.Header("Location", path)

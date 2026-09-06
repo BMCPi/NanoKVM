@@ -2,7 +2,14 @@ package redfish
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/gin-gonic/gin"
+
+	"github.com/pi-bmc/nanokvm-app/pkg/config"
 )
 
 // Redfish spells BitRate/DataBits/StopBits as string enums. We used to emit
@@ -93,5 +100,39 @@ func TestItoaOrEmpty(t *testing.T) {
 		if got := itoaOrEmpty(tc.in); got != tc.want {
 			t.Errorf("itoaOrEmpty(%d) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+// A Redfish PATCH that changes the BMC's own serial settings has to reach
+// /etc/kvm/server.yaml. The handler edited config.GetInstance() in place and
+// never saved, so the new baud rate lived only until the next restart —
+// unlike every other settings handler in the app, all of which persist.
+func TestPatchSerialInterfacePersistsConfig(t *testing.T) {
+	saved := 0
+	orig := saveConfig
+	saveConfig = func() { saved++ }
+	t.Cleanup(func() { saveConfig = orig })
+
+	cfg := config.GetInstance()
+	before := cfg.Serial.BaudRate
+	t.Cleanup(func() { cfg.Serial.BaudRate = before })
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPatch, "/redfish/v1/Managers/1/SerialInterfaces/1",
+		strings.NewReader(`{"BitRate":"57600"}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	testHandlers().PatchSerialInterface(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("PATCH = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	if cfg.Serial.BaudRate != 57600 {
+		t.Fatalf("in-memory BaudRate = %d, want 57600", cfg.Serial.BaudRate)
+	}
+	if saved != 1 {
+		t.Errorf("config saved %d times, want 1 — the change is lost on restart", saved)
 	}
 }

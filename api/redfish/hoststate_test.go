@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1241,4 +1242,219 @@ func TestEthernetInterfaceStaleDelete(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &coll); err != nil || coll.Count != 1 {
 		t.Fatalf("collection after delete: count=%d err=%v", coll.Count, err)
 	}
+}
+
+// --- persistence completeness -------------------------------------------------
+
+// probeFill writes a distinguishable value into every exported field of v,
+// recursing into structs. It is deliberately total: a field type it does not
+// know how to fill fails the test rather than being skipped, because a
+// silently skipped field is exactly the hole this guard exists to close.
+func probeFill(t *testing.T, v reflect.Value, marker string) {
+	t.Helper()
+	if v.Type() == reflect.TypeOf(time.Time{}) {
+		v.Set(reflect.ValueOf(time.Unix(1735689600, 0).UTC()))
+		return
+	}
+	switch v.Kind() {
+	case reflect.String:
+		v.SetString(marker)
+	case reflect.Struct:
+		for i := range v.NumField() {
+			if v.Type().Field(i).PkgPath != "" {
+				continue // unexported: not persisted, not restorable
+			}
+			probeFill(t, v.Field(i), marker+"."+v.Type().Field(i).Name)
+		}
+	case reflect.Map:
+		// map[string]map[string]any and map[string]any are the only shapes
+		// hostState uses; both take one probe entry.
+		inner := v.Type().Elem()
+		m := reflect.MakeMap(v.Type())
+		if inner.Kind() == reflect.Map {
+			m.SetMapIndex(reflect.ValueOf("probe-"+marker),
+				reflect.ValueOf(map[string]any{"marker": marker}))
+		} else {
+			m.SetMapIndex(reflect.ValueOf("marker"), reflect.ValueOf(any(marker)))
+		}
+		v.Set(m)
+	default:
+		t.Fatalf("probeFill has no rule for %s (%s) — teach it one, "+
+			"or the persistence guard silently stops covering this field", marker, v.Kind())
+	}
+}
+
+// Every exported field of hostState is marshalled to disk by hostStateWrite,
+// so every one of them must come back out at startup. LoadHostState used to
+// restore a hand-maintained list of fields, and Ethernet was missing from it:
+// an operator's staged NIC configuration was written to bmc_state.json and
+// then discarded on the next BMC restart, before the host ever read it.
+//
+// This asserts the whole document round-trips, so the next field added to
+// hostState cannot repeat that.
+func TestPersistedStateRestoresEveryField(t *testing.T) {
+	resetHostState(t)
+
+	want := &hostState{}
+	probeFill(t, reflect.ValueOf(want).Elem(), "probe")
+
+	encoded, err := json.MarshalIndent(want, "", "  ")
+	if err != nil {
+		t.Fatalf("encode probe state: %v", err)
+	}
+	if err := os.WriteFile(hostStatePath, encoded, 0o600); err != nil {
+		t.Fatalf("write probe state: %v", err)
+	}
+
+	LoadHostState(slog.New(slog.DiscardHandler))
+
+	host.mu.RLock()
+	got, err := json.Marshal(host)
+	host.mu.RUnlock()
+	if err != nil {
+		t.Fatalf("encode restored state: %v", err)
+	}
+
+	var wantDoc, gotDoc map[string]any
+	if err := json.Unmarshal(encoded, &wantDoc); err != nil {
+		t.Fatalf("decode probe doc: %v", err)
+	}
+	if err := json.Unmarshal(got, &gotDoc); err != nil {
+		t.Fatalf("decode restored doc: %v", err)
+	}
+
+	// The comparison below only covers keys the probe document actually
+	// carries, so a field probeFill left zero (and omitempty then dropped)
+	// would be checked by nothing at all. Pin the count to the struct.
+	exported := 0
+	ht := reflect.TypeOf(hostState{})
+	for i := range ht.NumField() {
+		if ht.Field(i).PkgPath == "" {
+			exported++
+		}
+	}
+	if len(wantDoc) != exported {
+		t.Fatalf("probe document has %d keys for %d exported fields: a field never "+
+			"reaches the comparison below", len(wantDoc), exported)
+	}
+
+	for key, wantVal := range wantDoc {
+		gotVal, present := gotDoc[key]
+		if !present {
+			t.Errorf("%q is persisted but absent after restore", key)
+			continue
+		}
+		if !reflect.DeepEqual(wantVal, gotVal) {
+			t.Errorf("%q not restored:\n  saved   %v\n  restored %v", key, wantVal, gotVal)
+		}
+	}
+}
+
+// The reported bug, stated as its own case so the failure names the resource.
+// An operator stages NIC configuration the host has not consumed yet; a BMC
+// restart in that window must not lose it.
+func TestEthernetInterfaceConfigSurvivesRestart(t *testing.T) {
+	resetHostState(t)
+	r := hostRouter()
+
+	if w := do(r, http.MethodPost, "/redfish/v1/Systems/1/EthernetInterfaces", hostIP(t),
+		`{"Id":"eth0","MACAddress":"D8:3A:DD:C9:8C:28"}`, nil); w.Code != http.StatusCreated {
+		t.Fatalf("host POST = %d, want 201", w.Code)
+	}
+	staged := `{"DHCPv4":{"DHCPEnabled":false},` +
+		`"IPv4StaticAddresses":[{"Address":"10.0.0.5","SubnetMask":"255.255.255.0"}]}`
+	if w := do(r, http.MethodPatch, "/redfish/v1/Systems/1/EthernetInterfaces/eth0", lanIP,
+		staged, nil); w.Code != http.StatusOK {
+		t.Fatalf("operator PATCH = %d, want 200", w.Code)
+	}
+	hostStateFlush()
+
+	// Restart: drop everything in memory, restore from disk.
+	host.mu.Lock()
+	host.Ethernet = map[string]map[string]any{}
+	host.mu.Unlock()
+	LoadHostState(slog.New(slog.DiscardHandler))
+
+	member, ok := hostCollectionGet(ethernetOf, "eth0")
+	if !ok {
+		t.Fatal("eth0 gone after restart: the staged NIC configuration was lost")
+	}
+	dhcp, _ := member["DHCPv4"].(map[string]any)
+	if enabled, ok := dhcp["DHCPEnabled"].(bool); !ok || enabled {
+		t.Errorf("DHCPv4 not restored: %v", member["DHCPv4"])
+	}
+	if addrs, _ := member["IPv4StaticAddresses"].([]any); len(addrs) != 1 {
+		t.Errorf("IPv4StaticAddresses not restored: %v", member["IPv4StaticAddresses"])
+	}
+}
+
+// The host re-POSTs its NIC every boot, and its report omits the properties
+// an operator writes. A plain replace would erase configuration the firmware
+// has not consumed yet — the same trap Processors avoids with
+// hostCollectionPutPreserving.
+func TestHostReportDoesNotWipeStagedNICConfig(t *testing.T) {
+	resetHostState(t)
+	r := hostRouter()
+	report := `{"Id":"eth0","MACAddress":"D8:3A:DD:C9:8C:28","LinkStatus":"LinkUp"}`
+
+	if w := do(r, http.MethodPost, "/redfish/v1/Systems/1/EthernetInterfaces", hostIP(t),
+		report, nil); w.Code != http.StatusCreated {
+		t.Fatalf("first POST = %d, want 201", w.Code)
+	}
+	staged := `{"DHCPv4":{"DHCPEnabled":false},"StaticNameServers":["10.0.0.1"],"MTUSize":9000}`
+	if w := do(r, http.MethodPatch, "/redfish/v1/Systems/1/EthernetInterfaces/eth0", lanIP,
+		staged, nil); w.Code != http.StatusOK {
+		t.Fatalf("operator PATCH = %d, want 200", w.Code)
+	}
+
+	// Next boot: the host re-reports exactly what it knows, and nothing else.
+	if w := do(r, http.MethodPost, "/redfish/v1/Systems/1/EthernetInterfaces", hostIP(t),
+		report, nil); w.Code != http.StatusCreated {
+		t.Fatalf("re-POST = %d, want 201", w.Code)
+	}
+
+	member, ok := hostCollectionGet(ethernetOf, "eth0")
+	if !ok {
+		t.Fatal("eth0 missing after re-report")
+	}
+	dhcp, _ := member["DHCPv4"].(map[string]any)
+	if enabled, ok := dhcp["DHCPEnabled"].(bool); !ok || enabled {
+		t.Errorf("DHCPv4 wiped by the host's re-report: %v", member["DHCPv4"])
+	}
+	if ns, _ := member["StaticNameServers"].([]any); len(ns) != 1 {
+		t.Errorf("StaticNameServers wiped by the host's re-report: %v", member["StaticNameServers"])
+	}
+	if member["MTUSize"] != float64(9000) {
+		t.Errorf("MTUSize wiped by the host's re-report: %v", member["MTUSize"])
+	}
+	// The host still owns what it reports.
+	if member["LinkStatus"] != "LinkUp" {
+		t.Errorf("LinkStatus = %v, want the host's value", member["LinkStatus"])
+	}
+}
+
+// Restore replaces the in-memory document; it does not merge into it. Decoding
+// JSON onto a live map adds keys rather than replacing the map, so without an
+// explicit wipe a member the running process holds but the persisted file does
+// not would reappear as a ghost after every restore.
+func TestRestoreDropsMembersAbsentFromDisk(t *testing.T) {
+	resetHostState(t)
+
+	hostCollectionPut(bootOptionsOf, "Boot0000", map[string]any{"DisplayName": "SD"})
+	hostStateFlush()
+
+	// A member that was never persisted.
+	hostCollectionPut(bootOptionsOf, "Boot0001", map[string]any{"DisplayName": "ghost"})
+
+	LoadHostState(slog.New(slog.DiscardHandler))
+
+	if _, ok := hostCollectionGet(bootOptionsOf, "Boot0001"); ok {
+		t.Error("Boot0001 survived a restore that never contained it")
+	}
+	if _, ok := hostCollectionGet(bootOptionsOf, "Boot0000"); !ok {
+		t.Error("Boot0000 lost by the restore")
+	}
+	// Cancel the ghost put's debounced write so it cannot land on the shared
+	// scratch file while a later test is reading it.
+	hostStateFlush()
 }

@@ -66,6 +66,11 @@ func (h *handlers) GetSerialInterface(c *gin.Context) {
 	c.JSON(http.StatusOK, buildSerialInterfaceResource())
 }
 
+// saveConfig is config.Save behind a variable so tests can observe that a
+// Redfish write actually reached the config store. Never reassigned outside
+// tests.
+var saveConfig = config.Save
+
 func (h *handlers) PatchSerialInterface(c *gin.Context) {
 	var req serialPatchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -90,6 +95,11 @@ func (h *handlers) PatchSerialInterface(c *gin.Context) {
 	if req.FlowControl != "" {
 		cfg.Serial.FlowControl = strings.ToLower(req.FlowControl)
 	}
+
+	// Persist: this handler edits the shared config instance in place, and
+	// without a save the new settings live only until the process restarts.
+	// Every other settings surface in the app saves; Redfish did not.
+	saveConfig()
 
 	// NOTE: active serial broker sessions will not pick up new settings
 	// until the next Connect(). A broker restart may be needed.

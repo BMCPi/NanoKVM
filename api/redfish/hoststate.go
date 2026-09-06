@@ -104,22 +104,69 @@ type hostState struct {
 // typed gofish enums.
 const redfishDisabled = "Disabled"
 
-var host = &hostState{
-	Boot:           HostBootOverride{Target: "None", Enabled: redfishDisabled},
-	BootOptions:    map[string]map[string]any{},
-	Memory:         map[string]map[string]any{},
-	Processors:     map[string]map[string]any{},
-	Drives:         map[string]map[string]any{},
-	Ethernet:       map[string]map[string]any{},
-	Firmware:       map[string]map[string]any{},
-	BiosAttributes: map[string]any{},
-	BiosPending:    map[string]any{},
-	SecureBoot: map[string]any{
-		"SecureBootEnable":             false,
-		"SecureBootCurrentBoot":        redfishDisabled,
-		"SecureBootMode":               "SetupMode",
-		"@Redfish.WriteableProperties": []string{"SecureBootEnable"},
-	},
+var host = newHostState()
+
+func newHostState() *hostState {
+	h := &hostState{}
+	h.normalize()
+	return h
+}
+
+// normalize re-establishes the invariants every reader depends on: no nil
+// collection maps, and a default for the two documents that must answer
+// something even before anything has been reported. It is the single place
+// those defaults live, applied both to a fresh state and to a restored one,
+// so a persisted document that omits a key comes back with the same shape a
+// never-persisted one has.
+//
+// Only absent values are filled. A restored empty map means "the host
+// reported nothing", which is a different answer from "not reported yet" and
+// must survive.
+func (h *hostState) normalize() {
+	for _, m := range []*map[string]map[string]any{
+		&h.BootOptions, &h.Memory, &h.Processors, &h.Drives, &h.Ethernet, &h.Firmware,
+	} {
+		if *m == nil {
+			*m = map[string]map[string]any{}
+		}
+	}
+	if h.BiosAttributes == nil {
+		h.BiosAttributes = map[string]any{}
+	}
+	if h.BiosPending == nil {
+		h.BiosPending = map[string]any{}
+	}
+	// A half-written override is not an override: the two fields are only
+	// meaningful together, so either one missing falls back to the default.
+	if h.Boot.Target == "" || h.Boot.Enabled == "" {
+		h.Boot = HostBootOverride{Target: "None", Enabled: redfishDisabled}
+	}
+	if h.SecureBoot == nil {
+		h.SecureBoot = map[string]any{
+			"SecureBootEnable":             false,
+			"SecureBootCurrentBoot":        redfishDisabled,
+			"SecureBootMode":               "SetupMode",
+			"@Redfish.WriteableProperties": []string{"SecureBootEnable"},
+		}
+	}
+}
+
+// resetExported zeroes every exported field, leaving the mutex alone.
+//
+// Reflection rather than a field list on purpose. LoadHostState decodes the
+// persisted document straight onto this struct, and encoding/json ADDS keys
+// to an existing map instead of replacing it — so without a wipe first, a
+// member the previous state held but the file does not would survive the
+// restore. A hand-written wipe is one more list to forget a field in, which
+// is the exact defect this whole path is being fixed for.
+func (h *hostState) resetExported() {
+	v := reflect.ValueOf(h).Elem()
+	for i := range v.NumField() {
+		if v.Type().Field(i).PkgPath != "" {
+			continue // unexported (the mutex): not persisted, not restorable
+		}
+		v.Field(i).SetZero()
+	}
 }
 
 // hostStatePath lives on the persistent partition next to the rest of the
@@ -313,39 +360,25 @@ func LoadHostState(log *slog.Logger) {
 		return
 	}
 
-	restored := &hostState{}
-	if err := json.Unmarshal(data, restored); err != nil {
+	// Validate against a throwaway before touching live state: the restore
+	// below wipes the struct first, so a document that fails halfway through
+	// decoding would leave nothing behind.
+	if err := json.Unmarshal(data, &hostState{}); err != nil {
 		log.Warn("persisted BMC host state is unreadable; ignoring it", slog.Any("err", err))
 		return
 	}
 
+	// Decode the whole document rather than copying named fields across. The
+	// field list this replaced had drifted from the struct: Ethernet was
+	// marshalled to disk on every write and silently dropped at every
+	// startup, so NIC configuration an operator staged for the host to
+	// consume was lost to any restart before the host's next boot. Decoding
+	// keeps restore total by construction — a field added to hostState is
+	// persisted and restored without anyone remembering to extend anything.
 	host.mu.Lock()
-	if restored.Boot.Target != "" && restored.Boot.Enabled != "" {
-		host.Boot = restored.Boot
-	}
-	host.Host = restored.Host
-	for dst, src := range map[*map[string]map[string]any]map[string]map[string]any{
-		&host.BootOptions: restored.BootOptions,
-		&host.Memory:      restored.Memory,
-		&host.Processors:  restored.Processors,
-		&host.Drives:      restored.Drives,
-		&host.Firmware:    restored.Firmware,
-	} {
-		if src != nil {
-			*dst = src
-		}
-	}
-	if restored.BiosAttributes != nil {
-		host.BiosAttributes = restored.BiosAttributes
-	}
-	if restored.BiosPending != nil {
-		host.BiosPending = restored.BiosPending
-	}
-	host.BiosRegistry = restored.BiosRegistry
-	if restored.SecureBoot != nil {
-		host.SecureBoot = restored.SecureBoot
-	}
-	host.Thermal = restored.Thermal
+	host.resetExported()
+	_ = json.Unmarshal(data, host) // cannot fail: the same bytes decoded above
+	host.normalize()
 
 	// Collapse duplicate members accumulated by earlier builds that minted a
 	// fresh id for every keyless re-POST (one ghost per host boot). Lowest
@@ -353,7 +386,7 @@ func LoadHostState(log *slog.Logger) {
 	for _, m := range []map[string]map[string]any{host.BootOptions, host.Memory, host.Drives} {
 		dedupeHostCollection(m)
 	}
-	captured := restored.CapturedAt
+	captured := host.CapturedAt
 	host.mu.Unlock()
 
 	age := "unknown"
