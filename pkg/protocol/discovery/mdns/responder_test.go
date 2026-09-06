@@ -2,10 +2,12 @@ package mdns
 
 import (
 	"context"
+	"net"
 	"testing"
 	"time"
 
 	"github.com/brutella/dnssd"
+	"github.com/miekg/dns"
 )
 
 // TestResponderAnnouncesServicesOnLoopback is the only test of the DNS-SD
@@ -182,6 +184,104 @@ func TestHostLabelStripsTheLocalSuffix(t *testing.T) {
 			// failing on this one.
 		case <-deadline:
 			t.Fatal("never resolved an address for the advertised host; a doubled \".local.local.\" suffix would look exactly like this")
+		}
+	}
+}
+
+// --- addresses are resolved once, at start ------------------------------------
+
+// The receive path must never ask the kernel for interface state: that is a
+// netlink dump per packet, and it is what saturated the CPU when this package
+// used a general-purpose DNS-SD library. Addresses are resolved once here and
+// baked into the records.
+func TestInterfaceIPsMatchesTheKernel(t *testing.T) {
+	ifi, err := net.InterfaceByName("lo")
+	if err != nil {
+		t.Skip("no loopback interface on this machine")
+	}
+	addrs, err := ifi.Addrs()
+	if err != nil {
+		t.Skipf("cannot enumerate loopback addresses: %v", err)
+	}
+	var want []net.IP
+	for _, a := range addrs {
+		if ip, _, err := net.ParseCIDR(a.String()); err == nil {
+			want = append(want, ip)
+		}
+	}
+
+	got := interfaceIPs("lo")
+	if len(got) != len(want) {
+		t.Fatalf("interfaceIPs(lo) = %v, want %v", got, want)
+	}
+	for i := range want {
+		if !got[i].Equal(want[i]) {
+			t.Errorf("IP[%d] = %v, want %v", i, got[i], want[i])
+		}
+	}
+}
+
+// An interface the kernel will not resolve yields no addresses rather than a
+// panic or a bogus record.
+func TestInterfaceIPsOnUnknownInterface(t *testing.T) {
+	for _, name := range []string{"", "nosuchif0"} {
+		if got := interfaceIPs(name); got != nil {
+			t.Errorf("interfaceIPs(%q) = %v, want nil", name, got)
+		}
+	}
+}
+
+// An explicitly configured interface that does not exist must fail loudly.
+// Quietly serving a different interface would mean discovery works, but on
+// the wrong network -- invisible from the device.
+func TestExplicitMissingInterfaceIsAnError(t *testing.T) {
+	if _, err := resolveInterface("nosuchif0"); err == nil {
+		t.Error("resolveInterface accepted an interface that does not exist")
+	}
+	if ifi, err := resolveInterface("lo"); err != nil || ifi.Name != "lo" {
+		t.Errorf("resolveInterface(lo) = %v, %v", ifi, err)
+	}
+}
+
+// A conflicting claim on one of our unique names must be recognised; an
+// identical one (our own announcement echoed back) must not.
+func TestConflictDetection(t *testing.T) {
+	rs := buildRecords("nanokvm", []Service{{Type: "_http._tcp", Port: 80}},
+		[]net.IP{net.ParseIP("192.0.2.10")})
+
+	same := new(dns.Msg)
+	same.Response = true
+	same.Answer = rs.unique
+	if conflictsWith(same, rs.unique) {
+		t.Error("our own records were treated as a conflict")
+	}
+
+	other := new(dns.Msg)
+	other.Response = true
+	other.Answer = []dns.RR{&dns.SRV{
+		Hdr:    dns.RR_Header{Name: "nanokvm._http._tcp.local.", Rrtype: dns.TypeSRV, Class: dns.ClassINET, Ttl: 120},
+		Target: "someone-else.local.", Port: 8080,
+	}}
+	if !conflictsWith(other, rs.unique) {
+		t.Error("another host claiming our instance name was not detected")
+	}
+
+	query := new(dns.Msg) // not a response: never a conflict
+	query.Answer = other.Answer
+	if conflictsWith(query, rs.unique) {
+		t.Error("a query was treated as a conflicting claim")
+	}
+}
+
+// Renaming follows the Bonjour/Avahi convention, and must not stack suffixes.
+func TestIncrementLabel(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"nanokvm", "nanokvm-2"},
+		{"nanokvm-2", "nanokvm-2"},
+		{"my-kvm", "my-kvm-2"},
+	} {
+		if got := incrementLabel(tc.in, 2); got != tc.want {
+			t.Errorf("incrementLabel(%q, 2) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
