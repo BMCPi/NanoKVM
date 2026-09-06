@@ -29,12 +29,12 @@ func gadgetOverTemp(t *testing.T) *Gadget {
 	return &Gadget{
 		fs:  newSysfs(root),
 		log: slog.New(slog.DiscardHandler),
-		cfg: config.UsbGadget{Ethernet: EthernetNCM},
+		cfg: config.UsbGadget{Ethernet: EthernetEEM},
 	}
 }
 
 // The live failure this reproduces: on every server restart the gadget is
-// already bound, ncm.usb0/host_addr reads back NUL-terminated ("…10:02\x00\n",
+// already bound, eem.usb0/host_addr reads back NUL-terminated ("…10:02\x00\n",
 // hexdump-verified on the board), the write-if-different guard decides it
 // differs, and configfs rejects the rewrite with EBUSY. build() then returns
 // early and never reaches reconcileLinks().
@@ -44,7 +44,7 @@ func gadgetOverTemp(t *testing.T) *Gadget {
 func TestEnsureEthernetFuncSkipsRewriteOfNULTerminatedMACs(t *testing.T) {
 	g := gadgetOverTemp(t)
 
-	dir := filepath.Join(g.functionsPath(), "ncm.usb0")
+	dir := filepath.Join(g.functionsPath(), "eem.usb0")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestEnsureEthernetFuncSkipsRewriteOfNULTerminatedMACs(t *testing.T) {
 		}
 	}
 
-	if err := g.ensureEthernetFunc(EthernetNCM); err != nil {
+	if err := g.ensureEthernetFunc(EthernetEEM); err != nil {
 		t.Fatalf("ensureEthernetFunc rewrote already-matching NUL-terminated MACs: %v", err)
 	}
 }
@@ -73,12 +73,12 @@ func TestBuildBindsUDCEvenWhenEthernetStepFails(t *testing.T) {
 	g := gadgetOverTemp(t)
 	g.cfg = config.UsbGadget{
 		Enabled:  true,
-		Ethernet: EthernetNCM,
+		Ethernet: EthernetEEM,
 		BindUDC:  true,
 		UDCName:  "dummy.udc",
 	}
 
-	dir := filepath.Join(g.functionsPath(), "ncm.usb0")
+	dir := filepath.Join(g.functionsPath(), "eem.usb0")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}

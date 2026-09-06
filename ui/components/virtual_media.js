@@ -31,23 +31,6 @@
     label.textContent = uploadPhaseLabel(name);
   });
 
-  // File uploads never leave the browser tab, so htmx's own
-  // htmx:xhr:progress event (fired on the requesting element for both the
-  // download and upload phases) is the real byte-level source of truth.
-  // Mirroring loaded/total onto the progress bar's aria attributes is
-  // enough — progress.js's MutationObserver repaints the indicator/label.
-  document.body.addEventListener('htmx:xhr:progress', function (evt) {
-    if (!evt.target || evt.target.id !== 'vm-upload-form') return;
-    if (!evt.detail || !evt.detail.lengthComputable) return;
-    var bar = document.getElementById('vm-upload-progress');
-    if (!bar) return;
-    // The hidden PROPERTY, matching the server-rendered hidden attribute —
-    // see the note beside the Progress in virtual_media.templ.
-    bar.hidden = false;
-    bar.setAttribute('aria-valuemax', String(evt.detail.total));
-    bar.setAttribute('aria-valuenow', String(evt.detail.loaded));
-  });
-
   // ----- Existing tab: the Mount / Delete split button --------------------
   //
   // The chevron menu picks which action the primary button performs. Both
@@ -78,14 +61,5 @@
     var item = evt.target.closest('[data-vm-action]');
     if (!item) return;
     setMediaAction(item.getAttribute('data-vm-action'));
-  });
-
-  // Reset once the request settles so the next upload starts from 0%.
-  document.body.addEventListener('htmx:afterRequest', function (evt) {
-    if (!evt.target || evt.target.id !== 'vm-upload-form') return;
-    var bar = document.getElementById('vm-upload-progress');
-    if (!bar) return;
-    bar.hidden = true;
-    bar.setAttribute('aria-valuenow', '0');
   });
 })();

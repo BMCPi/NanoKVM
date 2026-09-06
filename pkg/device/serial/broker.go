@@ -6,9 +6,11 @@ package serial
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/serial/circular"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/usbgadget"
 	"github.com/pi-bmc/nanokvm-app/pkg/logger"
 	"github.com/pi-bmc/nanokvm-app/pkg/platform/telemetry"
 )
@@ -92,8 +95,10 @@ type Broker struct {
 	// stdin writes to the serial port (may be the port itself or a wrapper).
 	stdin io.Writer
 
-	// serial port handle (native Go, no picocom)
-	port   goserial.Port
+	// serial port handle (native Go, no picocom). Either a go.bug.st/serial
+	// port for a real UART or the raw character device for the USB gadget
+	// console — see startLocked for why the two open paths differ.
+	port   io.ReadWriteCloser
 	active bool
 	stopCh chan struct{}
 
@@ -110,6 +115,23 @@ type Broker struct {
 
 	// sessionCount is an atomic counter for fast len checks and unique ID generation.
 	sessionCount atomic.Int32
+
+	// writeSlot admits one writer to the port at a time, so two concurrent
+	// callers (the keystroke pump and the SOL engine) cannot interleave
+	// halves of each other's input on the wire.
+	//
+	// It has the PORT's lifetime, not the broker's: startLocked creates it
+	// and stopLocked drops it. A slot that outlived its port carried a dead
+	// port's contention onto the healthy one that replaced it — one write
+	// that never returned, then any serial settings save (Restart), and every
+	// subsequent write failed "waiting behind an earlier write" for the life
+	// of the process, with the web terminal and IPMI SOL both dead and
+	// blaming a good port. A writer still parked on the old port holds the
+	// old channel and drains into it harmlessly.
+	//
+	// Also created lazily under b.mu (Write takes it anyway to read stdin) so
+	// a zero-value Broker still writes.
+	writeSlot chan struct{}
 }
 
 // newScrollback allocates the shared history buffer.
@@ -233,18 +255,111 @@ func (b *Broker) Disconnect(id string) {
 	pkgLog().Info("serial: session disconnected", slog.String("session", id), slog.Int("remaining", int(remaining)))
 }
 
+// ErrWriteTimeout is returned by Write when the port did not accept all of the
+// data within writeTimeout. Callers get an error rather than a silent drop: a
+// console that is swallowing keystrokes must say so. The byte count returned
+// alongside it is the number that really did reach the port — nothing is
+// delivered after Write returns.
+var ErrWriteTimeout = errors.New("serial write timed out: the port is not being drained")
+
+// writeTimeout bounds one Broker.Write. A var so tests can shorten it.
+//
+// A real UART drains at line rate and never gets near this. The bound is for
+// the USB gadget console: u_serial buffers WRITE_BUF_SIZE (8 KB) and then
+// blocks the writer indefinitely while no host is reading the port, and gser
+// carries no DTR, so the BMC cannot tell "the host enumerated the device"
+// from "something on the host has the port open". Write is called from the
+// WebSocket keystroke pump and the IPMI SOL engine; neither may be pinned to
+// a goroutine forever by a host that never reads.
+var writeTimeout = 2 * time.Second
+
+// deadlineWriter is a port whose writes can be bounded in time. The gadget
+// console tty is opened as a non-blocking character device (openConsoleTTY)
+// precisely so that it satisfies this.
+type deadlineWriter interface {
+	io.Writer
+	SetWriteDeadline(t time.Time) error
+}
+
 // Write sends data to the serial port. Safe to call from any goroutine.
+//
+// The write is bounded in the port, not around it. Handing bytes to a blocking
+// write and then abandoning the goroutine would let a payload the caller was
+// told had been dropped land later anyway, once the port drained: on a BMC
+// console that means a command the operator saw refused executing on the
+// managed host minutes afterwards, and an IPMI SOL retransmit arriving as a
+// second, in-order copy. So on the gadget console the deadline is set on the
+// descriptor itself, which returns the true partial count and delivers nothing
+// further; on a real UART (go.bug.st/serial, no deadline API) the write is
+// simply awaited, which is what it has always done and what a port draining at
+// line rate needs.
+//
+// The returned count is always the number of bytes that actually reached the
+// port, and only those are counted in telemetry.
 func (b *Broker) Write(data []byte) (int, error) {
 	b.mu.Lock()
 	stdin := b.stdin
+	if b.writeSlot == nil {
+		b.writeSlot = make(chan struct{}, 1)
+	}
+	slot := b.writeSlot
 	b.mu.Unlock()
 
 	if stdin == nil {
 		return 0, fmt.Errorf("serial port not active")
 	}
-	n, err := stdin.Write(data)
-	telemetry.SerialBytesTx(context.Background(), n)
+
+	// Bounded acquisition: on the gadget console the holder always releases
+	// within writeTimeout, so this only ever waits on a real UART that has
+	// stopped draining — where refusing is still better than queueing another
+	// caller behind it indefinitely.
+	acquire := time.NewTimer(writeTimeout)
+	defer acquire.Stop()
+	select {
+	case slot <- struct{}{}:
+	case <-acquire.C:
+		return 0, writeGaveUp(0, len(data), "waiting behind an earlier write")
+	}
+	defer func() { <-slot }()
+
+	n, err := writeBounded(stdin, data)
+	if n > 0 {
+		telemetry.SerialBytesTx(context.Background(), n)
+	}
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		return n, writeGaveUp(n, len(data), "the port is not draining")
+	}
 	return n, err
+}
+
+// writeBounded writes data, bounding it with a write deadline when the port
+// supports one. A port that does not (a real UART through go.bug.st/serial, or
+// a test's plain io.Writer) gets an ordinary write rather than a pretend bound.
+func writeBounded(w io.Writer, data []byte) (int, error) {
+	dw, ok := w.(deadlineWriter)
+	if !ok {
+		return w.Write(data)
+	}
+	if err := dw.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
+		return w.Write(data)
+	}
+	// Cleared afterwards so a deadline from this call cannot expire under the
+	// next one, which sets its own.
+	defer func() { _ = dw.SetWriteDeadline(time.Time{}) }()
+	return dw.Write(data)
+}
+
+// writeGaveUp logs and builds the error for a write the port would not take.
+// Input is dropped loudly: a console silently swallowing keystrokes is
+// indistinguishable from a wedged host. delivered is what did reach the port
+// (0 unless the port took a prefix before the deadline) and is never delivered
+// again afterwards.
+func writeGaveUp(delivered, total int, why string) error {
+	pkgLog().Warn("serial: write not accepted; dropping input",
+		slog.Int("bytes", total), slog.Int("delivered", delivered),
+		slog.Duration("timeout", writeTimeout), slog.String("reason", why))
+	return fmt.Errorf("%w (%s, %d of %d bytes delivered, gave up after %s)",
+		ErrWriteTimeout, why, delivered, total, writeTimeout)
 }
 
 // Active reports whether the serial port process is running.
@@ -313,20 +428,71 @@ func mapStopBits(bits int) goserial.StopBits {
 	}
 }
 
+// gadgetConsoleDevice reports the USB gadget's serial console device, or ""
+// when the gadget is not composing one. It is a var so tests can resolve a
+// device without a configfs tree; production always reads the live gadget.
+//
+// The dependency only points this way: pkg/device/usbgadget knows nothing
+// about this package.
+var gadgetConsoleDevice = func() string { return usbgadget.Get().SerialConsoleDevice() }
+
+// resolveDevice picks the port the broker opens and reports whether it came
+// from the USB gadget. The gadget console wins when it is enabled — that is the
+// approved policy, and it is why nothing writes the ttyGS path back into
+// Serial.Device: resolution happens here, at open time, so turning the gadget
+// console off restores the operator's configured port instead of leaving a
+// persisted default behind.
+//
+// The second return value is what decides the open path in startLocked, so it
+// is derived here rather than sniffed from the device name later.
+func resolveDevice(configured string) (device string, fromGadget bool) {
+	if dev := gadgetConsoleDevice(); dev != "" {
+		return dev, true
+	}
+	return configured, false
+}
+
+// ConsoleDevice reports the device the next port open will use, for callers
+// that display it (the settings UI). It answers from live state, so it tracks
+// a gadget toggle without a restart.
+func ConsoleDevice() string {
+	device, _ := ConsoleDeviceInfo()
+	return device
+}
+
+// ConsoleDeviceInfo is ConsoleDevice plus whether the device came from the USB
+// gadget rather than serial.device — what the Serial settings form needs to say
+// that the gadget console is overriding the port configured on it.
+func ConsoleDeviceInfo() (device string, fromGadget bool) {
+	return resolveDevice(config.GetInstance().Serial.Device)
+}
+
 // startLocked opens the serial port with the configured parameters.
 // Caller must hold b.mu.
 func (b *Broker) startLocked() error {
 	cfg := config.GetInstance()
-	device := cfg.Serial.Device
+	device, fromGadget := resolveDevice(cfg.Serial.Device)
 
-	mode := &goserial.Mode{
-		BaudRate: cfg.Serial.BaudRate,
-		DataBits: cfg.Serial.DataBits,
-		Parity:   mapParity(cfg.Serial.Parity),
-		StopBits: mapStopBits(cfg.Serial.StopBits),
+	var (
+		port io.ReadWriteCloser
+		err  error
+	)
+	if fromGadget {
+		// The gadget console is opened directly, as a non-blocking character
+		// device, so its writes can carry a deadline — go.bug.st/serial's
+		// cannot be cancelled at all, and u_serial blocks the writer forever
+		// whenever no host is draining the port. Its termios handling buys
+		// nothing here either: u_serial drops the line coding. See
+		// openConsoleTTY.
+		port, err = openConsoleTTY(device)
+	} else {
+		port, err = goserial.Open(device, &goserial.Mode{
+			BaudRate: cfg.Serial.BaudRate,
+			DataBits: cfg.Serial.DataBits,
+			Parity:   mapParity(cfg.Serial.Parity),
+			StopBits: mapStopBits(cfg.Serial.StopBits),
+		})
 	}
-
-	port, err := goserial.Open(device, mode)
 	if err != nil {
 		return fmt.Errorf("open serial %s: %w", device, err)
 	}
@@ -336,6 +502,8 @@ func (b *Broker) startLocked() error {
 	b.active = true
 	b.stopCh = make(chan struct{})
 	b.shutdownCh = make(chan struct{})
+	// Scoped to this port; see the field comment.
+	b.writeSlot = make(chan struct{}, 1)
 
 	go b.readLoop()
 
@@ -374,6 +542,11 @@ func (b *Broker) stopLocked() {
 	}
 	b.port = nil
 	b.stdin = nil
+	// The write slot dies with the port it admitted writers to. Anything still
+	// parked in a write on the port just closed keeps the old channel and
+	// releases into it; the next port gets a fresh, empty one instead of
+	// inheriting a token nobody will ever take back.
+	b.writeSlot = nil
 
 	pkgLog().Info("serial: closed")
 }

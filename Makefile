@@ -6,6 +6,20 @@ UID := $(shell id -u)
 GID := $(shell id -g)
 PWD := $(shell pwd)
 
+# BOARD_TOOLS selects RPi-specific companion tooling shipped alongside the
+# BMC server: rpiboot (pushes a boot payload into the Pi 5 BootROM, see
+# `deploy` below) and bmc-sensord (the managed host's OP-TEE sensor daemon,
+# built via `make sensord`). Both are meaningless on a non-RPi board (e.g.
+# the NUC target — see .claude/docs/host-firmware-contract.md). Default
+# keeps both, matching today's RPi deploys; override to exclude, e.g.:
+#   make deploy BOARD_TOOLS=
+#   make snapshot BOARD_TOOLS=
+# .goreleaser.yaml's rpiboot build reads the same variable to skip that
+# binary the same way (its own `envOrDefault` fallback mirrors the default
+# above for CI's goreleaser-action steps, which don't go through `make`);
+# this is the single place that default list is written.
+BOARD_TOOLS ?= rpiboot bmc-sensord
+
 # Deploy configuration (override on the command line: make deploy KVM_HOST=...)
 KVM_HOST ?= 10.0.150.207
 KVM_SCHEME ?= http
@@ -33,6 +47,10 @@ help:
 	@echo "  snapshot      - Build snapshot release with goreleaser (no publish)"
 	@echo "  deploy        - Upload built server to a device via offline update (KVM_HOST/KVM_USER/KVM_PASS)"
 	@echo "  sensord       - Build bmc-sensord for the managed host (arm64), not the BMC"
+	@echo ""
+	@echo "Variables:"
+	@echo "  BOARD_TOOLS   - RPi companion tools to include: rpiboot, bmc-sensord"
+	@echo "                  (default: both; set BOARD_TOOLS= to exclude both)"
 	@echo ""
 	@echo "Prerequisites:"
 	@echo "  - Docker must be installed and running"
@@ -82,30 +100,42 @@ clean:
 # bmc-sensord runs on the managed Raspberry Pi, not on the BMC: it talks to
 # OP-TEE through /dev/teeN, which only exists on the host. That is why it is
 # built for arm64 here and is deliberately absent from the deploy package
-# below, which replaces the BMC's riscv64 app directory wholesale.
+# below, which replaces the BMC's riscv64 app directory wholesale. Gated by
+# BOARD_TOOLS like rpiboot (see the header comment); meaningless off RPi.
 dist/host/bmc-sensord:
 	@mkdir -p dist/host
 	@CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o ./dist/host/bmc-sensord ./cmd/bmc-sensord
 
-sensord: dist/host/bmc-sensord
-	@echo "Built dist/host/bmc-sensord (linux/arm64)"
+sensord:
+	@if [ -z "$(filter bmc-sensord,$(BOARD_TOOLS))" ]; then \
+		echo "bmc-sensord excluded (BOARD_TOOLS='$(BOARD_TOOLS)'); nothing to build"; \
+	else \
+		$(MAKE) dist/host/bmc-sensord; \
+		echo "Built dist/host/bmc-sensord (linux/arm64)"; \
+	fi
 
-# Build snapshot release using goreleaser (no publish)
+# Build snapshot release using goreleaser (no publish). BOARD_TOOLS is passed
+# through explicitly so a `make snapshot BOARD_TOOLS=...` override reaches
+# .goreleaser.yaml's rpiboot build; goreleaser's own envOrDefault fallback
+# only matters for invocations that bypass make entirely (CI).
 snapshot:
-	@goreleaser release --snapshot --clean --skip=publish
+	@BOARD_TOOLS='$(BOARD_TOOLS)' goreleaser release --snapshot --clean --skip=publish
 
 # Upload the built server to a device through the offline-update API.
 # The package layout must match the goreleaser archive (.goreleaser.yaml):
-# server/NanoKVM-Server + system/usr/bin/rpiboot + version. The updater
-# replaces the whole app dir, so anything missing here is removed on-device.
-# (No chmod needed — the installer runs ChmodRecursively after extraction.)
-deploy: dist/server/NanoKVM-Server dist/rpiboot/rpiboot
+# server/NanoKVM-Server + system/usr/bin/rpiboot (when BOARD_TOOLS includes
+# rpiboot; see the header comment) + version. The updater replaces the whole
+# app dir, so anything missing here is removed on-device. (No chmod needed —
+# the installer runs ChmodRecursively after extraction.)
+deploy: dist/server/NanoKVM-Server $(if $(filter rpiboot,$(BOARD_TOOLS)),dist/rpiboot/rpiboot)
 	@test -n '$(KVM_SECRET)' || { echo "KVM_SECRET extraction from pkg/utils/encrypt.go failed"; exit 1; }
 	@echo "Packaging update..."
 	@rm -rf dist/deploy
 	@mkdir -p dist/deploy/pkg/server dist/deploy/pkg/system/usr/bin
 	@cp dist/server/NanoKVM-Server dist/deploy/pkg/server/NanoKVM-Server
-	@cp dist/rpiboot/rpiboot dist/deploy/pkg/system/usr/bin/rpiboot
+	@if [ -n "$(filter rpiboot,$(BOARD_TOOLS))" ]; then \
+		cp dist/rpiboot/rpiboot dist/deploy/pkg/system/usr/bin/rpiboot; \
+	fi
 	@printf '%s' '$(VERSION)' > dist/deploy/pkg/version
 	@tar -czf dist/deploy/update.tar.gz -C dist/deploy/pkg server system version
 	@echo "Deploying $(VERSION) to $(KVM_HOST)..."

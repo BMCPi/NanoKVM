@@ -24,7 +24,7 @@ import (
 
 	"github.com/pi-bmc/nanokvm-app/pkg/app/firmware"
 	"github.com/pi-bmc/nanokvm-app/pkg/config"
-	"github.com/pi-bmc/nanokvm-app/pkg/device/bmcsensor"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/hostsensor"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/power"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/serial"
 	"github.com/pi-bmc/nanokvm-app/pkg/logger"
@@ -70,10 +70,14 @@ type deps struct {
 	username string
 	password string
 	power    powerController
-	firmware firmwareStatus
-	broker   consoleBroker
-	sensors  sensorSource
-	log      *slog.Logger
+	// resetPolicy is cfg.Power.Reset (auto|line|cycle) — chassisHAL's
+	// synchronous half of the hard-reset dispatch needs it directly; see
+	// newHAL and chassisHAL.ColdReset.
+	resetPolicy string
+	firmware    firmwareStatus
+	broker      consoleBroker
+	sensors     sensorSource
+	log         *slog.Logger
 }
 
 // Start creates and starts the IPMI server per cfg.IPMI. ctx is the process
@@ -81,24 +85,32 @@ type deps struct {
 // arrives as a datagram and the requester does not stay on the line — so it
 // is what carries telemetry and bounds the detached power sequences.
 func Start(ctx context.Context, cfg *config.Config, powerCtrl *power.Controller, fwCtrl *firmware.Controller, log *slog.Logger) (*Server, error) {
+	// The registered hostsensor.Source, or nil on a board with no
+	// host-telemetry channel — sensorHAL treats a nil source as "no
+	// sensors" rather than panicking on it. Read once here rather than
+	// through hostsensor.Get() on every request: main registers it (if at
+	// all) during startup, before this ever runs.
+	var sensors sensorSource
+	if s, ok := hostsensor.Get(); ok {
+		sensors = s
+	}
+
 	return startServer(ctx, deps{
-		port:     cfg.IPMI.Port,
-		username: cfg.IPMI.Username,
-		password: cfg.IPMI.Password,
-		power:    powerCtrl,
-		firmware: fwCtrl,
-		broker:   serial.GetBroker(),
-		// The shared sampler, not a Reader of its own: staleness is measured
-		// from when the sequence was first observed, so a consumer with its own
-		// reader calls a long-dead host's last sample fresh.
-		sensors: bmcsensor.Default(),
-		log:     log,
+		port:        cfg.IPMI.Port,
+		username:    cfg.IPMI.Username,
+		password:    cfg.IPMI.Password,
+		power:       powerCtrl,
+		resetPolicy: cfg.Power.Reset,
+		firmware:    fwCtrl,
+		broker:      serial.GetBroker(),
+		sensors:     sensors,
+		log:         log,
 	})
 }
 
 func startServer(ctx context.Context, d deps) (*Server, error) {
 	log := logger.Or(d.log)
-	h := newHAL(ctx, d.power, d.broker, d.sensors, log)
+	h := newHAL(ctx, d.power, d.resetPolicy, d.broker, d.sensors, log)
 
 	// v1.5 stays off: the previous server only ever spoke pre-session v1.5
 	// (Get Channel Auth Capabilities, which the RMCP+ discovery path still

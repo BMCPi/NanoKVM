@@ -4,25 +4,16 @@ package components
 // the managed host reports about itself, as opposed to what the BMC measures
 // about the BMC (see overview_resources.go).
 //
-// The readings come from an OP-TEE pseudo-TA on the Pi, which pushes a record
-// into this BMC's emulated I2C EEPROM from the secure world. That path is the
-// only live telemetry the host offers — its firmware is UEFI, so there is no
-// OS agent to ask — which is why this card exists rather than the numbers
-// being folded into Server Information.
-
-// SoC domain. The trace is drawn against a fixed 0..100 °C so a reading means
-// the same thing between visits and across reboots, and so cooling can be read
-// against temperature on the same box.
-const (
-	// hostTempCeiling is the top of the temperature domain. A Pi 5 hard-caps
-	// well below it, so nothing ever leaves the box.
-	hostTempCeiling = 100
-	// hostTempThrottle is where the SoC begins capping itself. It is the
-	// reference the trace is drawn against, and the point at which the
-	// reading is coloured — the operator-relevant threshold is "is it
-	// throttling", not an arbitrary fraction of the ceiling.
-	hostTempThrottle = 80
-)
+// The readings come through pkg/device/hostsensor's board-agnostic seam. On
+// the Raspberry Pi that seam's registered Source is an OP-TEE pseudo-TA,
+// which pushes a record into this BMC's emulated I2C EEPROM from the secure
+// world — the only live telemetry the host offers, since its firmware is
+// UEFI and there is no OS agent to ask, which is why this card exists rather
+// than the numbers being folded into Server Information. The temperature
+// domain (the trace's ceiling and its throttle-coloured point) is no longer
+// fixed here: it comes from the registered Source's own Thresholds, so a
+// future board's Source states its own numbers instead of inheriting the
+// Pi's.
 
 // OverviewHostSensors is the Host Sensors card body.
 type OverviewHostSensors struct {
@@ -63,8 +54,3 @@ func (m OverviewHostSensors) Series() []SparkSeries {
 func (m OverviewHostSensors) Healthy() bool {
 	return m.Reporting && m.ThrottleKnown && len(m.Throttles) == 0
 }
-
-// HostTempCeiling and HostTempThrottle are exported for the fragment that
-// builds the series, so the domain and the threshold are stated once.
-func HostTempCeiling() float64  { return hostTempCeiling }
-func HostTempThrottle() float64 { return hostTempThrottle }

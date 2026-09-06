@@ -35,15 +35,31 @@ var (
 
 const gadgetName = "g0"
 
+// The configfs function instance names this gadget composes, in the canonical
+// order desiredFunctions links them (the optional serial console is
+// serialFuncName, in serialconsole.go). They are named constants because the
+// link order, the function-creation steps and the IN-endpoint budget all have
+// to agree on the same strings.
+const (
+	massStorageFuncName = "mass_storage.disk0"
+	eemFuncName         = "eem.usb0"
+	hidKeyboardFuncName = "hid.GS0"
+	hidPointerFuncName  = "hid.GS1"
+)
+
 // Ethernet function modes.
 const (
 	EthernetOff = "off"
-	EthernetNCM = "ncm"
+	EthernetEEM = "eem"
 
 	// The RHI link's MAC pair. The host side is fixed by contract with the
-	// managed host's EDK2 firmware (UsbNetworkPkg), which identifies the
-	// Redfish host interface by this station address; the device side is
-	// its deterministic counterpart so neighbor caches survive reboots.
+	// managed host's EDK2 firmware, which identifies the Redfish host
+	// interface by this station address; the device side is its deterministic
+	// counterpart so neighbor caches survive reboots.
+	//
+	// The firmware side is a custom SNP driver, not stock UsbNetworkPkg:
+	// MdeModulePkg/Bus/Usb/UsbNetwork ships UsbCdcEcm, UsbCdcNcm and UsbRndis,
+	// and none of them binds CDC-EEM. See .claude/docs/host-firmware-contract.md.
 	RHIHostMAC = "da:c0:ff:ee:10:02"
 	RHIDevMAC  = "da:c0:ff:ee:10:01"
 )
@@ -123,6 +139,7 @@ func (g *Gadget) Init(log *slog.Logger) error {
 		slog.Bool("hid", g.cfg.HID),
 		slog.String("ethernet", g.cfg.Ethernet),
 		slog.Bool("disk", g.cfg.Disk),
+		slog.Bool("serialConsole", g.cfg.SerialConsole),
 		slog.Bool("udcBound", g.udcBoundLocked()))
 	return nil
 }
@@ -131,7 +148,7 @@ func (g *Gadget) Init(log *slog.Logger) error {
 func (g *Gadget) State() State {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return State{Ethernet: g.cfg.Ethernet, Disk: g.cfg.Disk}
+	return State{Ethernet: g.cfg.Ethernet, Disk: g.cfg.Disk, SerialConsole: g.cfg.SerialConsole}
 }
 
 // ---- configfs path helpers -------------------------------------------------

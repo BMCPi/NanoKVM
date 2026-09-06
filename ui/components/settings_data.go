@@ -45,6 +45,14 @@ type SettingsSerial struct {
 	StopBits    string
 	FlowControl string
 
+	// ConsoleDevice is the port the terminal and SOL are actually on, and
+	// GadgetConsoleActive says the USB gadget console is what put them there.
+	// Without these the form silently lies: Device is only the console port
+	// while the gadget console is off, and every field in this fieldset is
+	// then configuring a UART nothing is reading.
+	ConsoleDevice       string
+	GadgetConsoleActive bool
+
 	CaptureEnabled bool
 	CaptureFile    string
 	CaptureMaxKB   string
@@ -100,6 +108,13 @@ type SettingsHardware struct {
 	USBNetwork bool
 	USBDisk    bool
 	MediaState string
+
+	// USBSerialConsole is the optional bulk-only serial function, and
+	// ConsoleDevice is the port the console actually opens with it in its
+	// current state — the gadget's /dev/ttyGS* when it is on, the configured
+	// serial.device when it is off.
+	USBSerialConsole bool
+	ConsoleDevice    string
 
 	GadgetEnabled bool
 	HID           bool
@@ -183,7 +198,32 @@ type SettingsFirmware struct {
 	// not be conflated). StagingName names the capsule being fetched.
 	Staging     bool
 	StagingName string
+	// StagingLoaded and StagingTotal are the download's byte counts. Total is
+	// 0 when the remote declared no Content-Length, which the panel renders as
+	// an indeterminate spinner rather than inventing a denominator.
+	StagingLoaded int64
+	StagingTotal  int64
 }
+
+// StagingPercent is the download's completion for the progress bar. Only
+// meaningful when StagingDeterminate.
+func (m SettingsFirmware) StagingPercent() int {
+	if m.StagingTotal <= 0 {
+		return 0
+	}
+	pct := int(m.StagingLoaded * 100 / m.StagingTotal)
+	// A remote that under-declares its Content-Length would otherwise drive
+	// the bar past its own track.
+	if pct > 100 {
+		return 100
+	}
+	return pct
+}
+
+// StagingDeterminate reports whether the download has a total to measure
+// against. A chunked response has none, and a bar with no denominator is a bar
+// that lies.
+func (m SettingsFirmware) StagingDeterminate() bool { return m.StagingTotal > 0 }
 
 // SettingsAdvanced backs the Advanced panel.
 type SettingsAdvanced struct {

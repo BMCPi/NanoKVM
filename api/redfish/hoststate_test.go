@@ -147,7 +147,9 @@ func TestHostWritesRejectedFromLAN(t *testing.T) {
 		{http.MethodDelete, "/redfish/v1/Systems/1/EthernetInterfaces/eth1"},
 		{http.MethodPost, "/redfish/v1/Systems/1/Memory"},
 		{http.MethodPost, "/redfish/v1/Systems/1/Processors"},
-		{http.MethodPatch, "/redfish/v1/Systems/1/Processors/CPU1"},
+		// PATCH on a processor member is deliberately absent: like the
+		// EthernetInterface members, it is the operator's lane for the
+		// standard writable properties (SpeedLimitMHz/SpeedLocked).
 		{http.MethodDelete, "/redfish/v1/Systems/1/Processors/CPU1"},
 		{http.MethodPost, "/redfish/v1/Systems/1/Storage/1/Drives"},
 		{http.MethodPatch, "/redfish/v1/Systems/1/Bios"},
@@ -456,24 +458,35 @@ func TestBiosSettingsDeleteAcknowledgesConsume(t *testing.T) {
 	}
 }
 
-// RpiRedfishSyncDxe PATCHes SoftwareInventory member BiosFirmware once per
-// boot; the collection and member GETs must serve it back.
+// The host firmware PATCHes SoftwareInventory members under whatever id it
+// chooses (the RPi host uses "BiosFirmware"); the BMC pins no member name
+// and synthesizes nothing. Before any report GET serves a plain 404 like
+// any other host-reported collection, and the collection is empty.
 func TestFirmwareInventoryHostReport(t *testing.T) {
 	resetHostState(t)
 	r := hostRouter()
 	from := hostIP(t)
 
-	// Before any report the synthesized member answers, under both the
-	// canonical and the legacy spelling.
-	for _, id := range []string{"BiosFirmware", "BIOS"} {
+	// Before any report, every id is a real 404 — including the RPi host's
+	// conventional spelling and its legacy alias: neither is special.
+	for _, id := range []string{"BiosFirmware", "BIOS", "NotAThing"} {
 		w := do(r, http.MethodGet, "/redfish/v1/UpdateService/FirmwareInventory/"+id, lanIP, "", nil)
-		if w.Code != http.StatusOK {
-			t.Fatalf("GET synthesized %s = %d", id, w.Code)
+		if w.Code != http.StatusNotFound {
+			t.Errorf("GET %s before any report = %d, want 404", id, w.Code)
 		}
 	}
-	w := do(r, http.MethodGet, "/redfish/v1/UpdateService/FirmwareInventory/NotAThing", lanIP, "", nil)
-	if w.Code != http.StatusNotFound {
-		t.Errorf("GET unknown member = %d, want 404", w.Code)
+	w := do(r, http.MethodGet, "/redfish/v1/UpdateService/FirmwareInventory", lanIP, "", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET collection = %d", w.Code)
+	}
+	var empty struct {
+		Members []any `json:"Members"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &empty); err != nil {
+		t.Fatalf("collection unmarshal: %v", err)
+	}
+	if len(empty.Members) != 0 {
+		t.Errorf("collection before any report = %v, want empty", empty.Members)
 	}
 
 	// The exact body shape RpiRedfishBuildFirmwareInventoryPatch produces.
@@ -498,6 +511,19 @@ func TestFirmwareInventoryHostReport(t *testing.T) {
 	w = do(r, http.MethodGet, "/redfish/v1/UpdateService/FirmwareInventory", lanIP, "", nil)
 	if !strings.Contains(w.Body.String(), "/redfish/v1/UpdateService/FirmwareInventory/BiosFirmware") {
 		t.Errorf("collection does not list the reported member: %s", w.Body.String())
+	}
+
+	// A non-RPi host (e.g. the NUC) reports under its own member id — proof
+	// the id is not pinned to "BiosFirmware"/"BIOS" anywhere in this lane.
+	w = do(r, http.MethodPatch, "/redfish/v1/UpdateService/FirmwareInventory/EFI-SPI-Flash", from,
+		`{"@odata.type":"#SoftwareInventory.v1_2_3.SoftwareInventory","Id":"EFI-SPI-Flash",`+
+			`"Version":"1.2.3","Updateable":true,"Status":{"State":"Enabled","Health":"OK"}}`, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("host PATCH EFI-SPI-Flash = %d, body %s", w.Code, w.Body.String())
+	}
+	w = do(r, http.MethodGet, "/redfish/v1/UpdateService/FirmwareInventory/EFI-SPI-Flash", lanIP, "", nil)
+	if w.Code != http.StatusOK {
+		t.Errorf("GET a non-RPi member id = %d, want 200", w.Code)
 	}
 }
 
@@ -578,6 +604,36 @@ func TestThermalFanOverrideStaging(t *testing.T) {
 	w = do(r, http.MethodGet, "/redfish/v1/Chassis/1/Thermal", lanIP, "", nil)
 	if strings.Contains(w.Body.String(), "FanOverrideLevel") {
 		t.Errorf("override not released: %s", w.Body.String())
+	}
+}
+
+// TestThermalFanOverrideAbsentWithoutFanControl covers a board whose profile
+// (or an operator's explicit hardware.fanControl: false) has no fan header:
+// Oem.PiBmc.FanOverrideLevel must not appear on GET, and PATCHing it is a
+// real 400 extended-info, not a silent no-op the host firmware would never
+// see reflected.
+func TestThermalFanOverrideAbsentWithoutFanControl(t *testing.T) {
+	resetHostState(t)
+	cfg := config.GetInstance()
+	origFanControl := cfg.Hardware.FanControl
+	disabled := false
+	cfg.Hardware.FanControl = &disabled
+	t.Cleanup(func() { cfg.Hardware.FanControl = origFanControl })
+
+	r := hostRouter()
+
+	w := do(r, http.MethodPatch, "/redfish/v1/Chassis/1/Thermal", lanIP,
+		`{"Oem":{"PiBmc":{"FanOverrideLevel":3}}}`, nil)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("PATCH FanOverrideLevel without fan control = %d, want 400", w.Code)
+	}
+
+	w = do(r, http.MethodGet, "/redfish/v1/Chassis/1/Thermal", lanIP, "", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET Thermal = %d, body %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "FanOverrideLevel") {
+		t.Errorf("FanOverrideLevel rendered without fan control: %s", w.Body.String())
 	}
 }
 
@@ -733,6 +789,18 @@ func TestBiosAttributeRegistryEDK2Flow(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &base)
 	if _, ok := base["RegistryEntries"]; !ok {
 		t.Errorf("base registry lacks RegistryEntries: %s", w.Body.String())
+	}
+	// Host-authoritative means honest-empty before sync, never a fabricated
+	// vocabulary: the base skeleton must be a valid AttributeRegistry (the
+	// exact schema version EDK2's client is built against) describing zero
+	// attributes, not the deleted compiled-in catalog's roster.
+	if base["@odata.type"] != odataTypeAttributeRegistry {
+		t.Errorf("base registry @odata.type = %v, want %q", base["@odata.type"], odataTypeAttributeRegistry)
+	}
+	entries, _ := base["RegistryEntries"].(map[string]any)
+	attrs, _ := entries["Attributes"].([]any)
+	if len(attrs) != 0 {
+		t.Errorf("base registry Attributes = %v, want none — nothing is fabricated before the host publishes", attrs)
 	}
 	if w = do(r, http.MethodPut, "/redfish/v1/Systems/1/Bios/NotARegistry", from, `{}`, nil); w.Code != http.StatusNotFound {
 		t.Errorf("PUT bogus name = %d, want 404", w.Code)
@@ -923,9 +991,12 @@ func TestLoadCollapsesPersistedDuplicates(t *testing.T) {
 
 // --- Processors --------------------------------------------------------------
 
-// TestProcessorPlaceholderBeforeHostReports: the BMC knows this board is an
-// aarch64 part without being told, so a read before the host has ever booted
-// answers with that rather than an empty collection.
+// TestProcessorPlaceholderBeforeHostReports: a single-socket system has a
+// processor by construction, so a read before the host has ever booted
+// answers with that rather than an empty collection — but the BMC is
+// board-agnostic and must not claim an architecture it was not told (see
+// TestProcessorPlaceholderIsArchitectureNeutral in processors_test.go for
+// the field-level assertion).
 func TestProcessorPlaceholderBeforeHostReports(t *testing.T) {
 	resetHostState(t)
 	r := hostRouter()
@@ -942,8 +1013,8 @@ func TestProcessorPlaceholderBeforeHostReports(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("CPU1 = %d, want 200", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "ARM") {
-		t.Errorf("placeholder lost its architecture: %s", w.Body.String())
+	if strings.Contains(w.Body.String(), "ARM") {
+		t.Errorf("neutral placeholder claims an architecture: %s", w.Body.String())
 	}
 }
 

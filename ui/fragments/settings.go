@@ -242,16 +242,23 @@ func (h *handlers) patchMDNS(c *gin.Context) {
 
 func serialModel() components.SettingsSerial {
 	s := config.GetInstance().Serial
+	// Resolved, not stored: the broker picks the gadget's ttyGS over
+	// serial.device at open time, so this form's Device field is only the
+	// console port while the gadget console is off. Showing both is what keeps
+	// the form from quietly presenting a UART nobody is reading.
+	consoleDevice, fromGadget := serial.ConsoleDeviceInfo()
 	return components.SettingsSerial{
-		Device:         s.Device,
-		BaudRate:       strconv.Itoa(s.BaudRate),
-		DataBits:       strconv.Itoa(s.DataBits),
-		Parity:         strings.ToLower(s.Parity),
-		StopBits:       strconv.Itoa(s.StopBits),
-		FlowControl:    strings.ToLower(s.FlowControl),
-		CaptureEnabled: s.Capture.Enabled,
-		CaptureFile:    s.Capture.File,
-		CaptureMaxKB:   strconv.Itoa(s.Capture.MaxSizeKB),
+		Device:              s.Device,
+		BaudRate:            strconv.Itoa(s.BaudRate),
+		DataBits:            strconv.Itoa(s.DataBits),
+		Parity:              strings.ToLower(s.Parity),
+		StopBits:            strconv.Itoa(s.StopBits),
+		FlowControl:         strings.ToLower(s.FlowControl),
+		ConsoleDevice:       consoleDevice,
+		GadgetConsoleActive: fromGadget,
+		CaptureEnabled:      s.Capture.Enabled,
+		CaptureFile:         s.Capture.File,
+		CaptureMaxKB:        strconv.Itoa(s.Capture.MaxSizeKB),
 	}
 }
 
@@ -379,6 +386,13 @@ func hardwareModel(d *deps.Deps) components.SettingsHardware {
 		USBDisk:    st.Disk,
 		MediaState: "Not inserted",
 
+		// From the live gadget for the same reason Ethernet and Disk are. The
+		// console device is resolved, not stored: the broker picks the
+		// gadget's ttyGS over serial.device at open time, so this is the only
+		// place that says which port the terminal and SOL are actually on.
+		USBSerialConsole: st.SerialConsole,
+		ConsoleDevice:    serial.ConsoleDevice(),
+
 		GadgetEnabled: g.Enabled,
 		HID:           g.HID,
 		BIOSMode:      g.BIOSMode,
@@ -445,7 +459,7 @@ func (h *handlers) postHardware(c *gin.Context) {
 
 	mode := usbgadget.EthernetOff
 	if checked(c, "network") {
-		mode = usbgadget.EthernetNCM
+		mode = usbgadget.EthernetEEM
 	}
 	if err := gadget.SetEthernet(mode); err != nil {
 		h.log.ErrorContext(c.Request.Context(), "ui: set ethernet failed", slog.String("mode", mode), slog.Any("err", err))
@@ -454,6 +468,25 @@ func (h *handlers) postHardware(c *gin.Context) {
 	if err := gadget.SetDisk(checked(c, "disk")); err != nil {
 		h.log.ErrorContext(c.Request.Context(), "ui: set disk failed", slog.Any("err", err))
 		hxToast(c, "error", "USB Mass Storage unchanged", err.Error())
+	}
+
+	// The serial console is the one function that also owns which port the
+	// broker opens, so a change here has to reach the broker too: it snapshots
+	// the device at open time and would otherwise stay on the old one until
+	// something else restarted it. Restarted only on an actual change — this
+	// form posts on every switch in the panel, and Restart drops live console
+	// sessions.
+	wantConsole := checked(c, "serialConsole")
+	consoleChanged := wantConsole != gadget.State().SerialConsole
+	if err := gadget.SetSerialConsole(wantConsole); err != nil {
+		h.log.ErrorContext(c.Request.Context(), "ui: set serial console failed", slog.Bool("on", wantConsole), slog.Any("err", err))
+		hxToast(c, "error", "USB Serial Console unchanged", err.Error())
+	} else if consoleChanged {
+		serial.Restart()
+		h.log.InfoContext(c.Request.Context(), "usbgadget: serial console toggled via ui",
+			slog.Bool("on", wantConsole), slog.String("device", serial.ConsoleDevice()))
+		hxToast(c, "success", "USB Serial Console updated",
+			"The USB device re-enumerated and the console was re-opened on "+serial.ConsoleDevice()+".")
 	}
 
 	renderFragment(c, components.SettingsHardwareBody(hardwareModel(h.d)))

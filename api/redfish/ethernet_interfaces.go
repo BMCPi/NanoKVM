@@ -1,38 +1,26 @@
 package redfish
 
-// ethernet_interfaces.go serves the host's NIC inventory
-// (/redfish/v1/Systems/1/EthernetInterfaces). The U-Boot env that used to
-// carry the host's MAC ("ethaddr") is gone with the EEPROM model; the source
-// of truth now is RpiRedfishSyncDxe, which POSTs one member per physical NIC
-// each boot over the host interface, keyed on the Linux-style ordinal Id it
-// assigns ("eth0"; the MAC travels in the MACAddress property). Until the
-// first report lands the collection is honestly empty rather than inventing
-// a member.
+// ethernet_interfaces.go serves /redfish/v1/Systems/1/EthernetInterfaces as
+// a plain Redfish resource collection with no vendor-specific knowledge.
 //
-// On top of the inventory, this file bridges the host's EthConfigDxe Bios
-// attributes into EthernetInterface terms. The host firmware exposes the
-// onboard NIC's IPv4 policy as Bios attributes (x-UEFI-redfish-Bios.v1_1_0,
-// applied to the NIC's Ip4Config2 on every boot):
+// The host firmware's EthernetInterface feature driver
+// (rpi5-uefi-build: RedfishEthernetInterfaceDxe + its collection driver)
+// owns the members: it POSTs the member it manages on first boot (the
+// Location header seeds its configure-language map, so it must be present),
+// GETs the member each boot to consume configuration changes, and PATCHes
+// its current values back. An operator configures the NIC by PATCHing the
+// standard schema properties (DHCPv4.DHCPEnabled, IPv4StaticAddresses,
+// StaticNameServers) straight onto the member; the BMC merges the write
+// into the stored JSON without interpreting it, and the host consumes and
+// applies it on its next boot (direct-resource model — no
+// @Redfish.Settings staging, and validation belongs to the host, which is
+// the party that knows what its network stack accepts).
 //
-//	EthIp4Mode        "Unmanaged" | "Dhcp" | "Static"
-//	EthIp4Address     dotted quad, "" = unset
-//	EthIp4SubnetMask  dotted quad
-//	EthIp4Gateway     dotted quad, optional
-//	EthIp4Dns1/Dns2   dotted quad, optional
-//
-// mapped to and from the standard EthernetInterface properties:
-//
-//	EthIp4Mode                       <->  DHCPv4.DHCPEnabled
-//	EthIp4Address/SubnetMask/Gateway <->  IPv4StaticAddresses[0]
-//	EthIp4Dns1, EthIp4Dns2           <->  StaticNameServers
-//
-// GET renders the live attributes onto the managed member; PATCH (operator)
-// stages writes into the Bios pending settings for the host's next boot; a
-// host POST that carries the mapped properties refreshes the live attributes.
+// The EthIp4* Bios-attribute bridge that used to live here is gone with
+// the firmware's move off Bios attributes for NIC config: the BMC no
+// longer maps, validates, or even recognizes any of these properties.
 
 import (
-	"fmt"
-	"net"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -56,20 +44,15 @@ func (s *Service) GetEthernetInterface(c *gin.Context) {
 		redfishErrorResponse(c, http.StatusNotFound, "ethernet interface not found: "+id)
 		return
 	}
-	member := renderHostMember(stored, ethernetInterfacesPath+"/"+id, id,
-		odataTypeEthernetInterface, "EthernetInterface.EthernetInterface", id)
-	if managed, ok := ethManagedNICID(); ok && managed == id {
-		ethOverlayBiosConfig(member)
-	}
-	writeHostResource(c, member)
+	writeHostResource(c, renderHostMember(stored, ethernetInterfacesPath+"/"+id, id,
+		odataTypeEthernetInterface, "EthernetInterface.EthernetInterface", id))
 }
 
-// PostEthernetInterface is the host-report lane: the firmware re-POSTs its
-// NIC inventory every boot. Keyed upsert — same Id, same member. A report
-// that carries the mapped IPv4 configuration properties also refreshes the
-// live EthIp4* Bios attributes (merge — the host lane reports fact, same as
-// its Bios PATCH); a value the bridge cannot map never rejects the inventory
-// report itself.
+// PostEthernetInterface is the host's member-creation lane. Keyed upsert —
+// same Id, same member. The 201 + Location contract is load-bearing: the
+// feature driver records the Location URI into its configure-language map,
+// and without it a BMC-side edit cannot be consumed until the next boot's
+// identify pass.
 func (s *Service) PostEthernetInterface(c *gin.Context) {
 	if !hostWritable(c) {
 		return
@@ -82,9 +65,6 @@ func (s *Service) PostEthernetInterface(c *gin.Context) {
 	// assigns, then the MAC (older reports), then a generated ethN.
 	id := hostMemberID(ethernetOf, body, "eth", "Id", "MACAddress")
 	hostCollectionPut(ethernetOf, id, body)
-	if attrs, err := ethBiosAttrsFromBody(body); err == nil && len(attrs) > 0 {
-		mergeHostBiosAttributes(attrs)
-	}
 
 	path := ethernetInterfacesPath + "/" + id
 	c.Header("Location", path)
@@ -93,15 +73,11 @@ func (s *Service) PostEthernetInterface(c *gin.Context) {
 			"EthernetInterface.EthernetInterface", id))
 }
 
-// PatchEthernetInterface is the operator's configuration surface: the mapped
-// EthernetInterface properties are translated onto the EthIp4* Bios
-// attributes and staged into the Bios pending settings, which the host
-// firmware consumes and applies on its next boot. Normal authentication, not
-// hostWritable — like PATCH /Bios/Settings, this is an operator instruction,
-// and staging (merge) must not clobber unrelated attributes already staged
-// there. The resource itself does not change until the host applies and
-// re-reports, so the response echoes the current view plus an apply-time
-// message.
+// PatchEthernetInterface merges a write into the stored member — the host
+// updating its report, or an operator staging configuration the host will
+// consume on its next boot. Top-level properties replace whole (object and
+// array values included), the DSP0266 default for a service that does not
+// model the schema; identity keys are not writable.
 func (s *Service) PatchEthernetInterface(c *gin.Context) {
 	id := c.Param("nic")
 	stored, ok := hostCollectionGet(ethernetOf, id)
@@ -109,244 +85,33 @@ func (s *Service) PatchEthernetInterface(c *gin.Context) {
 		redfishErrorResponse(c, http.StatusNotFound, "ethernet interface not found: "+id)
 		return
 	}
-	if managed, ok := ethManagedNICID(); !ok || managed != id {
-		redfishErrorResponse(c, http.StatusConflict,
-			"cannot tell which NIC the host firmware manages; "+
-				"PATCH /redfish/v1/Systems/1/Bios/Settings with EthIp4* attributes instead")
-		return
-	}
-	current := renderHostMember(stored, ethernetInterfacesPath+"/"+id, id,
-		odataTypeEthernetInterface, "EthernetInterface.EthernetInterface", id)
-	ethOverlayBiosConfig(current)
-	if !hostCheckIfMatch(c, current) {
+	if !hostCheckIfMatch(c, renderHostMember(stored, ethernetInterfacesPath+"/"+id, id,
+		odataTypeEthernetInterface, "EthernetInterface.EthernetInterface", id)) {
 		return
 	}
 	body, ok := bindHostBody(c)
 	if !ok {
 		return
 	}
-	attrs, err := ethBiosAttrsFromBody(body)
-	if err != nil {
-		redfishErrorResponse(c, http.StatusBadRequest, err.Error())
+	for _, k := range []string{"Id", odataIDKey, odataTypeKey, "@odata.context"} {
+		delete(body, k)
+	}
+	if len(body) == 0 {
+		redfishErrorResponse(c, http.StatusBadRequest, "no writable properties in request")
 		return
 	}
-	if len(attrs) == 0 {
-		redfishErrorResponse(c, http.StatusBadRequest,
-			"no writable properties in request; supported: "+
-				"DHCPv4.DHCPEnabled, IPv4StaticAddresses, StaticNameServers")
+	merged := hostCollectionMerge(ethernetOf, id, body)
+	if merged == nil {
+		redfishErrorResponse(c, http.StatusNotFound, "ethernet interface not found: "+id)
 		return
 	}
-	mergeHostBiosPending(attrs)
-
-	current["@Message.ExtendedInfo"] = []MessageInfo{{
-		MessageID: "Base.1.13.SettingsApplyTime",
-		Message:   "IPv4 settings staged as Bios attributes; the host firmware applies them on its next boot.",
-		Severity:  "OK",
-	}}
-	writeHostResource(c, current)
-}
-
-// --- EthIp4* Bios attribute bridge -------------------------------------------
-
-const (
-	attrEthIP4Mode       = "EthIp4Mode"
-	attrEthIP4Address    = "EthIp4Address"
-	attrEthIP4SubnetMask = "EthIp4SubnetMask"
-	attrEthIP4Gateway    = "EthIp4Gateway"
-	attrEthIP4Dns1       = "EthIp4Dns1"
-	attrEthIP4Dns2       = "EthIp4Dns2"
-)
-
-// EthIp4Mode values, per the host's EthConfigDxe vocabulary (see the file
-// comment above) — not a DMTF enum, so they live here rather than in
-// schemas.
-const (
-	ethIP4ModeDHCP   = "Dhcp"
-	ethIP4ModeStatic = "Static"
-)
-
-// ethManagedNICID returns the member the host's EthConfigDxe manages. The
-// firmware claims "the first NIC that is not the BMC's USB gadget" — an
-// ordering the BMC cannot observe — but the reported collection excludes USB
-// NICs entirely and this board has one onboard NIC, so the bridge is offered
-// exactly while the collection holds a single member. With zero or several
-// members the EthIp4* attributes remain reachable through the Bios resource.
-func ethManagedNICID() (string, bool) {
-	ids := hostCollectionIDs(ethernetOf)
-	if len(ids) != 1 {
-		return "", false
-	}
-	return ids[0], true
-}
-
-// ethOverlayBiosConfig renders the live EthIp4* Bios attributes onto a
-// rendered member. Unmanaged (or unreported) attributes render nothing: the
-// firmware is not managing the NIC, so claiming a DHCP/static policy here
-// would be an invention. The stored static address and name servers are
-// rendered in both modes — IPv4StaticAddresses is configuration, not state,
-// and it stays configured while DHCP is enabled.
-func ethOverlayBiosConfig(member map[string]any) {
-	attrs := hostBiosAttributes()
-	switch attrs[attrEthIP4Mode] {
-	case ethIP4ModeDHCP:
-		member["DHCPv4"] = map[string]any{"DHCPEnabled": true}
-	case ethIP4ModeStatic:
-		member["DHCPv4"] = map[string]any{"DHCPEnabled": false}
-	default:
-		return
-	}
-
-	static := map[string]any{}
-	for prop, attr := range map[string]string{
-		"Address":    attrEthIP4Address,
-		"SubnetMask": attrEthIP4SubnetMask,
-		"Gateway":    attrEthIP4Gateway,
-	} {
-		if v, _ := attrs[attr].(string); v != "" {
-			static[prop] = v
-		}
-	}
-	if len(static) > 0 {
-		member["IPv4StaticAddresses"] = []any{static}
-	}
-
-	dns := []any{}
-	for _, attr := range []string{attrEthIP4Dns1, attrEthIP4Dns2} {
-		if v, _ := attrs[attr].(string); v != "" {
-			dns = append(dns, v)
-		}
-	}
-	if len(dns) > 0 {
-		member["StaticNameServers"] = dns
-	}
-}
-
-// ethBiosAttrsFromBody extracts the EthIp4* attribute updates an
-// EthernetInterface write carries. An empty map means the body had none of
-// the mapped properties. Values are validated as dotted-quad IPv4 ("" and
-// JSON null clear a field) so a typo is a 400 at the API rather than a
-// silently unapplied variable on the host.
-func ethBiosAttrsFromBody(body map[string]any) (map[string]any, error) {
-	attrs := map[string]any{}
-
-	if raw, ok := body["DHCPv4"]; ok {
-		obj, ok := raw.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("DHCPv4 must be an object")
-		}
-		if en, ok := obj["DHCPEnabled"]; ok {
-			b, ok := en.(bool)
-			if !ok {
-				return nil, fmt.Errorf("DHCPv4.DHCPEnabled must be a boolean")
-			}
-			if b {
-				attrs[attrEthIP4Mode] = ethIP4ModeDHCP
-			} else {
-				attrs[attrEthIP4Mode] = ethIP4ModeStatic
-			}
-		}
-	}
-
-	if raw, ok := body["IPv4StaticAddresses"]; ok {
-		list, ok := raw.([]any)
-		if !ok {
-			return nil, fmt.Errorf("IPv4StaticAddresses must be an array")
-		}
-		// Null elements mean "leave this position unchanged" (DSP0266);
-		// extra real entries are refused rather than dropped, because the
-		// firmware variable holds exactly one static address.
-		var entry map[string]any
-		entries := 0
-		for _, el := range list {
-			if el == nil {
-				continue
-			}
-			obj, ok := el.(map[string]any)
-			if !ok {
-				return nil, fmt.Errorf("IPv4StaticAddresses entries must be objects or null")
-			}
-			entry = obj
-			entries++
-		}
-		switch {
-		case entries > 1:
-			return nil, fmt.Errorf("only one IPv4 static address is supported")
-		case entries == 0 && len(list) == 0:
-			// An empty array clears the static address.
-			attrs[attrEthIP4Address] = ""
-			attrs[attrEthIP4SubnetMask] = ""
-			attrs[attrEthIP4Gateway] = ""
-		case entries == 1:
-			for prop, attr := range map[string]string{
-				"Address":    attrEthIP4Address,
-				"SubnetMask": attrEthIP4SubnetMask,
-				"Gateway":    attrEthIP4Gateway,
-			} {
-				v, present := entry[prop]
-				if !present {
-					continue
-				}
-				s, err := ethIPString(prop, v)
-				if err != nil {
-					return nil, err
-				}
-				attrs[attr] = s
-			}
-			// A static address without an explicit DHCPv4 object implies
-			// static mode; an explicit DHCPEnabled wins either way.
-			if _, ok := attrs[attrEthIP4Mode]; !ok {
-				attrs[attrEthIP4Mode] = ethIP4ModeStatic
-			}
-		}
-	}
-
-	if raw, ok := body["StaticNameServers"]; ok {
-		list, ok := raw.([]any)
-		if !ok {
-			return nil, fmt.Errorf("StaticNameServers must be an array")
-		}
-		if len(list) > 2 {
-			return nil, fmt.Errorf("at most two static name servers are supported")
-		}
-		dns := []string{"", ""}
-		for i, el := range list {
-			s, err := ethIPString("StaticNameServers", el)
-			if err != nil {
-				return nil, err
-			}
-			dns[i] = s
-		}
-		attrs[attrEthIP4Dns1] = dns[0]
-		attrs[attrEthIP4Dns2] = dns[1]
-	}
-
-	return attrs, nil
-}
-
-// ethIPString validates one write value: JSON null or "" clears, anything
-// else must be a dotted-quad IPv4 address.
-func ethIPString(prop string, v any) (string, error) {
-	if v == nil {
-		return "", nil
-	}
-	s, ok := v.(string)
-	if !ok {
-		return "", fmt.Errorf("%s values must be strings", prop)
-	}
-	if s == "" {
-		return "", nil
-	}
-	if ip := net.ParseIP(s); ip == nil || ip.To4() == nil {
-		return "", fmt.Errorf("%s: %q is not an IPv4 dotted-quad address", prop, s)
-	}
-	return s, nil
+	writeHostResource(c, renderHostMember(merged, ethernetInterfacesPath+"/"+id, id,
+		odataTypeEthernetInterface, "EthernetInterface.EthernetInterface", id))
 }
 
 // DeleteEthernetInterface retires one host-reported NIC member. Host-lane
-// only, same stale-member contract as DeleteBootOption: the firmware
-// re-reports its NICs each boot and deletes ids it no longer reports
-// (index-keyed ids once accumulated ghosts when per-boot enumeration
-// varied; the collection persists, so only the host can retire them).
+// only, same stale-member contract as DeleteBootOption: the collection
+// persists, so only the host can retire a member it no longer manages.
 func (s *Service) DeleteEthernetInterface(c *gin.Context) {
 	if !hostWritable(c) {
 		return

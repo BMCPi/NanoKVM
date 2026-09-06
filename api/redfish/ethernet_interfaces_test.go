@@ -1,9 +1,10 @@
 package redfish
 
-// Tests for the EthIp4* <-> EthernetInterface bridge: the live Bios
-// attributes render onto the managed NIC member, operator PATCHes stage
-// into the Bios pending settings, and host reports carrying the mapped
-// properties refresh the live attributes.
+// Tests for the vendor-agnostic EthernetInterfaces collection: the host
+// feature driver creates members (POST, 201 + Location), anyone
+// authenticated PATCHes standard schema properties straight onto the
+// member, and the BMC stores the JSON without interpreting it — no Bios
+// attributes are read or written on any lane.
 
 import (
 	"encoding/json"
@@ -13,18 +14,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// postNIC reports one NIC from the host interface, as RpiRedfishSyncDxe does.
-func postNIC(t *testing.T, r *gin.Engine, body string) {
+// postNIC creates one member from the host interface, as the firmware's
+// EthernetInterface collection driver does on its first boot.
+func postNIC(t *testing.T, r *gin.Engine, body string) *string {
 	t.Helper()
 	w := do(r, http.MethodPost, "/redfish/v1/Systems/1/EthernetInterfaces",
 		hostIP(t), body, nil)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("POST NIC = %d, body %s", w.Code, w.Body.String())
 	}
+	loc := w.Header().Get("Location")
+	return &loc
 }
 
-// getNIC fetches the eth0 member from the LAN and decodes it — every caller
-// in this file exercises the single onboard NIC the test fixtures set up.
+// getNIC fetches the eth0 member from the LAN and decodes it.
 func getNIC(t *testing.T, r *gin.Engine) (map[string]any, int) {
 	t.Helper()
 	w := do(r, http.MethodGet, "/redfish/v1/Systems/1/EthernetInterfaces/eth0",
@@ -38,106 +41,60 @@ func getNIC(t *testing.T, r *gin.Engine) (map[string]any, int) {
 	return m, w.Code
 }
 
-const testNICBody = `{"Id": "eth0", "MACAddress": "2c:cf:67:00:00:01", "LinkStatus": "LinkUp"}`
+const testNICBody = `{
+	"Id": "eth0", "MACAddress": "2c:cf:67:00:00:01", "LinkStatus": "LinkUp",
+	"DHCPv4": {"DHCPEnabled": true},
+	"IPv4StaticAddresses": [], "StaticNameServers": []
+}`
 
-func TestEthernetInterfaceOverlayStatic(t *testing.T) {
+// The Location header is load-bearing: the host's feature driver records it
+// into its configure-language map, and without it a BMC-side edit cannot be
+// consumed until the next boot's identify pass.
+func TestPostEthernetInterfaceReturnsLocation(t *testing.T) {
 	resetHostState(t)
 	r := hostRouter()
-	postNIC(t, r, testNICBody)
-	setHostBiosAttributes(map[string]any{
-		attrEthIP4Mode:       "Static",
-		attrEthIP4Address:    "192.168.7.10",
-		attrEthIP4SubnetMask: "255.255.255.0",
-		attrEthIP4Gateway:    "192.168.7.1",
-		attrEthIP4Dns1:       "192.168.7.53",
-		attrEthIP4Dns2:       "",
-	})
+
+	loc := postNIC(t, r, testNICBody)
+	if *loc != "/redfish/v1/Systems/1/EthernetInterfaces/eth0" {
+		t.Errorf("Location = %q; the feature driver seeds its config-language map from this", *loc)
+	}
 
 	m, code := getNIC(t, r)
 	if code != http.StatusOK {
 		t.Fatalf("GET = %d", code)
 	}
-	dhcp, ok := m["DHCPv4"].(map[string]any)
-	enabled, isBool := dhcp["DHCPEnabled"].(bool)
-	if !ok || !isBool || enabled {
-		t.Errorf("DHCPv4 = %v; want DHCPEnabled=false", m["DHCPv4"])
+	if m["MACAddress"] != "2c:cf:67:00:00:01" || m["LinkStatus"] != "LinkUp" {
+		t.Errorf("member = %v; the POSTed report must be served back verbatim", m)
 	}
-	statics, ok := m["IPv4StaticAddresses"].([]any)
-	if !ok || len(statics) != 1 {
-		t.Fatalf("IPv4StaticAddresses = %v; want one entry", m["IPv4StaticAddresses"])
-	}
-	entry := statics[0].(map[string]any)
-	if entry["Address"] != "192.168.7.10" || entry["SubnetMask"] != "255.255.255.0" ||
-		entry["Gateway"] != "192.168.7.1" {
-		t.Errorf("static entry = %v", entry)
-	}
-	dns, ok := m["StaticNameServers"].([]any)
-	if !ok || len(dns) != 1 || dns[0] != "192.168.7.53" {
-		t.Errorf("StaticNameServers = %v; want [192.168.7.53]", m["StaticNameServers"])
-	}
-	// The host's own report is passed through untouched.
-	if m["LinkStatus"] != "LinkUp" {
-		t.Errorf("LinkStatus = %v; report fields must survive the overlay", m["LinkStatus"])
-	}
-}
-
-func TestEthernetInterfaceOverlayDhcpKeepsStatics(t *testing.T) {
-	resetHostState(t)
-	r := hostRouter()
-	postNIC(t, r, testNICBody)
-	setHostBiosAttributes(map[string]any{
-		attrEthIP4Mode:    "Dhcp",
-		attrEthIP4Address: "192.168.7.10",
-	})
-
-	m, _ := getNIC(t, r)
 	dhcp, ok := m["DHCPv4"].(map[string]any)
 	enabled, isBool := dhcp["DHCPEnabled"].(bool)
 	if !ok || !isBool || !enabled {
-		t.Errorf("DHCPv4 = %v; want DHCPEnabled=true", m["DHCPv4"])
-	}
-	// Configured static address stays visible while DHCP is enabled.
-	if _, ok := m["IPv4StaticAddresses"]; !ok {
-		t.Error("IPv4StaticAddresses missing; configured statics should render in DHCP mode")
+		t.Errorf("DHCPv4 = %v; want the host-reported object untouched", m["DHCPv4"])
 	}
 }
 
-func TestEthernetInterfaceOverlayUnmanaged(t *testing.T) {
+func TestPostEthernetInterfaceUpserts(t *testing.T) {
 	resetHostState(t)
 	r := hostRouter()
 	postNIC(t, r, testNICBody)
-	setHostBiosAttributes(map[string]any{
-		attrEthIP4Mode:    "Unmanaged",
-		attrEthIP4Address: "192.168.7.10",
-	})
+	postNIC(t, r, `{"Id": "eth0", "MACAddress": "2c:cf:67:00:00:01", "LinkStatus": "LinkDown"}`)
 
+	if got := len(hostCollectionIDs(ethernetOf)); got != 1 {
+		t.Fatalf("members = %d; a re-report must update in place", got)
+	}
 	m, _ := getNIC(t, r)
-	for _, k := range []string{"DHCPv4", "IPv4StaticAddresses", "StaticNameServers"} {
-		if _, ok := m[k]; ok {
-			t.Errorf("%s rendered for an Unmanaged NIC", k)
-		}
+	if m["LinkStatus"] != "LinkDown" {
+		t.Errorf("LinkStatus = %v; want the re-report's value", m["LinkStatus"])
 	}
 }
 
-func TestEthernetInterfaceOverlaySkippedWhenAmbiguous(t *testing.T) {
+// An operator PATCH merges into the stored member for the host to consume
+// on its next boot. The BMC does not validate or interpret the properties —
+// that is the host's job, and the whole point of the vendor-agnostic model.
+func TestPatchEthernetInterfaceMergesForHostConsume(t *testing.T) {
 	resetHostState(t)
 	r := hostRouter()
 	postNIC(t, r, testNICBody)
-	postNIC(t, r, `{"Id": "eth1", "MACAddress": "2c:cf:67:00:00:02"}`)
-	setHostBiosAttributes(map[string]any{attrEthIP4Mode: "Dhcp"})
-
-	m, _ := getNIC(t, r)
-	if _, ok := m["DHCPv4"]; ok {
-		t.Error("overlay applied with two members; the managed NIC is ambiguous")
-	}
-}
-
-func TestPatchEthernetInterfaceStagesPending(t *testing.T) {
-	resetHostState(t)
-	r := hostRouter()
-	postNIC(t, r, testNICBody)
-	// Something else already staged must survive the facade write.
-	setHostBiosPending(map[string]any{"FanMode": "FixedSpeed"})
 
 	w := do(r, http.MethodPatch, "/redfish/v1/Systems/1/EthernetInterfaces/eth0",
 		lanIP, `{
@@ -148,144 +105,78 @@ func TestPatchEthernetInterfaceStagesPending(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("PATCH = %d, body %s", w.Code, w.Body.String())
 	}
-	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("bad JSON: %v", err)
-	}
-	if _, ok := resp["@Message.ExtendedInfo"]; !ok {
-		t.Error("response missing the apply-time message annotation")
-	}
 
-	pending := hostBiosPending()
-	want := map[string]any{
-		"FanMode":            "FixedSpeed",
-		attrEthIP4Mode:       "Static",
-		attrEthIP4Address:    "10.4.0.20",
-		attrEthIP4SubnetMask: "255.255.0.0",
-		attrEthIP4Gateway:    "10.4.0.1",
-		attrEthIP4Dns1:       "10.4.0.53",
-		attrEthIP4Dns2:       "10.4.0.54",
+	m, _ := getNIC(t, r)
+	dhcp, _ := m["DHCPv4"].(map[string]any)
+	if enabled, isBool := dhcp["DHCPEnabled"].(bool); !isBool || enabled {
+		t.Errorf("DHCPv4 = %v; want DHCPEnabled=false stored for the host to consume", m["DHCPv4"])
 	}
-	for k, v := range want {
-		if pending[k] != v {
-			t.Errorf("pending[%s] = %v; want %v", k, pending[k], v)
-		}
+	statics, ok := m["IPv4StaticAddresses"].([]any)
+	if !ok || len(statics) != 1 {
+		t.Fatalf("IPv4StaticAddresses = %v; want the PATCHed entry", m["IPv4StaticAddresses"])
+	}
+	entry := statics[0].(map[string]any)
+	if entry["Address"] != "10.4.0.20" || entry["SubnetMask"] != "255.255.0.0" ||
+		entry["Gateway"] != "10.4.0.1" {
+		t.Errorf("static entry = %v", entry)
+	}
+	if dns := m["IPv4StaticAddresses"]; dns == nil {
+		t.Error("merge dropped the array")
+	}
+	// Properties the PATCH did not name survive.
+	if m["MACAddress"] != "2c:cf:67:00:00:01" || m["LinkStatus"] != "LinkUp" {
+		t.Errorf("unrelated properties clobbered: %v", m)
+	}
+	// The write never touches the Bios lanes — there is nothing to bridge.
+	if len(hostBiosPending()) != 0 || len(hostBiosAttributes()) != 0 {
+		t.Errorf("PATCH leaked into Bios state: pending=%v attrs=%v",
+			hostBiosPending(), hostBiosAttributes())
 	}
 }
 
-func TestPatchEthernetInterfaceDhcp(t *testing.T) {
+// The host's own Update lane is the same PATCH route (the firmware
+// authenticates like any client), so a host-interface PATCH must work too.
+func TestPatchEthernetInterfaceHostLane(t *testing.T) {
 	resetHostState(t)
 	r := hostRouter()
 	postNIC(t, r, testNICBody)
 
 	w := do(r, http.MethodPatch, "/redfish/v1/Systems/1/EthernetInterfaces/eth0",
+		hostIP(t), `{"DHCPv4": {"DHCPEnabled": true}, "IPv4StaticAddresses": []}`, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("host PATCH = %d, body %s", w.Code, w.Body.String())
+	}
+	m, _ := getNIC(t, r)
+	if statics, ok := m["IPv4StaticAddresses"].([]any); !ok || len(statics) != 0 {
+		t.Errorf("IPv4StaticAddresses = %v; want the cleared array stored", m["IPv4StaticAddresses"])
+	}
+}
+
+func TestPatchEthernetInterfaceIdentityIsNotWritable(t *testing.T) {
+	resetHostState(t)
+	r := hostRouter()
+	postNIC(t, r, testNICBody)
+
+	w := do(r, http.MethodPatch, "/redfish/v1/Systems/1/EthernetInterfaces/eth0",
+		lanIP, `{"Id": "eth9", "@odata.id": "/nope"}`, nil)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("identity-only PATCH = %d, want 400", w.Code)
+	}
+	m, _ := getNIC(t, r)
+	if m["Id"] != "eth0" {
+		t.Errorf("Id = %v; identity keys must not be writable", m["Id"])
+	}
+}
+
+func TestPatchEthernetInterfaceNotFound(t *testing.T) {
+	resetHostState(t)
+	r := hostRouter()
+	postNIC(t, r, testNICBody)
+
+	w := do(r, http.MethodPatch, "/redfish/v1/Systems/1/EthernetInterfaces/nope",
 		lanIP, `{"DHCPv4": {"DHCPEnabled": true}}`, nil)
-	if w.Code != http.StatusOK {
-		t.Fatalf("PATCH = %d, body %s", w.Code, w.Body.String())
-	}
-	pending := hostBiosPending()
-	if pending[attrEthIP4Mode] != "Dhcp" {
-		t.Errorf("EthIp4Mode = %v; want Dhcp", pending[attrEthIP4Mode])
-	}
-	if _, ok := pending[attrEthIP4Address]; ok {
-		t.Error("address staged by a DHCP-only PATCH")
-	}
-}
-
-func TestPatchEthernetInterfaceStaticImpliesMode(t *testing.T) {
-	resetHostState(t)
-	r := hostRouter()
-	postNIC(t, r, testNICBody)
-
-	w := do(r, http.MethodPatch, "/redfish/v1/Systems/1/EthernetInterfaces/eth0",
-		lanIP, `{"IPv4StaticAddresses": [{"Address": "10.4.0.20", "SubnetMask": "255.255.0.0"}]}`, nil)
-	if w.Code != http.StatusOK {
-		t.Fatalf("PATCH = %d, body %s", w.Code, w.Body.String())
-	}
-	pending := hostBiosPending()
-	if pending[attrEthIP4Mode] != "Static" {
-		t.Errorf("EthIp4Mode = %v; a static address should imply Static", pending[attrEthIP4Mode])
-	}
-	if _, ok := pending[attrEthIP4Gateway]; ok {
-		t.Error("gateway staged though the entry omitted it")
-	}
-}
-
-func TestPatchEthernetInterfaceClears(t *testing.T) {
-	resetHostState(t)
-	r := hostRouter()
-	postNIC(t, r, testNICBody)
-
-	w := do(r, http.MethodPatch, "/redfish/v1/Systems/1/EthernetInterfaces/eth0",
-		lanIP, `{"IPv4StaticAddresses": [], "StaticNameServers": []}`, nil)
-	if w.Code != http.StatusOK {
-		t.Fatalf("PATCH = %d, body %s", w.Code, w.Body.String())
-	}
-	pending := hostBiosPending()
-	for _, k := range []string{
-		attrEthIP4Address, attrEthIP4SubnetMask, attrEthIP4Gateway,
-		attrEthIP4Dns1, attrEthIP4Dns2,
-	} {
-		if v, ok := pending[k]; !ok || v != "" {
-			t.Errorf("pending[%s] = %v; want \"\"", k, v)
-		}
-	}
-	if _, ok := pending[attrEthIP4Mode]; ok {
-		t.Error("clearing statics must not stage a mode change")
-	}
-}
-
-func TestPatchEthernetInterfaceRejections(t *testing.T) {
-	resetHostState(t)
-	r := hostRouter()
-	postNIC(t, r, testNICBody)
-	path := "/redfish/v1/Systems/1/EthernetInterfaces/eth0"
-
-	for name, tc := range map[string]struct {
-		path string
-		body string
-		want int
-	}{
-		"unknown member": {
-			"/redfish/v1/Systems/1/EthernetInterfaces/nope",
-			`{"DHCPv4": {"DHCPEnabled": true}}`, http.StatusNotFound,
-		},
-		"no mapped properties": {
-			path, `{"HostName": "pi5"}`, http.StatusBadRequest,
-		},
-		"bad address": {
-			path, `{"IPv4StaticAddresses": [{"Address": "not-an-ip"}]}`,
-			http.StatusBadRequest,
-		},
-		"ipv6 address": {
-			path, `{"StaticNameServers": ["2001:db8::1"]}`, http.StatusBadRequest,
-		},
-		"too many dns": {
-			path, `{"StaticNameServers": ["10.0.0.1", "10.0.0.2", "10.0.0.3"]}`,
-			http.StatusBadRequest,
-		},
-		"too many static addresses": {
-			path, `{"IPv4StaticAddresses": [{"Address": "10.0.0.1"}, {"Address": "10.0.0.2"}]}`,
-			http.StatusBadRequest,
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			w := do(r, http.MethodPatch, tc.path, lanIP, tc.body, nil)
-			if w.Code != tc.want {
-				t.Errorf("PATCH = %d, want %d; body %s", w.Code, tc.want, w.Body.String())
-			}
-		})
-	}
-	if len(hostBiosPending()) != 0 {
-		t.Errorf("rejected PATCHes staged attributes: %v", hostBiosPending())
-	}
-
-	// With two members the managed NIC is ambiguous — the write is refused
-	// and redirected to Bios/Settings.
-	postNIC(t, r, `{"Id": "eth1", "MACAddress": "2c:cf:67:00:00:02"}`)
-	w := do(r, http.MethodPatch, path, lanIP, `{"DHCPv4": {"DHCPEnabled": true}}`, nil)
-	if w.Code != http.StatusConflict {
-		t.Errorf("ambiguous PATCH = %d, want 409", w.Code)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("PATCH unknown member = %d, want 404", w.Code)
 	}
 }
 
@@ -295,20 +186,39 @@ func TestPatchEthernetInterfaceIfMatch(t *testing.T) {
 	postNIC(t, r, testNICBody)
 
 	w := do(r, http.MethodPatch, "/redfish/v1/Systems/1/EthernetInterfaces/eth0",
-		lanIP, `{"DHCPv4": {"DHCPEnabled": true}}`,
+		lanIP, `{"DHCPv4": {"DHCPEnabled": false}}`,
 		map[string]string{"If-Match": `"stale"`})
 	if w.Code != http.StatusPreconditionFailed {
 		t.Errorf("stale If-Match = %d, want 412", w.Code)
 	}
-	if len(hostBiosPending()) != 0 {
-		t.Error("a 412 write staged attributes")
+	m, _ := getNIC(t, r)
+	dhcp, _ := m["DHCPv4"].(map[string]any)
+	if enabled, isBool := dhcp["DHCPEnabled"].(bool); !isBool || !enabled {
+		t.Error("a 412 write changed the member")
 	}
 }
 
-func TestPostEthernetInterfaceRefreshesLiveAttributes(t *testing.T) {
+func TestDeleteEthernetInterface(t *testing.T) {
 	resetHostState(t)
 	r := hostRouter()
-	setHostBiosAttributes(map[string]any{"FanMode": "Automatic"})
+	postNIC(t, r, testNICBody)
+
+	w := do(r, http.MethodDelete, "/redfish/v1/Systems/1/EthernetInterfaces/eth0",
+		hostIP(t), "", nil)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("DELETE = %d, body %s", w.Code, w.Body.String())
+	}
+	if _, code := getNIC(t, r); code != http.StatusNotFound {
+		t.Errorf("GET after DELETE = %d, want 404", code)
+	}
+}
+
+// A host report carrying configuration properties is stored as-is and
+// nothing else happens: the old EthIp4* Bios-attribute bridge is gone, and
+// no lane on this collection may touch Bios state.
+func TestHostReportDoesNotTouchBiosState(t *testing.T) {
+	resetHostState(t)
+	r := hostRouter()
 
 	postNIC(t, r, `{
 		"Id": "eth0",
@@ -316,14 +226,10 @@ func TestPostEthernetInterfaceRefreshesLiveAttributes(t *testing.T) {
 		"DHCPv4": {"DHCPEnabled": false},
 		"IPv4StaticAddresses": [{"Address": "10.4.0.20", "SubnetMask": "255.255.0.0"}]
 	}`)
-	attrs := hostBiosAttributes()
-	if attrs[attrEthIP4Mode] != "Static" || attrs[attrEthIP4Address] != "10.4.0.20" {
-		t.Errorf("live attrs = %v; want Static/10.4.0.20 merged in", attrs)
-	}
-	if attrs["FanMode"] != "Automatic" {
-		t.Error("host NIC report clobbered unrelated live attributes")
+	if len(hostBiosAttributes()) != 0 {
+		t.Errorf("host NIC report wrote Bios attributes: %v", hostBiosAttributes())
 	}
 	if len(hostBiosPending()) != 0 {
-		t.Error("a host report must never stage pending settings")
+		t.Errorf("host NIC report staged Bios pending settings: %v", hostBiosPending())
 	}
 }

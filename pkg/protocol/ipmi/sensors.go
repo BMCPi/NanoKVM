@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/bougou/go-ipmi/pkg/hal"
 	"github.com/bougou/go-ipmi/pkg/handlers"
@@ -17,13 +18,19 @@ const (
 	sensorNumFanDuty = 2
 )
 
-// sensorHAL serves the two readings the OP-TEE push record carries: the die
-// temperature (°C, M=1 linear) and the commanded fan duty (percent).
+// sensorHAL serves the two readings the managed host's registered
+// hostsensor.Source carries: the die temperature (°C, M=1 linear) and the
+// commanded fan duty (percent). source is nil on a board with no such
+// channel (see pkg/device/hostsensor), which this HAL treats as "no sensors"
+// rather than panicking on.
 type sensorHAL struct {
 	source sensorSource
 }
 
 func (s *sensorHAL) List(_ context.Context) ([]hal.SensorDescriptor, error) {
+	if s.source == nil {
+		return nil, nil
+	}
 	return []hal.SensorDescriptor{
 		{ID: sensorNumSoCTemp, Type: uint8(types.SensorTypeTemperature), Name: "SoC Temp"},
 		{ID: sensorNumFanDuty, Type: uint8(types.SensorTypeFan), Name: "Fan Duty"},
@@ -36,10 +43,13 @@ func (s *sensorHAL) ReadRaw(_ context.Context, sensorID uint8) (uint8, error) {
 	default:
 		return 0, hal.ErrNotFound
 	}
+	if s.source == nil {
+		return 0, hal.ErrNotFound
+	}
 
-	reading, err := s.source.Read()
-	if err != nil {
-		return 0, err
+	reading, ok := s.source.Latest()
+	if !ok {
+		return 0, fmt.Errorf("no sensor reading available")
 	}
 	if reading.Stale {
 		return 0, fmt.Errorf("sensor record stale (host stopped pushing)")
@@ -47,10 +57,10 @@ func (s *sensorHAL) ReadRaw(_ context.Context, sensorID uint8) (uint8, error) {
 
 	switch sensorID {
 	case sensorNumSoCTemp:
-		if !reading.TempValid() {
+		if !reading.TempValid {
 			return 0, fmt.Errorf("temperature not valid in current record")
 		}
-		c := (reading.SoCTempMilliC + 500) / 1000
+		c := int(math.Round(reading.TempC))
 		if c < 0 {
 			c = 0
 		}
@@ -59,10 +69,10 @@ func (s *sensorHAL) ReadRaw(_ context.Context, sensorID uint8) (uint8, error) {
 		}
 		return uint8(c), nil
 	default: // sensorNumFanDuty
-		if !reading.FanValid() {
+		if !reading.FanValid {
 			return 0, fmt.Errorf("fan state not valid in current record")
 		}
-		return reading.FanDutyPct, nil
+		return uint8(reading.FanDutyPct), nil
 	}
 }
 

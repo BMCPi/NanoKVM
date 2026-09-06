@@ -359,6 +359,14 @@ templ SettingsSerialBody(m SettingsSerial) {
 					Port
 				}
 				@settingsFieldsetNote("Redfish exposes the same values at /redfish/v1/Managers/1/SerialInterfaces/1.")
+				// The gadget console overrides every field below it, so say so
+				// where they are edited rather than only over on Hardware: an
+				// operator changing the baud rate of a UART nothing is reading
+				// has no way to tell from this form alone.
+				if m.GadgetConsoleActive {
+					@settingsFieldsetNote("The USB Serial Console (Hardware) is on, so it — not this device — is the console for the terminal and IPMI SOL, and the framing below does not apply to it. These settings are kept and take effect again when it is turned off.")
+				}
+				@settingsValueRow("Console device", "The port the terminal and IPMI SOL are actually reading right now.", m.ConsoleDevice)
 				@settingsTextRow("ser-device", "device", "Device",
 					"The tty the host's console is wired to.", m.Device, "/dev/ttyS1")
 				@settingsSelectRow("ser-baud", "baudRate", "Baud Rate",
@@ -423,9 +431,12 @@ templ SettingsHardwareBody(m SettingsHardware) {
 					Functions
 				}
 				@settingsSwitchRow("usb-network", "network", "USB Ethernet",
-					"Present a CDC-NCM adapter to the host — the transport for the Redfish host interface.", m.USBNetwork)
+					"Present a CDC-EEM adapter to the host — the transport for the Redfish host interface. Bound by the host firmware's own driver; stock EDK2 UsbNetworkPkg does not carry one.", m.USBNetwork)
 				@settingsSwitchRow("usb-disk", "disk", "USB Mass Storage",
 					"Present the BMC's disk image to the host as a USB drive.", m.USBDisk)
+				@settingsSwitchRow("usb-serial-console", "serialConsole", "USB Serial Console",
+					"Present a CDC-ACM serial port to the host and make it the console for the web terminal and IPMI SOL, in place of serial.device. Re-enumerates the USB device and reconnects the console. The host binds it without help — Linux gets a /dev/ttyACM* from cdc_acm. Costs two of the six USB IN endpoints, so it fits only while USB Ethernet is off or CDC-EEM.", m.USBSerialConsole)
+				@settingsValueRow("Console device", "The port the terminal and SOL are reading right now.", m.ConsoleDevice)
 				@settingsValueRow("Virtual media", "Whether an ISO is currently attached to the host.", m.MediaState)
 			}
 		</form>

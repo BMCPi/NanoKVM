@@ -7,6 +7,7 @@ package fragments
 // client over the SSE stream, not this response.
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -76,12 +77,20 @@ func (h *handlers) postPowerAction(c *gin.Context) {
 	case "forceoff":
 		err = ctrl.ForceOff(ctx)
 	case "reset":
-		err = ctrl.Reset(ctx)
+		err = ctrl.Restart(ctx)
 	}
 
 	if err != nil {
 		h.log.ErrorContext(c.Request.Context(), "ui: power action failed", slog.String("action", action), slog.Any("err", err))
-		hxToast(c, "error", label+" failed", err.Error())
+		msg := err.Error()
+		if errors.Is(err, power.ErrNoResetLine) {
+			// The reset control offered "Reset" (see resetActionLabel in
+			// power_menu.templ) because power.reset is "line", but the board
+			// wires no reset pin — an actionable message, not the raw sentinel
+			// text, and no silent power cycle substituted.
+			msg = "reset line not wired; use Power cycle, or set power.reset to auto or cycle"
+		}
+		hxToast(c, "error", label+" failed", msg)
 		c.Status(http.StatusConflict)
 		return
 	}

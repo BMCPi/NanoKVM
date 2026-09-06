@@ -355,6 +355,7 @@ templ VMAddBody(files []string) {
 					hx-encoding="multipart/form-data"
 					hx-target="#vm-menu-body"
 					hx-disabled-elt="find button"
+					data-upload-progress="#vm-upload-progress"
 				>
 					@input.Input(input.Props{
 						ID:     "vm-upload-file",

@@ -98,7 +98,7 @@ func TestSysfsReadDirSorted(t *testing.T) {
 }
 
 // configfs returns some attributes NUL-terminated: the gadget driver formats
-// MAC addresses with %pM into a fixed buffer, so ncm.usb0/host_addr reads back
+// MAC addresses with %pM into a fixed buffer, so eem.usb0/host_addr reads back
 // as "da:c0:ff:ee:10:02\x00\n" (hexdump-verified on hardware). strings.TrimSpace
 // does not strip NUL, so a naive comparison decides the value differs and
 // rewrites it — which configfs rejects with EBUSY while the gadget is bound.

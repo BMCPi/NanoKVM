@@ -25,6 +25,7 @@ import (
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/bmcsensor"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/hid"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/hostsensor"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/power"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/serial"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/usbgadget"
@@ -175,9 +176,22 @@ func initialize(ctx context.Context) {
 	sysinfo.StartResourceSampler(ctx, rootLog.With("component", "sysinfo"))
 	// The host's own sensors, pushed into our emulated I2C EEPROM from OP-TEE
 	// on the Pi. This is the process's only reader of that record — Redfish
-	// and IPMI both read through it — so it must start even on a board with no
-	// slave EEPROM, where it simply finds nothing.
-	bmcsensor.Default().Start(ctx, rootLog.With("component", "bmcsensor"))
+	// reads it directly, and IPMI/telemetry/the overview UI read it through
+	// pkg/device/hostsensor's board-agnostic seam — so it must start even on
+	// a board with no slave EEPROM, where it simply finds nothing.
+	hostSensors := bmcsensor.Default()
+	hostSensors.Start(ctx, rootLog.With("component", "bmcsensor"))
+	// Register it as the process's hostsensor.Source only when this board
+	// actually has the OP-TEE/I2C channel: Available() is exactly the check
+	// this package already used to decide whether to offer the sensor at all
+	// (see ui/fragments/overview.go's prior use of it), and unlike the
+	// operator-facing hardware.fanControl knob it is not something a board
+	// with the channel could disable by mistake. A board with no channel at
+	// all (the NUC this seam was built for) registers nothing, and every
+	// hostsensor consumer renders/reports that absence honestly.
+	if hostSensors.Available() {
+		hostsensor.Register(hostSensors)
+	}
 
 	// Build the composition-root controllers. These replace the old lazy
 	// singletons: constructed once here, shared by every subsystem that needs
@@ -196,6 +210,20 @@ func initialize(ctx context.Context) {
 	// the Redfish routes both read it.
 	redfish.LoadHostState(rootLog.With("component", "redfish"))
 
+	// Build the USB gadget (g0 + all functions + UDC bind) before presenting the
+	// capsule volume. usbgadget is the sole owner of the gadget configfs — this
+	// replaces the old S03usbdev init script — so the host-visible topology and
+	// a bound UDC come up independent of the capsule volume's availability.
+	//
+	// Also before the serial capture below: when usbGadget.serialConsole is on,
+	// the console is the gadget's own /dev/ttyGS*, which does not exist until
+	// the gser function has been created here. (The capture would recover
+	// either way — its first open would ENOENT and retry on the 5s interval —
+	// but there is no reason to lose the first seconds of host output.)
+	if err := usbgadget.Get().Init(rootLog.With("component", "usbgadget")); err != nil {
+		slog.ErrorContext(ctx, "USB gadget init failed", slog.Any("err", err))
+	}
+
 	// Begin the always-on capture of the host's serial console to a bounded
 	// file on the data partition, so its boot/crash logs are retained even
 	// when no terminal or SOL session is watching. Holds the port open for
@@ -209,14 +237,6 @@ func initialize(ctx context.Context) {
 		} else {
 			ipmiServer = srv
 		}
-	}
-
-	// Build the USB gadget (g0 + all functions + UDC bind) before presenting the
-	// capsule volume. usbgadget is the sole owner of the gadget configfs — this
-	// replaces the old S03usbdev init script — so the host-visible topology and
-	// a bound UDC come up independent of the capsule volume's availability.
-	if err := usbgadget.Get().Init(rootLog.With("component", "usbgadget")); err != nil {
-		slog.ErrorContext(ctx, "USB gadget init failed", slog.Any("err", err))
 	}
 
 	// Configure the host-facing interfaces via netlink: eth0 (static or an

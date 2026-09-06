@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/warthog618/go-gpiosim"
@@ -96,5 +98,65 @@ func TestResolveUnknownLineIsUnset(t *testing.T) {
 func TestFindChipByLabelRejectsUnknown(t *testing.T) {
 	if _, err := findChipByLabel("definitely-not-a-real-chip-label"); err == nil {
 		t.Error("expected an error for an unmatched label")
+	}
+}
+
+// TestFanControlDefaultsFromProfile covers the common case: a config that
+// omits hardware.fanControl comes up with the running profile's default
+// (true on every profile today, see hwProfile.fanControl), not a false
+// zero value that would silently hide the Chassis Oem.PiBmc.FanOverrideLevel
+// knob.
+func TestFanControlDefaultsFromProfile(t *testing.T) {
+	c, _ := loadConfigFromYAML(t, migrateSecret)
+
+	want := getHardware().FanControl
+	if want == nil {
+		t.Fatal("getHardware() returned a nil FanControl default")
+	}
+	if c.Hardware.FanControl == nil || *c.Hardware.FanControl != *want {
+		t.Errorf("Hardware.FanControl = %v, want the profile default %v", c.Hardware.FanControl, *want)
+	}
+}
+
+// TestFanControlExplicitOverridePassesThrough covers an operator explicitly
+// disabling fan control on a profile that defaults it on: a plain zero-value
+// check cannot tell that apart from an absent key, so applyHardwareDefaults'
+// wholesale rebuild via getHardware() must not clobber it.
+func TestFanControlExplicitOverridePassesThrough(t *testing.T) {
+	c, _ := loadConfigFromYAML(t, migrateSecret+"hardware:\n  fanControl: false\n")
+
+	if c.Hardware.FanControl == nil || *c.Hardware.FanControl {
+		t.Errorf("Hardware.FanControl = %v, want explicit false to survive defaulting", c.Hardware.FanControl)
+	}
+}
+
+// TestFanControlExplicitTrueOverridePassesThrough is the other explicit
+// value, on the chance a future profile ever defaults false.
+func TestFanControlExplicitTrueOverridePassesThrough(t *testing.T) {
+	c, _ := loadConfigFromYAML(t, migrateSecret+"hardware:\n  fanControl: true\n")
+
+	if c.Hardware.FanControl == nil || !*c.Hardware.FanControl {
+		t.Errorf("Hardware.FanControl = %v, want explicit true to survive defaulting", c.Hardware.FanControl)
+	}
+}
+
+// TestFanControlFalseOverrideSurvivesPersist is the regression test for the
+// bool-zero-value trap on the write side: an operator's explicit
+// "fanControl: false" must not be indistinguishable from "unset" the next
+// time this package rewrites the file (e.g. an unrelated settings.Save()).
+// A plain bool with `omitempty` would drop the key when false, silently
+// reverting to the profile default (true) on the next boot; FanControl is a
+// *bool precisely so a non-nil pointer to false still marshals explicitly.
+func TestFanControlFalseOverrideSurvivesPersist(t *testing.T) {
+	_, path := loadConfigFromYAML(t, migrateSecret+"hardware:\n  fanControl: false\n")
+
+	persistConfig()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read persisted config: %v", err)
+	}
+	if !strings.Contains(string(data), "fanControl: false") {
+		t.Errorf("persisted config lost the explicit fanControl: false override:\n%s", data)
 	}
 }

@@ -222,38 +222,3 @@ func TestBiosStageAnswers200SoErrorsCanBeSwappedIn(t *testing.T) {
 		t.Errorf("want a toast reporting the rejection, got %q", trigger)
 	}
 }
-
-// An attribute described from the BMC's compiled-in platform table is not
-// "unregistered" — it has a type, a value list and a menu, just not from the
-// host. Marking it both ways would put two contradictory badges on one row.
-func TestBiosAttrDistinguishesCatalogedFromUnregistered(t *testing.T) {
-	cataloged := biosAttr(redfish.BiosAttribute{
-		Name: "EthIp4Mode", DisplayName: "IPv4 Policy",
-		Type: redfish.BiosTypeEnumeration, MenuPath: "./IPv4 (BMC Managed)",
-		Current: "Dhcp", Registered: false, Cataloged: true,
-		Options: []redfish.BiosOption{{Value: "Dhcp", Label: "DHCP"}},
-	}, "")
-
-	if !cataloged.Cataloged {
-		t.Error("Cataloged = false; the row cannot say where its description came from")
-	}
-	if cataloged.Unregistered {
-		t.Error("Unregistered = true as well; the row would carry both badges")
-	}
-	if cataloged.Control != components.BiosControlSelect {
-		t.Errorf("control = %q, want a select", cataloged.Control)
-	}
-
-	// A registry that named the attribute but omitted its values leaves both
-	// true, and the operator is still being shown constraints the running
-	// firmware never asserted.
-	toppedUp := biosAttr(redfish.BiosAttribute{
-		Name: "EthIp4Mode", Type: redfish.BiosTypeEnumeration,
-		Current: "Dhcp", Registered: true, Cataloged: true,
-		Options: []redfish.BiosOption{{Value: "Dhcp", Label: "DHCP"}},
-	}, "")
-	if !toppedUp.Cataloged || toppedUp.Unregistered {
-		t.Errorf("registered+cataloged mapped wrong: cataloged=%v unregistered=%v",
-			toppedUp.Cataloged, toppedUp.Unregistered)
-	}
-}

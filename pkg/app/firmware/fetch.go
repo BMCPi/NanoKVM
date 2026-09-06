@@ -34,40 +34,28 @@ import (
 // partition the download is staged on, since the remote picks the size.
 const maxCapsuleFetchBytes = 128 << 20 // 128 MiB
 
+// FetchOption configures a capsule fetch. Variadic rather than extra
+// parameters so the existing callers — and the tests that pin this path's
+// staging-file placement — keep compiling unchanged.
+type FetchOption func(*fetchConfig)
+
+type fetchConfig struct {
+	onProgress func(loaded, total int64)
+}
+
+// WithProgress reports download progress as it happens: loaded is the running
+// byte count, total is what the remote declared, or 0 when it declared nothing
+// (a chunked response, which is common enough that callers must handle it).
+//
+// The callback runs inside the copy loop on the downloading goroutine, so it
+// must be cheap and must not block — see streamio.CountingReader.
+func WithProgress(fn func(loaded, total int64)) FetchOption {
+	return func(cfg *fetchConfig) { cfg.onProgress = fn }
+}
+
 // IsStaging reports whether a capsule fetch is currently running. Callers use
 // it to reject a second concurrent update rather than queue one.
 func (c *Controller) IsStaging() bool { return isStaging() }
-
-// FetchOption configures a capsule fetch started by StageCapsuleFromURL.
-type FetchOption func(*fetchOptions)
-
-type fetchOptions struct {
-	progress func(loaded, total int64)
-}
-
-// WithProgress registers fn to be called as the download advances, with the
-// bytes received so far and the remote's declared total (-1 when the remote
-// declared nothing — never trusted as a bound, only offered for reporting).
-// fn runs on the fetch goroutine after every write, so it must be cheap and
-// must synchronise anything it shares.
-func WithProgress(fn func(loaded, total int64)) FetchOption {
-	return func(o *fetchOptions) { o.progress = fn }
-}
-
-// progressWriter counts bytes into w and reports each step to fn.
-type progressWriter struct {
-	w      io.Writer
-	loaded int64
-	total  int64
-	fn     func(loaded, total int64)
-}
-
-func (p *progressWriter) Write(b []byte) (int, error) {
-	n, err := p.w.Write(b)
-	p.loaded += int64(n)
-	p.fn(p.loaded, p.total)
-	return n, err
-}
 
 // StageCapsuleFromURL downloads the capsule at rawURL and stages it into
 // \EFI\UpdateCapsule\ on the capsule volume. name overrides the filename
@@ -80,9 +68,9 @@ func (p *progressWriter) Write(b []byte) (int, error) {
 // it aborts the transfer and the staging file is removed by the deferred
 // cleanup, leaving no half-written capsule for firmware to trip over.
 func (c *Controller) StageCapsuleFromURL(ctx context.Context, rawURL, name string, opts ...FetchOption) (retErr error) {
-	var options fetchOptions
+	var cfg fetchConfig
 	for _, opt := range opts {
-		opt(&options)
+		opt(&cfg)
 	}
 
 	parsed, err := url.ParseRequestURI(rawURL)
@@ -130,7 +118,7 @@ func (c *Controller) StageCapsuleFromURL(ctx context.Context, rawURL, name strin
 	}()
 
 	c.log.InfoContext(ctx, "firmware: downloading capsule", slog.String("name", fileName), slog.String("url", rawURL))
-	if err := c.downloadTo(ctx, rawURL, tmp, maxCapsuleFetchBytes, options.progress); err != nil {
+	if err := c.downloadTo(ctx, rawURL, tmp, maxCapsuleFetchBytes, cfg.onProgress); err != nil {
 		return err
 	}
 	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
@@ -161,20 +149,39 @@ func (c *Controller) stagingDir() (string, error) {
 
 // downloadTo copies the body at rawURL into w, refusing anything larger than
 // maxBytes. streamio.FetchURL owns the scheme check, the transport timeouts and
-// the cap; everything here is a straight stream to disk. A non-nil progress fn
-// is fed the running byte count against the remote's declared Content-Length.
-func (c *Controller) downloadTo(ctx context.Context, rawURL string, w io.Writer, maxBytes int64, progress func(loaded, total int64)) error {
+// the cap; everything here is a straight stream to disk.
+//
+// onProgress, when non-nil, is called with the running and declared byte
+// counts as the copy proceeds. It is reported from inside the copy rather than
+// from the total io.Copy returns, because the whole point is movement during a
+// transfer that can take minutes.
+func (c *Controller) downloadTo(ctx context.Context, rawURL string, w io.Writer, maxBytes int64, onProgress func(loaded, total int64)) error {
 	remote, err := streamio.FetchURL(ctx, rawURL, maxBytes)
 	if err != nil {
 		return err
 	}
 	defer remote.Close()
 
-	dst := w
-	if progress != nil {
-		dst = &progressWriter{w: w, total: remote.ContentLength, fn: progress}
+	var src io.Reader = remote
+	if onProgress != nil {
+		// ContentLength is -1 when the remote declared nothing; report that as
+		// 0 so a caller can test one condition ("no total") rather than two.
+		total := remote.ContentLength
+		if total < 0 {
+			total = 0
+		}
+		var loaded int64
+		src = streamio.NewCountingReader(remote, func(n int64) {
+			loaded += n
+			onProgress(loaded, total)
+		})
+		// One call before any bytes move, so the UI can switch out of its
+		// "connecting" state and show a real total the moment the headers
+		// land rather than after the first chunk.
+		onProgress(0, total)
 	}
-	written, err := io.Copy(dst, remote)
+
+	written, err := io.Copy(w, src)
 	if err != nil {
 		return fmt.Errorf("download: %w", err)
 	}

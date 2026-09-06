@@ -15,6 +15,15 @@ import (
 // the host stopped talking twenty minutes ago" is the difference between a
 // useful card and a lie. Each state below is one way of getting that wrong.
 
+// testHostTempCeiling and testHostTempThrottle mirror the RPi Source's
+// thresholds (pkg/device/bmcsensor's Thresholds()): this package no longer
+// owns those numbers — they come from whatever Source is registered — but
+// the fixtures below still need concrete values to build a domain against.
+const (
+	testHostTempCeiling  = 100
+	testHostTempThrottle = 80
+)
+
 func renderHostSensors(t *testing.T, m OverviewHostSensors) string {
 	t.Helper()
 	return renderToString(t, func(w *strings.Builder) error {
@@ -27,8 +36,8 @@ func liveHostSensors() OverviewHostSensors {
 		Available: true, Reporting: true, Sampling: true, ThrottleKnown: true,
 		Temperature: SparkSeries{
 			Label: "SoC temperature", Value: 52, Unit: "°C", Valid: true,
-			Points: []float64{50, 52}, Max: hostTempCeiling,
-			WarnAt: hostTempThrottle, Marker: hostTempThrottle,
+			Points: []float64{50, 52}, Max: testHostTempCeiling,
+			WarnAt: testHostTempThrottle, Marker: testHostTempThrottle,
 		},
 		Fan: SparkSeries{
 			Label: "Active cooler", Value: 49, Unit: "%", Valid: true,
@@ -98,12 +107,12 @@ func TestTemperatureIsDrawnAgainstTheThrottlePoint(t *testing.T) {
 // A host below the throttle point is not in trouble, and one above it is. The
 // colour is the only thing carrying that at a glance.
 func TestTheTemperatureColoursAtTheThrottlePointNotAtThreeQuarters(t *testing.T) {
-	warm := SparkSeries{Value: 78, Max: hostTempCeiling, WarnAt: hostTempThrottle}
+	warm := SparkSeries{Value: 78, Max: testHostTempCeiling, WarnAt: testHostTempThrottle}
 	if warm.Elevated() {
 		t.Error("78 °C is below the throttle point and should not be coloured; " +
 			"a percentage's 75% threshold does not apply to a temperature")
 	}
-	hot := SparkSeries{Value: 84, Max: hostTempCeiling, WarnAt: hostTempThrottle}
+	hot := SparkSeries{Value: 84, Max: testHostTempCeiling, WarnAt: testHostTempThrottle}
 	if !hot.Elevated() {
 		t.Error("84 °C is past the throttle point and should be coloured")
 	}

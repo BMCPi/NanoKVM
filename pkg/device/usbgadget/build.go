@@ -59,6 +59,11 @@ func (g *Gadget) build() error {
 			return err
 		}
 	}
+	if g.cfg.SerialConsole {
+		if err := g.ensureSerialFunc(); err != nil {
+			return err
+		}
+	}
 	if g.cfg.Ethernet != EthernetOff {
 		if err := g.ensureEthernetFunc(g.cfg.Ethernet); err != nil {
 			// Report the failure, but never leave the gadget unbound because of
@@ -141,11 +146,15 @@ func (g *Gadget) ensureHIDFuncs() error {
 	return nil
 }
 
-// ensureEthernetFunc creates the ncm function directory for mode and pins
-// both MAC addresses. The host side MUST be RHIHostMAC: EDK2's UsbNetworkPkg
-// driver on the managed host correlates the RHI NIC by station address, and a
-// random kernel-assigned MAC breaks that discovery on every boot. Both are
-// locally-administered unicast addresses. Caller holds g.mu.
+// ensureEthernetFunc creates the eem function directory for mode and pins
+// both MAC addresses. The host side MUST be RHIHostMAC: the managed host's
+// EDK2 SNP driver correlates the RHI NIC by station address, and a random
+// kernel-assigned MAC breaks that discovery on every boot. Both are
+// locally-administered unicast addresses.
+//
+// f_eem exposes the same u_ether attributes f_ncm did (dev_addr, host_addr,
+// qmult, ifname), so the swap needs nothing here beyond the function name.
+// Caller holds g.mu.
 func (g *Gadget) ensureEthernetFunc(mode string) error {
 	name := ethernetFuncName(mode)
 	if name == "" {
@@ -176,8 +185,8 @@ func (g *Gadget) ensureEthernetFunc(mode string) error {
 
 func ethernetFuncName(mode string) string {
 	switch mode {
-	case EthernetNCM:
-		return "ncm.usb0"
+	case EthernetEEM:
+		return eemFuncName
 	default:
 		return ""
 	}
@@ -190,6 +199,17 @@ func ethernetFuncName(mode string) string {
 // the full desired set in order, sets the OTG role, and rebinds. Caller holds g.mu.
 func (g *Gadget) reconcileLinks() error {
 	desired := g.desiredFunctions()
+
+	// Refuse a set the UDC cannot serve before touching the tree. configfs
+	// accepts the symlinks either way and the failure surfaces much later, as
+	// a failed SET_CONFIGURATION on the host; returning here instead leaves
+	// whatever is currently linked (a set that did fit) alone. The maximal set
+	// these toggles can produce is exactly at budget, so this can only fire
+	// after a new function is added without re-costing it.
+	if err := checkEndpointBudget(desired); err != nil {
+		return fmt.Errorf("refusing to link %v: %w", desired, err)
+	}
+
 	current := g.linkedFunctions()
 
 	if sameSet(desired, current) {
@@ -238,11 +258,20 @@ func (g *Gadget) ensureBindState() error {
 
 // desiredFunctions returns the ordered list of functions that should be linked
 // into configs/c.1 for the current cfg + state. The order is canonical and MUST
-// be preserved: mass_storage → ethernet → keyboard → mouse → touchpad.
+// be preserved: mass_storage → ethernet → keyboard → pointer → serial. It may
+// be extended at the end, never reordered — interface numbers follow symlink
+// creation order, and any change to the linked set costs a full unbind/relink
+// (a host re-enumeration) in reconcileLinks.
+//
+// There are two HID functions, not three: mouse and touchpad were combined into
+// hid.GS1 (see hid.go). A separate touchpad function would be a third interrupt
+// IN endpoint, and this composite already sits at 6/6 of what the SG2002's dwc2
+// core implements — the 7-endpoint layout the old wording described cannot
+// exist on this silicon.
 func (g *Gadget) desiredFunctions() []string {
 	var out []string
 	if g.cfg.Disk {
-		out = append(out, "mass_storage.disk0")
+		out = append(out, massStorageFuncName)
 	}
 	if name := ethernetFuncName(g.cfg.Ethernet); name != "" {
 		out = append(out, name)
@@ -251,7 +280,12 @@ func (g *Gadget) desiredFunctions() []string {
 		// Boot keyboard + combined pointer function (see hid.go). A stale
 		// hid.GS2 link from the three-function layout falls out of the
 		// desired set and reconcileLinks removes it.
-		out = append(out, "hid.GS0", "hid.GS1")
+		out = append(out, hidKeyboardFuncName, hidPointerFuncName)
+	}
+	if g.cfg.SerialConsole {
+		// Last, so enabling the optional console leaves every existing
+		// interface number where the host already found it.
+		out = append(out, serialFuncName)
 	}
 	return out
 }

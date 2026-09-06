@@ -2,6 +2,7 @@ package ipmi
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/bougou/go-ipmi/pkg/types"
 
 	"github.com/pi-bmc/nanokvm-app/api/redfish"
+	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/power"
 )
 
@@ -24,6 +26,10 @@ type chassisHAL struct {
 	root  context.Context
 	power powerController
 	log   *slog.Logger
+
+	// resetPolicy is the operator's power.reset config (auto|line|cycle),
+	// read once at construction — see ColdReset.
+	resetPolicy string
 
 	mu sync.Mutex
 	// bootFlags holds the last full structure a client set. The Redfish
@@ -64,8 +70,24 @@ func (c *chassisHAL) PowerCycle(_ context.Context) error {
 	return nil
 }
 
+// ColdReset implements Chassis Control's "hard reset" action by dispatching
+// through Restart, per the power.reset policy dispatch table (design doc §1):
+// a reset-line pulse where wired and the policy allows it, else the same
+// force-off+repower PowerCycle uses.
+//
+// Restart's only failure that never touches hardware is policy "line" on an
+// unwired board — ResetLine's doc comment guarantees that check runs before
+// any GPIO or lock — so that one combination is replicated here and rejected
+// synchronously, before detaching, as a command-specific completion code
+// (types.CodeNotSupported, extracted by the framework's codeFromErr via
+// errors.As — see its doc comment). Every other outcome, wired or not, still
+// runs detached: a reset-line pulse and a force-off+repower cycle both touch
+// real hardware and must not hold the UDP response (see detach's doc comment).
 func (c *chassisHAL) ColdReset(_ context.Context) error {
-	c.detach("hard reset", c.power.Reset)
+	if c.resetPolicy == config.PowerResetLine && !c.power.CanResetLine() {
+		return fmt.Errorf("hard reset: %w: %w", power.ErrNoResetLine, types.CodeNotSupported)
+	}
+	c.detach("hard reset", c.power.Restart)
 	return nil
 }
 

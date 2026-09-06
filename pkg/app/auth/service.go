@@ -39,6 +39,20 @@ type Service struct {
 	cleanupDone chan struct{}
 
 	cache *authCache
+
+	// bcryptMu serializes the expensive password comparison. bcrypt is
+	// CPU-bound and this BMC's SoC has a single core, so concurrent
+	// comparisons contend near-linearly rather than overlapping: measured on
+	// the device, one bcrypt at DefaultCost costs ~3.2s and three concurrent
+	// Redfish logins took ~6.5s each. gofish and bmclib both open several
+	// sessions at once, so that is the ordinary case for this service.
+	//
+	// Serializing does not make an attacker's life easier: every distinct
+	// guess still runs a full comparison (see ComparePlainAccount), it just
+	// cannot thrash the one core. What it does buy is that N concurrent
+	// checks of the SAME credential collapse to one, because the waiters
+	// re-read the cache the winner populated.
+	bcryptMu sync.Mutex
 }
 
 // NewService constructs a Service. auth is a library, not a component: log is

@@ -1,10 +1,10 @@
 package redfish
 
 // processors.go serves the Processors collection
-// (/redfish/v1/Systems/1/Processors). With the EEPROM inventory gone the BMC
-// knows only what the platform design guarantees: the managed host is a
-// single-socket aarch64 part. The member is that minimal static fact; model
-// and speed detail would have to arrive as a host report to be claimed.
+// (/redfish/v1/Systems/1/Processors). The BMC is board-agnostic: it does not
+// know the managed host's architecture until the host reports itself, so the
+// pre-sync placeholder claims only that a CPU exists, never an architecture
+// or instruction set — a host report is the only source for those.
 
 import (
 	"net/http"
@@ -25,36 +25,31 @@ type Processor struct {
 	Status                *Status                       `json:"Status,omitempty"`
 }
 
-// processorODataType is the schema version every Processor response declares,
-// whether it is the built-in description or one the host published.
-const processorODataType = "#Processor.v1_16_0.Processor"
-
 // processorResource is the BMC's own description of the managed host's CPU,
-// served when the host has not published anything. The board is an aarch64
-// Raspberry Pi by design, so this much is always true; a host that enumerates
-// its own processors overrides it (see GetProcessor).
+// served when the host has not published anything. It is deliberately
+// architecture-neutral: ProcessorArchitecture and InstructionSet are left
+// unset (omitempty) rather than guessing, because this BMC now targets more
+// than one board family. A host that enumerates its own processors overrides
+// it entirely (see GetProcessor).
 func processorResource() Processor {
 	return Processor{
 		Resource: Resource{
-			ODataType:    processorODataType,
+			ODataType:    odataTypeProcessor,
 			ODataID:      processorPath,
 			ODataContext: odataContext("Processor.Processor"),
 			ID:           processorID,
 			Name:         "Processor",
 		},
 		ProcessorType: schemas.CPUProcessorType,
-		// The managed host is by design an aarch64 Raspberry Pi (see the
-		// build's rpi multiconfig).
-		ProcessorArchitecture: schemas.ARMProcessorArchitecture,
-		InstructionSet:        schemas.ARMA64InstructionSet,
-		Status:                &Status{State: schemas.EnabledState, Health: schemas.OKHealth},
+		Status:        &Status{State: schemas.EnabledState, Health: schemas.OKHealth},
 	}
 }
 
 // GetProcessorCollection lists what the host reported. Until it reports
-// anything the collection holds the BMC's own placeholder, CPU1: this board is
-// an aarch64 Pi by construction, so a read before the host has ever booted can
-// still answer something true rather than an empty list.
+// anything the collection holds the BMC's own placeholder, CPU1: a
+// single-socket system has a processor by construction, so a read before the
+// host has ever booted can still answer something true (just not which
+// architecture) rather than an empty list.
 //
 // The first host report replaces that placeholder outright. It is the host's
 // enumeration that is authoritative once it exists — leaving CPU1 alongside it
@@ -83,7 +78,7 @@ func (s *Service) GetProcessor(c *gin.Context) {
 
 	if stored, ok := hostCollectionGet(processorsOf, id); ok {
 		writeHostResource(c, renderHostMember(stored, processorsPath+"/"+id, id,
-			processorODataType, "Processor.Processor", "Processor"))
+			odataTypeProcessor, "Processor.Processor", "Processor"))
 		return
 	}
 

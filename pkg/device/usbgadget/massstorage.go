@@ -28,7 +28,7 @@ const (
 )
 
 func (g *Gadget) massStoragePath() string {
-	return filepath.Join(g.functionsPath(), "mass_storage.disk0")
+	return filepath.Join(g.functionsPath(), massStorageFuncName)
 }
 func (g *Gadget) lun0Path() string { return filepath.Join(g.massStoragePath(), "lun.0") }
 func (g *Gadget) lun1Path() string { return filepath.Join(g.massStoragePath(), "lun.1") }
@@ -43,7 +43,7 @@ func (g *Gadget) lun1Path() string { return filepath.Join(g.massStoragePath(), "
 func (g *Gadget) ensureMassStorageFunc() error {
 	dir := g.massStoragePath()
 	lun1 := g.lun1Path()
-	linked := g.isLinked("mass_storage.disk0")
+	linked := g.isLinked(massStorageFuncName)
 
 	if err := g.fs.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create mass_storage.disk0: %w", err)

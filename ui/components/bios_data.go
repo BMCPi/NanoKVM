@@ -52,20 +52,11 @@ type BiosAttr struct {
 	Staged bool
 
 	// Unregistered marks an attribute the host reported without describing in
-	// its AttributeRegistry, and which nothing else describes either: shown,
-	// editable, but with its type guessed from the value rather than declared.
+	// its AttributeRegistry: shown, editable, but with its type guessed from
+	// the value rather than declared. There is no compiled-in per-platform
+	// vocabulary to fall back on — the host's registry is the only source of
+	// typed description this BMC has.
 	Unregistered bool
-
-	// Cataloged marks an attribute whose type, allowable values or bounds came
-	// from the BMC's compiled-in table of the platform's firmware questions
-	// rather than from the host. Worth saying out loud: the operator is being
-	// offered a dropdown the running firmware never asserted, and a firmware
-	// newer than this BMC could accept values it does not list.
-	//
-	// Mutually exclusive with Unregistered by construction — a described
-	// attribute is not an undescribed one — but not with a registry entry: a
-	// registry that names an attribute and omits its values leaves it set.
-	Cataloged bool
 
 	Options []BiosOption
 

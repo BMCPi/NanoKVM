@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log"
 	"strings"
 
@@ -116,11 +117,17 @@ var defaultConfig = &Config{
 		Product:       "NanoKVM",
 		MaxPower:      120,
 		BmAttributes:  "0xE0",
-		Ethernet:      "ncm", // "off"|"ncm"; matches usbgadget.EthernetNCM
+		Ethernet:      "eem", // "off"|"eem"; matches usbgadget.EthernetEEM
 		Disk:          true,
 		HID:           true,
 		BIOSMode:      true, // boot-subclass HID: EDK2's UsbKbDxe only binds subclass-1 keyboards
 		WakeupOnWrite: true,
+		// Off by default, and deliberately not seeded through viper.IsSet like
+		// the toggles above: the default and the zero value agree, so an
+		// upgraded config that predates the key composes exactly the gadget it
+		// did before — which matters here because the function spends the
+		// board's last free USB IN endpoint.
+		SerialConsole: false,
 		BindUDC:       true,
 		UDCName:       "", // auto-detect (this board: 4340000.usb)
 		OTGRolePath:   "/proc/cviusb/otg_role",
@@ -151,6 +158,7 @@ var defaultConfig = &Config{
 	},
 	Power: Power{
 		LegacyMode: false,
+		Reset:      PowerResetAuto,
 	},
 	Telemetry: Telemetry{
 		Enabled:     false,
@@ -180,7 +188,12 @@ var defaultConfig = &Config{
 // SSH paths that applyFirmwareDefaults/applySSHDefaults have just backfilled,
 // and applyDiscoveryDefaults derives the SSDP interface from the mDNS one it
 // resolves earlier in the same helper.
-func checkDefaultValue() {
+//
+// applyPowerDefaults runs last, before Hardware resolution and the persist:
+// unlike every other section here it can fail (a mistyped power.reset is
+// rejected rather than silently coerced), and a rejected config must not
+// have Hardware resolved against it or get written back to disk.
+func checkDefaultValue() error {
 	needsPersist := applyJWTDefaults()
 
 	applyCoreDefaults()
@@ -204,12 +217,54 @@ func checkDefaultValue() {
 	applyTimeSyncDefaults()
 	applyNetworkDefaults()
 
-	instance.Hardware = getHardware()
+	if err := applyPowerDefaults(); err != nil {
+		return err
+	}
+
+	applyHardwareDefaults()
 
 	// Persist generated values (the JWT secret) and the discovery migration
 	// so neither has to be redone on the next boot.
 	if needsPersist {
 		persistConfig()
+	}
+	return nil
+}
+
+// applyPowerDefaults normalises power.reset: an absent key defaults to
+// PowerResetAuto, and anything other than the three valid sentinels is
+// rejected outright. This deliberately does not follow the silent-coercion
+// pattern used elsewhere in this file (e.g. applyUsbGadgetDefaults' Ethernet
+// switch): an operator who asks for "line" (reset only, error if unwired)
+// must not have a typo silently degrade to "auto" or "cycle", which can
+// substitute a power cycle — destructive to whatever the host OS was doing
+// — for what they explicitly said should error instead.
+func applyPowerDefaults() error {
+	switch instance.Power.Reset {
+	case "":
+		instance.Power.Reset = PowerResetAuto
+	case PowerResetAuto, PowerResetLine, PowerResetCycle:
+		// operator's explicit, valid choice
+	default:
+		return fmt.Errorf("power.reset: invalid value %q (must be %q, %q or %q)",
+			instance.Power.Reset, PowerResetAuto, PowerResetLine, PowerResetCycle)
+	}
+	return nil
+}
+
+// applyHardwareDefaults resolves Hardware from the running board: GPIO line
+// wiring plus FanControl's profile default. getHardware() rebuilds the whole
+// struct from scratch every boot, which would silently discard an operator's
+// hardware.fanControl override already sitting in instance.Hardware (decoded
+// by viper.Unmarshal before checkDefaultValue ran) — so that value is
+// captured first and reapplied after. A nil pointer (the field's zero value)
+// means the key was absent, never that the operator wrote "false"; a plain
+// bool couldn't make that distinction.
+func applyHardwareDefaults() {
+	override := instance.Hardware.FanControl
+	instance.Hardware = getHardware()
+	if override != nil {
+		instance.Hardware.FanControl = override
 	}
 }
 
@@ -425,8 +480,8 @@ func applyUsbGadgetDefaults() {
 
 	// Function toggles. Each default-true bool is seeded only when its key is
 	// absent, so an operator's explicit false is preserved. Ethernet is a
-	// two-valued string ("off"/"ncm"); anything else (empty, invalid, or the
-	// retired "ecm") falls back to the default.
+	// two-valued string ("off"/"eem"); anything else (empty, invalid, or a
+	// retired "ecm"/"ncm") falls back to the default.
 	if !viper.IsSet("usbgadget.enabled") {
 		instance.UsbGadget.Enabled = defaultConfig.UsbGadget.Enabled
 	}
@@ -443,7 +498,7 @@ func applyUsbGadgetDefaults() {
 		instance.UsbGadget.Disk = defaultConfig.UsbGadget.Disk
 	}
 	switch instance.UsbGadget.Ethernet {
-	case "off", "ncm":
+	case "off", "eem":
 		// keep the operator's value
 	default:
 		instance.UsbGadget.Ethernet = defaultConfig.UsbGadget.Ethernet

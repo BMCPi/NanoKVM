@@ -12,6 +12,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stmcginnis/gofish/schemas"
+
+	"github.com/pi-bmc/nanokvm-app/pkg/config"
 )
 
 // Chassis is the Redfish Chassis resource (DSP2046 §6.13).
@@ -41,6 +43,16 @@ type chassisWithThermal struct {
 	// Sensors is the BMC's own readings, kept separate from Thermal so
 	// host-reported and BMC-measured data stay distinguishable.
 	Sensors Link `json:"Sensors"`
+}
+
+// fanControlEnabled reports whether this board's hardware profile (or an
+// operator's hardware.fanControl override) exposes the Chassis
+// Oem.PiBmc.FanOverrideLevel knob. Boards with no fan header, or whose
+// managed host firmware never speaks RPI_FAN_PROTOCOL, must not advertise
+// (or accept a PATCH of) a control the host will never act on.
+func fanControlEnabled() bool {
+	fc := config.GetInstance().Hardware.FanControl
+	return fc != nil && *fc
 }
 
 func (s *Service) GetChassisCollection(c *gin.Context) {
@@ -107,11 +119,15 @@ func thermalBody() map[string]any {
 
 	// Merge the operator-staged fan override, kept at top-level
 	// Oem.PiBmc.FanOverrideLevel — exactly where RpiRedfishSyncDxe polls it.
-	host.mu.RLock()
-	stored := copyAnyMap(host.Thermal)
-	host.mu.RUnlock()
-	if oem, ok := stored["Oem"]; ok {
-		body["Oem"] = oem
+	// Gated on hardware.fanControl: a board without a fan header must not
+	// advertise a knob its host firmware will never read.
+	if fanControlEnabled() {
+		host.mu.RLock()
+		stored := copyAnyMap(host.Thermal)
+		host.mu.RUnlock()
+		if oem, ok := stored["Oem"]; ok {
+			body["Oem"] = oem
+		}
 	}
 
 	return body
@@ -158,6 +174,11 @@ func (s *Service) PatchChassisThermal(c *gin.Context) {
 // non-integer value as "not steering"). Persisted immediately: it is an
 // operator instruction the host has not read yet.
 func (s *Service) patchThermalFanOverride(c *gin.Context) {
+	if !fanControlEnabled() {
+		redfishErrorResponse(c, http.StatusBadRequest,
+			"fan control is not available on this hardware; Oem.PiBmc.FanOverrideLevel does not exist")
+		return
+	}
 	if !hostCheckIfMatch(c, renderHostMember(thermalBody(), chassisThermalPath, "Thermal",
 		"#Thermal.v1_7_1.Thermal", "Thermal.Thermal", "Thermal")) {
 		return

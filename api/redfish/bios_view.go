@@ -18,9 +18,10 @@ package redfish
 // the JSON type the host declared — not to reject keys. An attribute the host
 // reported without a registry entry is still shown and still editable, because
 // a host that has not published a registry would otherwise present an empty
-// screen. Describing one falls back twice: bios_catalog.go knows the platform's
-// own firmware questions, and anything it does not have gets its type inferred
-// from the value it currently holds.
+// screen — its type is inferred from the value it currently holds. There is
+// no compiled-in per-platform vocabulary backing that guess (the board is
+// never assumed): the host's own registry is the only source of typed
+// description this BMC ever has.
 //
 // Staging is a diff, not a snapshot. The pending set is exactly the attributes
 // whose staged value differs from the live one: submitting a value equal to
@@ -76,14 +77,6 @@ type BiosAttribute struct {
 	// Registered is false for an attribute the host reported but did not
 	// describe in its AttributeRegistry.
 	Registered bool `json:"registered"`
-
-	// Cataloged is true when part of the description above came from the
-	// BMC's compiled-in platform table rather than from the host — see
-	// bios_catalog.go. It is not the opposite of Registered: a registry that
-	// names an attribute but omits its allowable values leaves both true. A
-	// UI should say so, because the operator is then being shown constraints
-	// the running firmware never asserted.
-	Cataloged bool `json:"cataloged,omitempty"`
 
 	// Current is the live host-reported value; nil when the host has reported
 	// the key only through the registry and never a value for it.
@@ -398,10 +391,6 @@ func BiosSnapshot() BiosView {
 		if p, ok := pending[e.Name]; ok {
 			a.Pending, a.HasPending = p, true
 		}
-		// Top up anything the registry named but did not describe — most
-		// often an Enumeration with no Value[], which would otherwise render
-		// as free text despite the host having declared it an enum.
-		a.Cataloged = applyBiosCatalog(&a)
 		v.Attributes = append(v.Attributes, a)
 	}
 
@@ -429,17 +418,14 @@ func BiosSnapshot() BiosView {
 		if p, ok := pending[name]; ok {
 			a.Pending, a.HasPending = p, true
 		}
-		// Type is left empty for the catalog to claim: a platform attribute
-		// the host has not described yet is still an attribute this BMC knows
-		// the shape of, and the guess below is only the last resort.
-		a.Cataloged = applyBiosCatalog(&a)
-		if a.Type == "" {
-			inferFrom := cur
-			if inferFrom == nil {
-				inferFrom = a.Pending
-			}
-			a.Type = biosInferType(inferFrom)
+		// Nothing describes an attribute the host has never registered — no
+		// compiled-in platform table backs it — so its type is always
+		// guessed from the value it currently holds.
+		inferFrom := cur
+		if inferFrom == nil {
+			inferFrom = a.Pending
 		}
+		a.Type = biosInferType(inferFrom)
 		v.Attributes = append(v.Attributes, a)
 	}
 

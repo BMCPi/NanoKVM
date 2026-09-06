@@ -7,16 +7,25 @@ import (
 
 	"github.com/bougou/go-ipmi/pkg/hal"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/device/bmcsensor"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/hostsensor"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/serial"
 )
 
 // powerController is the slice of power.Controller the chassis HAL needs.
+//
+// Restart and CanResetLine back Chassis Control's hard-reset action: Restart
+// is the power.reset policy's dispatch entry point (reset-line pulse where
+// wired and the policy allows it, else force-off+repower — see
+// power.Controller.Restart's doc comment), and CanResetLine lets ColdReset
+// reject synchronously, before detaching, the one combination Restart is
+// guaranteed never to touch hardware for (policy "line" on an unwired board).
 type powerController interface {
 	State(ctx context.Context) (bool, error)
 	PowerOn(ctx context.Context) error
 	PowerOff(ctx context.Context) error
 	Reset(ctx context.Context) error
+	Restart(ctx context.Context) error
+	CanResetLine() bool
 }
 
 // consoleBroker is the slice of serial.Broker the SOL console needs.
@@ -26,9 +35,11 @@ type consoleBroker interface {
 	Write(p []byte) (int, error)
 }
 
-// sensorSource is the slice of bmcsensor.Reader the sensor HAL needs.
+// sensorSource is the slice of hostsensor.Source the sensor HAL needs. nil
+// on a board with no registered Source (see pkg/device/hostsensor); sensorHAL
+// treats that the same as "not found" rather than panicking on it.
 type sensorSource interface {
-	Read() (bmcsensor.Reading, error)
+	Latest() (hostsensor.Reading, bool)
 }
 
 // appHAL is this BMC's hal.HAL: chassis power via the GPIO power controller,
@@ -42,9 +53,13 @@ type appHAL struct {
 	storage *storageHAL
 }
 
-func newHAL(root context.Context, pw powerController, broker consoleBroker, sensors sensorSource, log *slog.Logger) *appHAL {
+// newHAL wires the HAL implementation. resetPolicy is the operator's
+// power.reset config (auto|line|cycle) — chassisHAL needs it, not just the
+// power controller, to decide synchronously whether ColdReset can reject
+// before detaching (see chassisHAL.ColdReset).
+func newHAL(root context.Context, pw powerController, resetPolicy string, broker consoleBroker, sensors sensorSource, log *slog.Logger) *appHAL {
 	return &appHAL{
-		chassis: &chassisHAL{root: root, power: pw, log: log},
+		chassis: &chassisHAL{root: root, power: pw, resetPolicy: resetPolicy, log: log},
 		console: &consoleHAL{broker: broker},
 		sensors: &sensorHAL{source: sensors},
 		storage: newStorageHAL(),

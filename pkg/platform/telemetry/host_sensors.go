@@ -2,16 +2,21 @@ package telemetry
 
 // host_sensors.go exports what the managed host reports about itself.
 //
-// The readings arrive from an OP-TEE pseudo-TA on the Pi, which pushes a
-// record into this BMC's emulated I2C EEPROM from the secure world; pkg/bmcsensor
-// reads it. Unlike the BMC's own resources, these describe the machine being
-// managed, so they are named nanokvm_host_* rather than nanokvm_bmc_*.
+// The readings come through pkg/device/hostsensor's board-agnostic seam: on
+// the Raspberry Pi, pkg/device/bmcsensor is the registered Source, reading a
+// record an OP-TEE pseudo-TA pushes into this BMC's emulated I2C EEPROM from
+// the secure world. Unlike the BMC's own resources, these describe the
+// machine being managed, so they are named nanokvm_host_* rather than
+// nanokvm_bmc_*. A board with no registered Source (no host-telemetry
+// channel) reports nanokvm_host_sensor_reporting=0 and nothing else — never a
+// fabricated temperature or fan reading.
 //
-// Everything is gated on a live, non-stale sample. A powered-off host leaves
-// its last record in the EEPROM parsing perfectly, and exporting that would
-// give a scraper a plausible die temperature for a machine that is switched
-// off — the one failure mode worth going out of the way to avoid here, because
-// an alert that stays quiet is indistinguishable from a healthy host.
+// Everything but that one gauge is further gated on a live, non-stale sample.
+// A powered-off host leaves its last record in the EEPROM parsing perfectly,
+// and exporting that would give a scraper a plausible die temperature for a
+// machine that is switched off — the one failure mode worth going out of the
+// way to avoid here, because an alert that stays quiet is indistinguishable
+// from a healthy host.
 
 import (
 	"context"
@@ -20,7 +25,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/pi-bmc/nanokvm-app/pkg/device/bmcsensor"
+	"github.com/pi-bmc/nanokvm-app/pkg/device/hostsensor"
 )
 
 // initHostSensorMetrics registers the observable gauges. Called from initMetrics.
@@ -71,39 +76,93 @@ func initHostSensorMetrics() {
 		return
 	}
 
-	bool01 := func(b bool) float64 {
-		if b {
-			return 1
-		}
-		return 0
-	}
-
 	_, err := m.RegisterCallback(func(_ context.Context, o metric.Observer) error {
-		reading, readErr := bmcsensor.Default().Read()
-		live := readErr == nil && !reading.Stale
-		o.ObserveFloat64(reporting, bool01(live))
-		if !live {
-			return nil
+		s := sampleHostSensors()
+		o.ObserveFloat64(reporting, s.reporting)
+		if s.hasTemp {
+			o.ObserveFloat64(temp, s.temp)
 		}
-
-		if reading.TempValid() {
-			o.ObserveFloat64(temp, reading.Celsius())
-		}
-		if reading.FanValid() {
-			o.ObserveFloat64(fanDuty, float64(reading.FanDutyPct))
-			if reading.FanRPMValid() {
-				o.ObserveFloat64(fanRPM, float64(reading.FanRPM))
+		if s.hasFan {
+			o.ObserveFloat64(fanDuty, s.fanDuty)
+			if s.hasFanRPM {
+				o.ObserveFloat64(fanRPM, s.fanRPM)
 			}
 		}
-		if reading.ThrottleValid() {
-			o.ObserveFloat64(throttle, bool01(reading.Throttled()))
-			o.ObserveFloat64(underVoltage, bool01(reading.UnderVoltage()))
-			o.ObserveFloat64(freqCapped, bool01(reading.FrequencyCapped()))
-			o.ObserveFloat64(softTempLimit, bool01(reading.SoftTempLimited()))
+		if s.hasThrottle {
+			o.ObserveFloat64(throttle, s.throttle)
+			o.ObserveFloat64(underVoltage, s.underVoltage)
+			o.ObserveFloat64(freqCapped, s.freqCapped)
+			o.ObserveFloat64(softTempLimit, s.softTempLimit)
 		}
 		return nil
 	}, temp, fanDuty, fanRPM, throttle, underVoltage, freqCapped, softTempLimit, reporting)
 	if err != nil {
 		pkgLog().Warn("telemetry: host sensor callback registration", slog.Any("err", err))
 	}
+}
+
+// hostSensorSample is what one collection interval observes about the
+// managed host, computed from the registered hostsensor.Source (if any) by
+// sampleHostSensors. Pulled out of the RegisterCallback closure above so the
+// with/without-a-registered-Source behavior is unit-testable without driving
+// the OTel/Prometheus collection pipeline.
+type hostSensorSample struct {
+	// reporting is always set: 1 while a registered Source has a live,
+	// non-stale reading, 0 otherwise (no Source at all, or one that is
+	// absent/stale) — the one gauge exported "live or not", per the file
+	// comment.
+	reporting float64
+
+	temp      float64
+	hasTemp   bool
+	fanDuty   float64
+	hasFan    bool
+	fanRPM    float64
+	hasFanRPM bool
+
+	hasThrottle                                       bool
+	throttle, underVoltage, freqCapped, softTempLimit float64
+}
+
+// sampleHostSensors reads the registered hostsensor.Source, if any, and
+// reports what this interval's gauges should observe. No Source registered,
+// or a Source with nothing live to report, both come back as a zero
+// hostSensorSample (reporting: 0, nothing else set) — honest absence, never
+// a fabricated reading.
+func sampleHostSensors() hostSensorSample {
+	source, registered := hostsensor.Get()
+	if !registered {
+		return hostSensorSample{}
+	}
+
+	reading, sampled := source.Latest()
+	if !sampled || reading.Stale {
+		return hostSensorSample{}
+	}
+
+	s := hostSensorSample{reporting: 1}
+	if reading.TempValid {
+		s.temp, s.hasTemp = reading.TempC, true
+	}
+	if reading.FanValid {
+		s.fanDuty, s.hasFan = reading.FanDutyPct, true
+		if reading.FanRPMValid {
+			s.fanRPM, s.hasFanRPM = float64(reading.FanRPM), true
+		}
+	}
+	if reading.ThrottleValid {
+		s.hasThrottle = true
+		s.throttle = bool01(reading.Condition(hostsensor.ConditionThrottled))
+		s.underVoltage = bool01(reading.Condition(hostsensor.ConditionUnderVoltage))
+		s.freqCapped = bool01(reading.Condition(hostsensor.ConditionFreqCapped))
+		s.softTempLimit = bool01(reading.Condition(hostsensor.ConditionSoftTempLimit))
+	}
+	return s
+}
+
+func bool01(b bool) float64 {
+	if b {
+		return 1
+	}
+	return 0
 }

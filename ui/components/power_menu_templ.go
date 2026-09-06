@@ -11,6 +11,7 @@ import templruntime "github.com/a-h/templ/runtime"
 import (
 	"context"
 
+	"github.com/pi-bmc/nanokvm-app/pkg/config"
 	"github.com/pi-bmc/nanokvm-app/pkg/deps"
 	"github.com/pi-bmc/nanokvm-app/pkg/device/power"
 	"github.com/pi-bmc/nanokvm-app/ui/components/button"
@@ -39,6 +40,27 @@ const (
 func initialPowerState(ctx context.Context, ctrl *power.Controller) (on bool, known bool) {
 	s, err := ctrl.State(ctx)
 	return s, err == nil
+}
+
+// resetIsLine reports whether the reset control's action will pulse the
+// dedicated GPIO reset line rather than force-off+repower — i.e. whether
+// (*power.Controller).Restart will dispatch to the reset line for the
+// board's wiring and the operator's power.reset policy. Mirrors Restart's
+// own dispatch (see its doc comment): "line" and "auto" use the line when
+// wired, "cycle" never does.
+func resetIsLine(ctrl *power.Controller, policy string) bool {
+	return ctrl.CanResetLine() && policy != config.PowerResetCycle
+}
+
+// resetActionLabel is the reset control's word choice: "Reset" when pressing
+// it will pulse the dedicated line, "Power cycle" when it will force-off and
+// repower instead — so the button always says what it will actually do
+// rather than a fixed word that is sometimes destructive to a running host.
+func resetActionLabel(line bool) string {
+	if line {
+		return "Reset"
+	}
+	return "Power cycle"
 }
 
 // PowerMenu is the navbar power-state pill and the dropdown holding power
@@ -75,6 +97,7 @@ func PowerMenu() templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		pwrOn, pwrKnown := initialPowerState(ctx, deps.FromContext(ctx).Power)
+		resetLine := resetIsLine(deps.FromContext(ctx).Power, deps.FromContext(ctx).Config.Power.Reset)
 		templ_7745c5c3_Var2 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
@@ -171,7 +194,7 @@ func PowerMenu() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = powerActionGroup(pwrOn && pwrKnown).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = powerActionGroup(pwrOn && pwrKnown, resetLine).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -182,7 +205,7 @@ func PowerMenu() templ.Component {
 				var templ_7745c5c3_Var7 string
 				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(powerBootOverrideID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 96, Col: 29}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 123, Col: 29}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 				if templ_7745c5c3_Err != nil {
@@ -195,7 +218,7 @@ func PowerMenu() templ.Component {
 				var templ_7745c5c3_Var8 string
 				templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs("click from:#" + powerMenuTriggerID + ", fw-changed from:body")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 98, Col: 80}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 125, Col: 80}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 				if templ_7745c5c3_Err != nil {
@@ -280,7 +303,7 @@ func PowerPill(on, known bool) templ.Component {
 		var templ_7745c5c3_Var10 string
 		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(powerLabel(on, known))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 126, Col: 71}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 153, Col: 71}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 		if templ_7745c5c3_Err != nil {
@@ -336,7 +359,7 @@ func powerLabel(on, known bool) string {
 // at any moment, and the other would either be a no-op or a mistake. Which
 // one it is comes from the same source as the navbar pill — the GPIO power
 // LED — so the button and the pill can never disagree.
-func powerActionGroup(on bool) templ.Component {
+func powerActionGroup(on bool, resetLine bool) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -373,7 +396,7 @@ func powerActionGroup(on bool) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "     ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "      ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -403,7 +426,7 @@ func powerActionGroup(on bool) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = powerActionBtn("reset", "Reset", "", nil).Render(templ.WithChildren(ctx, templ_7745c5c3_Var13), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = powerActionBtn("reset", resetActionLabel(resetLine), "", nil).Render(templ.WithChildren(ctx, templ_7745c5c3_Var13), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -553,7 +576,7 @@ func PowerToggleBtn(on bool) templ.Component {
 			var templ_7745c5c3_Var17 string
 			templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(powerToggleLabel(on))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 257, Col: 54}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 285, Col: 54}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 			if templ_7745c5c3_Err != nil {
@@ -645,7 +668,7 @@ func powerActionBtn(action, label, class string, extra templ.Attributes) templ.C
 			var templ_7745c5c3_Var20 string
 			templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 291, Col: 15}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 319, Col: 15}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 			if templ_7745c5c3_Err != nil {
@@ -842,7 +865,7 @@ func PowerBootOverride(m OverviewBootOverride) templ.Component {
 						var templ_7745c5c3_Var30 string
 						templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(m.ModeLabel())
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 338, Col: 21}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 366, Col: 21}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 						if templ_7745c5c3_Err != nil {

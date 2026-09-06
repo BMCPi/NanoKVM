@@ -35,6 +35,23 @@ builds:
       - linux
     goarch:
       - riscv64
+    # BOARD_TOOLS packaging axis (Makefile header comment, which is the
+    # single source of truth for the default tool list — mirrored below
+    # only as goreleaser's own fallback): this RPi-only companion binary is
+    # skipped unless BOARD_TOOLS names it (e.g. a NUC/non-RPi deploy sets
+    # BOARD_TOOLS= or a bmc-sensord-only value). The archive below still
+    # references this build's id unconditionally — goreleaser just omits it
+    # from the tarball when skipped, so no archive change is needed.
+    # envOrDefault (not .Env.BOARD_TOOLS) so a plain `goreleaser
+    # release`/`build` invoked with BOARD_TOOLS unset — e.g. CI's
+    # goreleaser-action steps, which don't go through `make` — keeps today's
+    # behavior without needing BOARD_TOOLS set anywhere else. `contains` does
+    # a substring test, matching the Makefile's `$(filter rpiboot,...)`
+    # word-membership semantics closely enough for the space-joined values
+    # this axis actually takes (BOARD_TOOLS=, "bmc-sensord", "rpiboot",
+    # "rpiboot bmc-sensord"); a value with rpiboot as a substring of some
+    # other unrelated tool name is not a case this axis produces today.
+    skip: '{{ not (contains (envOrDefault "BOARD_TOOLS" "rpiboot bmc-sensord") "rpiboot") }}'
 
 upx:
   - enabled: true

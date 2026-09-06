@@ -2,6 +2,7 @@ package redfish
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -60,6 +61,8 @@ func (h *handlers) ResetSystem(c *gin.Context) {
 		err = ctrl.ForceOff(ctx)
 	case resetOpCycle:
 		err = ctrl.Reset(ctx)
+	case resetOpRestart:
+		err = ctrl.Restart(ctx)
 	default:
 		// Unreachable while these cases cover supportedResetTypes. Catches
 		// a value being added to that list without a case here.
@@ -69,6 +72,15 @@ func (h *handlers) ResetSystem(c *gin.Context) {
 	}
 
 	if err != nil {
+		if errors.Is(err, power.ErrNoResetLine) {
+			// The operator asked for reset-line-only behavior (power.reset:
+			// line) on a board that wires no reset pin. Not a server error —
+			// an actionable 400, not a substituted power cycle (destructive
+			// to whatever the host OS was doing).
+			redfishErrorResponse(c, http.StatusBadRequest,
+				"reset line not wired; use PowerCycle or set power.reset")
+			return
+		}
 		redfishErrorResponse(c, http.StatusInternalServerError,
 			string(req.ResetType)+" failed: "+err.Error())
 		return

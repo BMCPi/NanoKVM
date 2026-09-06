@@ -252,3 +252,137 @@ func TestWatchRejectsLegacyMode(t *testing.T) {
 		t.Fatalf("Watch in legacy mode = %v, want ErrNoEdgeEvents", err)
 	}
 }
+
+// ── Reset line + policy dispatch ─────────────────────────────────────────────
+//
+// These cover (*Controller).CanResetLine, ResetLine and Restart. The
+// "unwired" cases below need no GPIO at all — a zero-value config.GPIOPin is
+// exactly "the hardware profile wires no reset pin" — so they run in any
+// environment, unlike the gpio-sim-backed dispatch matrix further down.
+
+// TestCanResetLineReportsWiring is pure config-shape logic: no GPIO access.
+func TestCanResetLineReportsWiring(t *testing.T) {
+	c := &Controller{log: slog.New(slog.DiscardHandler)}
+	if c.CanResetLine() {
+		t.Fatal("CanResetLine = true for a controller with no reset pin configured")
+	}
+
+	c.gpioReset = config.GPIOPin{Chip: "gpiochip0", Line: 7}
+	if !c.CanResetLine() {
+		t.Fatal("CanResetLine = false despite a configured reset pin")
+	}
+}
+
+// TestResetLineUnwiredReturnsSentinel: an unwired board must error rather
+// than silently no-op or attempt to drive an unconfigured pin.
+func TestResetLineUnwiredReturnsSentinel(t *testing.T) {
+	c := &Controller{log: slog.New(slog.DiscardHandler)}
+
+	if err := c.ResetLine(t.Context()); !errors.Is(err, ErrNoResetLine) {
+		t.Fatalf("ResetLine() on an unwired controller = %v, want ErrNoResetLine", err)
+	}
+}
+
+// TestRestartLineModeUnwiredReturnsSentinel is the policy-level version of
+// the sentinel check: "line" mode must never substitute a cycle when the
+// board has no reset line, however tempting a fallback would be.
+func TestRestartLineModeUnwiredReturnsSentinel(t *testing.T) {
+	c := &Controller{log: slog.New(slog.DiscardHandler), resetPolicy: config.PowerResetLine}
+
+	if err := c.Restart(t.Context()); !errors.Is(err, ErrNoResetLine) {
+		t.Fatalf("Restart() in line mode on an unwired controller = %v, want ErrNoResetLine", err)
+	}
+}
+
+// resetLineOffset and cyclePowerOffset are the simulated lines standing in
+// for the dedicated reset pin and the power pin the cycle fallback drives.
+const (
+	resetLineOffset  = 5
+	cyclePowerOffset = 6
+)
+
+// newResetTestController builds a legacy-mode controller for exercising
+// Restart's dispatch. Legacy mode keeps the cycle fallback fast and
+// self-contained (a direct pin toggle, ~600ms worst case) instead of the
+// button-press mode's LED-edge wait, which this test has no need to drive.
+// The reset pin is only wired into the sim when wired is true, matching the
+// "board profile resolves no GPIOReset" shape under test.
+func newResetTestController(t *testing.T, wired bool) *Controller {
+	t.Helper()
+
+	sim, err := gpiosim.NewSimpleton(8)
+	if err != nil {
+		t.Skipf("gpio-sim unavailable (needs root + gpio-sim module): %v", err)
+	}
+	t.Cleanup(sim.Close)
+
+	c := &Controller{
+		legacyMode: true,
+		gpioPower:  config.GPIOPin{Chip: sim.ChipName(), Line: cyclePowerOffset},
+		log:        slog.New(slog.DiscardHandler),
+		lines:      make(map[config.GPIOPin]*gpiocdev.Line),
+		subs:       make(map[chan bool]struct{}),
+	}
+	if wired {
+		c.gpioReset = config.GPIOPin{Chip: sim.ChipName(), Line: resetLineOffset}
+	}
+	t.Cleanup(func() {
+		for _, l := range c.lines {
+			_ = l.Close()
+		}
+	})
+	return c
+}
+
+// lineRequested reports whether pin's gpiocdev line was ever requested by
+// the controller — the observable proxy for "did this dispatch branch touch
+// real hardware", used instead of racing the reset pulse's transient level.
+// A zero pin (the board profile resolves no line for this purpose) is
+// always "not requested", regardless of map contents.
+func lineRequested(c *Controller, pin config.GPIOPin) bool {
+	if pin.IsZero() {
+		return false
+	}
+	_, ok := c.lines[pin]
+	return ok
+}
+
+// TestRestartDispatch is the table from the design's policy: {auto, line,
+// cycle} x {wired, unwired}, asserting which underlying operation actually
+// ran. "Ran" is observed as "requested its GPIO line" (see lineRequested)
+// rather than by sampling the transient pulse level, which would race the
+// call's own goroutine.
+func TestRestartDispatch(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		policy        string
+		wired         bool
+		wantErr       error
+		wantResetLine bool // ResetLine's pulse ran
+		wantCycle     bool // Reset's force-off+repower ran
+	}{
+		{"auto wired", config.PowerResetAuto, true, nil, true, false},
+		{"auto unwired", config.PowerResetAuto, false, nil, false, true},
+		{"line wired", config.PowerResetLine, true, nil, true, false},
+		{"line unwired", config.PowerResetLine, false, ErrNoResetLine, false, false},
+		{"cycle wired", config.PowerResetCycle, true, nil, false, true},
+		{"cycle unwired", config.PowerResetCycle, false, nil, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newResetTestController(t, tc.wired)
+			c.resetPolicy = tc.policy
+
+			err := c.Restart(t.Context())
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("Restart() = %v, want %v", err, tc.wantErr)
+			}
+
+			if got := lineRequested(c, c.gpioReset); got != tc.wantResetLine {
+				t.Errorf("reset line requested = %v, want %v", got, tc.wantResetLine)
+			}
+			if got := lineRequested(c, c.gpioPower); got != tc.wantCycle {
+				t.Errorf("power (cycle) line requested = %v, want %v", got, tc.wantCycle)
+			}
+		})
+	}
+}

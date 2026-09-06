@@ -333,7 +333,7 @@ func (s *Service) PutBiosAttributeRegistry(c *gin.Context) {
 // walks from the service root.
 func (s *Service) GetRegistries(c *gin.Context) {
 	writeHostResource(c, map[string]any{
-		"@odata.type":         "#MessageRegistryFileCollection.MessageRegistryFileCollection",
+		odataTypeKey:          "#MessageRegistryFileCollection.MessageRegistryFileCollection",
 		odataIDKey:            registriesPath,
 		"Name":                "Registry File Collection",
 		"Members@odata.count": 1,
