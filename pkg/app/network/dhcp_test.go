@@ -1,6 +1,7 @@
 package network
 
 import (
+	"bytes"
 	"log/slog"
 	"net"
 	"os"
@@ -213,5 +214,103 @@ func TestParseDNS(t *testing.T) {
 	}
 	if !got[0].Equal(net.IPv4(8, 8, 8, 8)) || !got[1].Equal(net.IPv4(1, 1, 1, 1)) {
 		t.Errorf("parseDNS = %v, want [8.8.8.8 1.1.1.1]", got)
+	}
+}
+
+// --- broadcast flag ------------------------------------------------------------
+
+var testHW = net.HardwareAddr{0x02, 0x00, 0x5e, 0x10, 0x00, 0x01}
+
+// buildDiscover reproduces exactly what nclient4.DiscoverOffer puts on the
+// wire for a given modifier set, so these tests exercise the real composition
+// (our modifiers are appended last and therefore win) rather than asserting on
+// the slice we hand over.
+func buildDiscover(t *testing.T, mods []dhcpv4.Modifier) *dhcpv4.DHCPv4 {
+	t.Helper()
+	pkt, err := dhcpv4.NewDiscovery(testHW, dhcpv4.PrependModifiers(mods,
+		dhcpv4.WithOption(dhcpv4.OptMaxMessageSize(nclient4.MaxMessageSize)))...)
+	if err != nil {
+		t.Fatalf("build discover: %v", err)
+	}
+	return pkt
+}
+
+// A client in SELECTING state has no address. Without the broadcast flag the
+// server may unicast the offer to an address the client has not configured,
+// which a relay agent -- the normal arrangement when a managed switch serves
+// DHCP from another VLAN -- cannot deliver, because it has no way to ARP for
+// the host. Flat segments hide this; relayed ones do not.
+func TestDiscoverAsksForABroadcastReply(t *testing.T) {
+	d := &dhcpRunner{}
+	if got := buildDiscover(t, d.discoverOptions(testHW)); !got.IsBroadcast() {
+		t.Errorf("DISCOVER flags = %#x, want the broadcast bit set", got.Flags)
+	}
+}
+
+// nclient4.Request passes the same modifiers to the REQUEST it builds from the
+// offer. RFC 2131 4.4.1 wants that REQUEST to carry the same flag as the
+// DISCOVER it followed, or the server switches delivery mode mid-exchange.
+func TestRequestFromOfferKeepsTheBroadcastFlag(t *testing.T) {
+	offer, err := dhcpv4.New(dhcpv4.WithMessageType(dhcpv4.MessageTypeOffer),
+		dhcpv4.WithHwAddr(testHW), dhcpv4.WithYourIP(net.IPv4(192, 0, 2, 50)))
+	if err != nil {
+		t.Fatalf("build offer: %v", err)
+	}
+	d := &dhcpRunner{}
+	req, err := dhcpv4.NewRequestFromOffer(offer, dhcpv4.PrependModifiers(d.discoverOptions(testHW),
+		dhcpv4.WithOption(dhcpv4.OptMaxMessageSize(nclient4.MaxMessageSize)))...)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if !req.IsBroadcast() {
+		t.Errorf("REQUEST flags = %#x, want the broadcast bit set", req.Flags)
+	}
+}
+
+// RENEW goes unicast to the leasing server (RFC 2131 4.3.6) from a client that
+// already holds the address. Broadcasting it would be wrong, and is exactly
+// what putting the flag in options() rather than discoverOptions() would cause.
+func TestRenewStaysUnicast(t *testing.T) {
+	ack, err := dhcpv4.New(dhcpv4.WithMessageType(dhcpv4.MessageTypeAck),
+		dhcpv4.WithHwAddr(testHW), dhcpv4.WithYourIP(net.IPv4(192, 0, 2, 50)))
+	if err != nil {
+		t.Fatalf("build ack: %v", err)
+	}
+	d := &dhcpRunner{}
+	renew, err := dhcpv4.NewRenewFromAck(ack, d.options(testHW)...)
+	if err != nil {
+		t.Fatalf("build renew: %v", err)
+	}
+	if renew.IsBroadcast() {
+		t.Errorf("RENEW flags = %#x, want unicast", renew.Flags)
+	}
+}
+
+// The broadcast flag must not have displaced what every message already
+// carried: a type-1 client identifier built from the hardware address.
+func TestDiscoverStillCarriesTheClientIdentifier(t *testing.T) {
+	d := &dhcpRunner{}
+	pkt := buildDiscover(t, d.discoverOptions(testHW))
+
+	want := append([]byte{0x01}, testHW...)
+	if got := pkt.Options.Get(dhcpv4.OptionClientIdentifier); !bytes.Equal(got, want) {
+		t.Errorf("client identifier = %v, want %v", got, want)
+	}
+	if !pkt.IsBroadcast() {
+		t.Error("broadcast flag lost")
+	}
+}
+
+// An interface with no hardware address must not produce a malformed
+// client-id option; the flag is still owed.
+func TestDiscoverWithoutHardwareAddress(t *testing.T) {
+	d := &dhcpRunner{}
+	pkt := buildDiscover(t, d.discoverOptions(nil))
+
+	if got := pkt.Options.Get(dhcpv4.OptionClientIdentifier); got != nil {
+		t.Errorf("client identifier = %v, want none when the MAC is unknown", got)
+	}
+	if !pkt.IsBroadcast() {
+		t.Error("broadcast flag lost")
 	}
 }

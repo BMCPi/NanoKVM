@@ -370,7 +370,7 @@ func (d *dhcpRunner) obtain(remembered net.IP) (*nclient4.Lease, error) {
 	}
 	defer c.Close()
 	defer cancel()
-	return c.Request(ctx, d.options(c)...)
+	return c.Request(ctx, d.discoverOptions(c.InterfaceAddr())...)
 }
 
 // initReboot sends the INIT-REBOOT REQUEST: no server identifier, the wanted
@@ -383,7 +383,7 @@ func (d *dhcpRunner) initReboot(want net.IP) (*nclient4.Lease, error) {
 	defer c.Close()
 	defer cancel()
 
-	req, err := dhcpv4.New(dhcpv4.PrependModifiers(d.options(c),
+	req, err := dhcpv4.New(dhcpv4.PrependModifiers(d.options(c.InterfaceAddr()),
 		dhcpv4.WithMessageType(dhcpv4.MessageTypeRequest),
 		dhcpv4.WithHwAddr(c.InterfaceAddr()),
 		dhcpv4.WithBroadcast(true),
@@ -414,14 +414,14 @@ func (d *dhcpRunner) extend(lease *nclient4.Lease, rebinding bool) (*nclient4.Le
 	defer cancel()
 
 	if !rebinding {
-		return c.Renew(ctx, lease, d.options(c)...)
+		return c.Renew(ctx, lease, d.options(c.InterfaceAddr())...)
 	}
 
 	// nclient4 has no rebind, but a REBIND is just the RENEW packet sent to the
 	// broadcast address with any server allowed to answer. Modifiers passed here
 	// are applied after the builder's own, so WithBroadcast(true) wins over the
 	// unicast default.
-	req, err := dhcpv4.NewRenewFromAck(lease.ACK, append(d.options(c),
+	req, err := dhcpv4.NewRenewFromAck(lease.ACK, append(d.options(c.InterfaceAddr()),
 		dhcpv4.WithOption(dhcpv4.OptMaxMessageSize(nclient4.MaxMessageSize)),
 		dhcpv4.WithBroadcast(true))...)
 	if err != nil {
@@ -468,18 +468,45 @@ func (d *dhcpRunner) exchange(timeout time.Duration) (context.Context, *nclient4
 // lease table instead of as an anonymous MAC — without it UniFi and friends
 // display nothing. The client identifier (option 61, RFC 2132 9.14: hardware
 // type 1 followed by the MAC) gives the server a stable key for the binding.
-func (d *dhcpRunner) options(c *nclient4.Client) []dhcpv4.Modifier {
+// options are the modifiers every message carries: hostname and a
+// type-1 (Ethernet) client identifier. Takes the hardware address rather than
+// the client so the composition can be tested without a socket.
+//
+// Deliberately does NOT set the broadcast flag. RENEW is unicast to the
+// leasing server (RFC 2131 §4.3.6) and must stay that way; the paths that do
+// need broadcast add it themselves. See discoverOptions.
+func (d *dhcpRunner) options(hw net.HardwareAddr) []dhcpv4.Modifier {
 	var mods []dhcpv4.Modifier
 	if name, err := os.Hostname(); err == nil {
 		if name = strings.TrimSpace(name); name != "" && name != "(none)" {
 			mods = append(mods, dhcpv4.WithOption(dhcpv4.OptHostName(name)))
 		}
 	}
-	if hw := c.InterfaceAddr(); len(hw) > 0 {
+	if len(hw) > 0 {
 		mods = append(mods, dhcpv4.WithOption(
 			dhcpv4.OptClientIdentifier(append([]byte{0x01}, hw...))))
 	}
 	return mods
+}
+
+// discoverOptions are the modifiers for a fresh acquisition: options plus the
+// broadcast flag, which nclient4 applies to both the DISCOVER and the REQUEST
+// built from the offer.
+//
+// Why broadcast. A client in SELECTING state has no address, so RFC 2131
+// §4.4.1 lets the server reply either by unicasting to the offered address --
+// which obliges it to answer for an address the client has not configured yet
+// -- or by broadcasting, if the client asks. nclient4 leaves the flag clear
+// and reads replies off a raw AF_PACKET socket, so unicast works on a flat
+// segment where the server is the local router. It stops working the moment a
+// relay agent sits in the path, which is the ordinary arrangement on a managed
+// switch serving DHCP from another VLAN: the relay has to deliver to a host it
+// cannot ARP for, and the offer is dropped. Asking for broadcast costs a few
+// broadcast frames per lease and removes that whole class of failure.
+//
+// The flag stays off RENEW, which is unicast by definition.
+func (d *dhcpRunner) discoverOptions(hw net.HardwareAddr) []dhcpv4.Modifier {
+	return append(d.options(hw), dhcpv4.WithBroadcast(true))
 }
 
 // ---- remembered address ----------------------------------------------------
