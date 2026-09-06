@@ -2,10 +2,11 @@ package redfish
 
 import (
 	"net/http"
-	"runtime/debug"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stmcginnis/gofish/schemas"
+
+	"github.com/pi-bmc/nanokvm-app/pkg/app/application"
 )
 
 // Identity this BMC reports for itself. The managed host's Manufacturer and
@@ -23,11 +24,30 @@ func (s *Service) GetManagerCollection(c *gin.Context) {
 	))
 }
 
-func (s *Service) GetManager(c *gin.Context) {
-	firmwareVersion := "1.0.0"
-	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
-		firmwareVersion = info.Main.Version
+// managerFirmwareVersion is the build this BMC is running, or the "1.0.0"
+// placeholder when the binary carries no stamp at all.
+func managerFirmwareVersion() string {
+	v := application.CurrentVersion()
+	if v == "" || v == "dev" {
+		return "1.0.0"
 	}
+	return v
+}
+
+func (s *Service) GetManager(c *gin.Context) {
+	// application.CurrentVersion, not debug.ReadBuildInfo: Main.Version is
+	// "(devel)" for anything built with `go build` — which is what `make app`
+	// and therefore `make deploy` do — so reading it there silently fell back
+	// to the "1.0.0" placeholder while the binary knew perfectly well what it
+	// was. The Makefile stamps -X main.version and cmd/server assigns it to
+	// application.Version; CurrentVersion reads that first and the install's
+	// version file second, so it reports a real build for both a locally
+	// deployed and a released image.
+	//
+	// The placeholder is not cosmetic: tools/conformance fails a node whose
+	// FirmwareVersion is "1.0.0", and Redfish clients use it to decide whether
+	// firmware is current.
+	firmwareVersion := managerFirmwareVersion()
 
 	c.JSON(http.StatusOK, Manager{
 		Resource: Resource{
