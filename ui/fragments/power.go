@@ -86,12 +86,10 @@ func (h *handlers) postPowerAction(c *gin.Context) {
 		h.log.ErrorContext(c.Request.Context(), "ui: power action failed", slog.String("action", action), slog.Any("err", err))
 		msg := err.Error()
 		if errors.Is(err, power.ErrNoResetLine) {
-			// power.reset is "line" but the board wires no reset pin. The
-			// menu disables its Reset control for exactly this case (see
-			// powerActionGroup in power_menu.templ), so this is a stale page
-			// or a hand-made request — still an actionable message rather
-			// than the raw sentinel text, and no silent power cycle
-			// substituted.
+			// power.reset is "line" but the board wires no reset pin — an
+			// actionable message rather than the raw sentinel text, and no
+			// silent power cycle substituted: Force reset is the button for
+			// that.
 			msg = "reset line not wired; use Force reset, or set power.reset to auto or cycle"
 		}
 		hxToast(c, "error", a.label+" failed", msg)

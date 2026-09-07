@@ -3,13 +3,13 @@ package components
 // power_menu_test guards the shape and the honesty of the power action grid.
 //
 // Shape: a two-column grid of four buttons — toggle, Reset, Force Off, Force
-// reset — with Force reset last. Honesty: the reset control reads "Reset" and
-// only ever pulses the dedicated GPIO line. When the board's wiring or the
-// operator's power.reset policy would make (*power.Controller).Restart
-// force-off and repower instead, the control is disabled rather than
-// relabelled "Power cycle": with Force reset in the grid, a relabelled reset
-// would be a second button doing the same destructive thing under a different
-// name (see the board-agnostic design's §1 dispatch table).
+// reset — with Force reset last. Honesty: the reset control always reads
+// "Reset" and always works, following the operator's power.reset policy
+// through (*power.Controller).Restart — a reset-line pulse where wired and
+// allowed, else force-off+repower. An RPi 5 host exposes only a power
+// button, so on that fleet the policy is cycle and Reset must not go grey or
+// relabel itself "Power cycle"; its title is what says which of the two it
+// will do (see the board-agnostic design's §1 dispatch table).
 
 import (
 	"context"
@@ -105,33 +105,51 @@ func TestForceResetIsDestructiveAndConfirmed(t *testing.T) {
 	}
 }
 
-// The reset control's word is fixed and its availability moves, not the other
-// way round: "Reset" must never silently become a force-off+repower.
-func TestResetControlIsDisabledWhenItWouldPowerCycle(t *testing.T) {
+// attrValue returns the value of the double-quoted attribute name in an
+// opening tag, or "" when the tag does not carry it.
+func attrValue(tag, name string) string {
+	_, after, ok := strings.Cut(tag, " "+name+`="`)
+	if !ok {
+		return ""
+	}
+	v, _, _ := strings.Cut(after, `"`)
+	return v
+}
+
+// The reset control keeps its word and stays live whatever the wiring, and
+// its title says what pressing it will actually do — a line pulse or a
+// force-off+repower — so the operator can still tell the two apart.
+func TestResetControlFollowsPolicyAndSaysWhich(t *testing.T) {
+	titles := map[bool]string{}
 	for _, tc := range []struct {
-		name         string
-		resetLine    bool
-		wantDisabled bool
+		name      string
+		resetLine bool
+		wantHint  string
 	}{
-		{"reset line wired under a policy that uses it", true, false},
-		{"no reset line, or policy forces cycle", false, true},
+		{"reset line wired under a policy that uses it", true, "stays powered"},
+		{"no reset line, or policy forces cycle", false, "power.reset"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			html := renderPowerActionGroup(t, true, tc.resetLine)
 			tag, element := buttonPosting(t, html, "/ui/power/reset")
 
-			if got := hasBoolAttr(tag, "disabled"); got != tc.wantDisabled {
-				t.Errorf("reset control disabled = %v, want %v\ngot: %s", got, tc.wantDisabled, tag)
+			if hasBoolAttr(tag, "disabled") {
+				t.Errorf("reset control is disabled; it must follow power.reset instead\ngot: %s", tag)
 			}
 			if !strings.Contains(element, ">Reset<") {
 				t.Errorf("reset control is not labelled \"Reset\"\ngot: %s", element)
 			}
 			if strings.Contains(html, "Power cycle") {
-				t.Error("the reset control relabelled itself \"Power cycle\": that duplicates Force reset instead of disabling")
+				t.Error("the reset control relabelled itself \"Power cycle\"; the word stays \"Reset\" and the title carries the behaviour")
 			}
-			if tc.wantDisabled && !strings.Contains(tag, "title=") {
-				t.Errorf("disabled reset control gives no reason (no title)\ngot: %s", tag)
+			title := attrValue(tag, "title")
+			if !strings.Contains(title, tc.wantHint) {
+				t.Errorf("reset control title %q does not say %q", title, tc.wantHint)
 			}
+			titles[tc.resetLine] = title
 		})
+	}
+	if titles[true] == titles[false] {
+		t.Errorf("reset control describes a line pulse and a force-off+repower identically: %q", titles[true])
 	}
 }

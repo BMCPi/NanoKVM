@@ -47,23 +47,20 @@ func initialPowerState(ctx context.Context, ctrl *power.Controller) (on bool, kn
 // (*power.Controller).Restart will dispatch to the reset line for the
 // board's wiring and the operator's power.reset policy. Mirrors Restart's
 // own dispatch (see its doc comment): "line" and "auto" use the line when
-// wired, "cycle" never does. When false the control is disabled (see
-// powerActionGroup): Force reset is the grid's force-off+repower.
+// wired, "cycle" never does. It only chooses the control's title (see
+// resetTitle): the control itself stays live either way.
 func resetIsLine(ctrl *power.Controller, policy string) bool {
 	return ctrl.CanResetLine() && policy != config.PowerResetCycle
 }
 
-// resetUnavailableTitle is the disabled Reset control's tooltip: why it
-// cannot pulse the line, and which cell does the job instead.
-const resetUnavailableTitle = "The reset line is not wired, or power.reset is set to cycle. Use Force reset to power-cycle the host."
-
-// resetControlAttrs is the Reset cell's extra attributes: the reason it is
-// disabled when it is, nothing when it is live.
-func resetControlAttrs(resetLine bool) templ.Attributes {
-	if resetLine {
-		return nil
+// resetTitle is the Reset control's tooltip: what pressing it will actually
+// do, since the word "Reset" covers both a line pulse and a force-off and
+// repower. No apostrophes — templ would escape them into the attribute.
+func resetTitle(line bool) string {
+	if line {
+		return "Pulses the reset line; the host stays powered."
 	}
-	return templ.Attributes{"title": resetUnavailableTitle}
+	return "Forces the host off and back on: power.reset is cycle, or the board wires no reset line."
 }
 
 // destructiveActionClass is the tone shared by the two forced actions, which
@@ -212,7 +209,7 @@ func PowerMenu() templ.Component {
 				var templ_7745c5c3_Var7 string
 				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(powerBootOverrideID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 130, Col: 29}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 128, Col: 29}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 				if templ_7745c5c3_Err != nil {
@@ -225,7 +222,7 @@ func PowerMenu() templ.Component {
 				var templ_7745c5c3_Var8 string
 				templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs("click from:#" + powerMenuTriggerID + ", fw-changed from:body")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 132, Col: 80}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 130, Col: 80}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 				if templ_7745c5c3_Err != nil {
@@ -310,7 +307,7 @@ func PowerPill(on, known bool) templ.Component {
 		var templ_7745c5c3_Var10 string
 		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(powerLabel(on, known))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 160, Col: 71}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 158, Col: 71}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 		if templ_7745c5c3_Err != nil {
@@ -374,14 +371,14 @@ func powerLabel(on, known bool) string {
 //
 // Reset and Force reset are two buttons because they are two things (the
 // board-agnostic design's §1 table). Reset follows the operator's power.reset
-// policy and pulses the dedicated line — Redfish ForceRestart, IPMI hard
-// reset. Force reset is the unconditional force-off+repower — Redfish
-// PowerCycle, IPMI power cycle — so it is destructive to a running host and
-// confirmed like Force Off. When wiring or policy would make Reset
-// force-off+repower as well, it is disabled with the reason as its title
-// rather than relabelled: a second button that cuts the host's power under a
-// different name is a trap, and a button reading "Reset" must never do that
-// silently.
+// policy — the dedicated line where wired and allowed, else force-off and
+// repower — as Redfish ForceRestart and IPMI hard reset do. Force reset is
+// the unconditional force-off+repower — Redfish PowerCycle, IPMI power cycle
+// — so it is destructive to a running host and confirmed like Force Off.
+// Reset stays live and keeps its word whatever the wiring: an RPi 5 host
+// exposes only a power button, so on that fleet power.reset is cycle and
+// both buttons power-cycle. Its title says which of the two it will do, so
+// the operator can still tell.
 func powerActionGroup(on bool, resetLine bool) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -410,7 +407,7 @@ func powerActionGroup(on bool, resetLine bool) templ.Component {
 		var templ_7745c5c3_Var12 string
 		templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs("#" + powerToggleID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 236, Col: 33}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 234, Col: 33}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 		if templ_7745c5c3_Err != nil {
@@ -443,10 +440,9 @@ func powerActionGroup(on bool, resetLine bool) templ.Component {
 			return nil
 		})
 		templ_7745c5c3_Err = powerActionBtn(powerActionProps{
-			Action:   "reset",
-			Label:    "Reset",
-			Disabled: !resetLine,
-			Attrs:    resetControlAttrs(resetLine),
+			Action: "reset",
+			Label:  "Reset",
+			Attrs:  templ.Attributes{"title": resetTitle(resetLine)},
 		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var13), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -611,7 +607,7 @@ func PowerToggleBtn(on bool) templ.Component {
 			var templ_7745c5c3_Var18 string
 			templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(powerToggleLabel(on))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 319, Col: 54}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 316, Col: 54}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 			if templ_7745c5c3_Err != nil {
@@ -659,11 +655,10 @@ func powerToggleLabel(on bool) string {
 
 // powerActionProps is one cell of the power grid.
 type powerActionProps struct {
-	Action   string // posts to /ui/power/<Action>
-	Label    string
-	Class    string // tone only; the cell's layout classes are fixed
-	Disabled bool
-	Attrs    templ.Attributes // hx-confirm et al. for destructive actions, title for a disabled one
+	Action string // posts to /ui/power/<Action>
+	Label  string
+	Class  string           // tone only; the cell's layout classes are fixed
+	Attrs  templ.Attributes // hx-confirm et al. for destructive actions, title where the word needs one
 }
 
 // powerActionBtn renders one power action cell.
@@ -711,7 +706,7 @@ func powerActionBtn(p powerActionProps) templ.Component {
 			var templ_7745c5c3_Var21 string
 			templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(p.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 362, Col: 17}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 357, Col: 17}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 			if templ_7745c5c3_Err != nil {
@@ -724,10 +719,9 @@ func powerActionBtn(p powerActionProps) templ.Component {
 			return nil
 		})
 		templ_7745c5c3_Err = button.Button(button.Props{
-			Variant:  button.VariantOutline,
-			Size:     button.SizeSm,
-			Class:    "w-full gap-2 " + p.Class,
-			Disabled: p.Disabled,
+			Variant: button.VariantOutline,
+			Size:    button.SizeSm,
+			Class:   "w-full gap-2 " + p.Class,
 			Attributes: utils.MergeAttributes(templ.Attributes{
 				"hx-post":         "/ui/power/" + p.Action,
 				"hx-swap":         "none",
@@ -909,7 +903,7 @@ func PowerBootOverride(m OverviewBootOverride) templ.Component {
 						var templ_7745c5c3_Var31 string
 						templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(m.ModeLabel())
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 409, Col: 21}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/components/power_menu.templ`, Line: 404, Col: 21}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 						if templ_7745c5c3_Err != nil {

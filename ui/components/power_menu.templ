@@ -39,23 +39,20 @@ func initialPowerState(ctx context.Context, ctrl *power.Controller) (on bool, kn
 // (*power.Controller).Restart will dispatch to the reset line for the
 // board's wiring and the operator's power.reset policy. Mirrors Restart's
 // own dispatch (see its doc comment): "line" and "auto" use the line when
-// wired, "cycle" never does. When false the control is disabled (see
-// powerActionGroup): Force reset is the grid's force-off+repower.
+// wired, "cycle" never does. It only chooses the control's title (see
+// resetTitle): the control itself stays live either way.
 func resetIsLine(ctrl *power.Controller, policy string) bool {
 	return ctrl.CanResetLine() && policy != config.PowerResetCycle
 }
 
-// resetUnavailableTitle is the disabled Reset control's tooltip: why it
-// cannot pulse the line, and which cell does the job instead.
-const resetUnavailableTitle = "The reset line is not wired, or power.reset is set to cycle. Use Force reset to power-cycle the host."
-
-// resetControlAttrs is the Reset cell's extra attributes: the reason it is
-// disabled when it is, nothing when it is live.
-func resetControlAttrs(resetLine bool) templ.Attributes {
-	if resetLine {
-		return nil
+// resetTitle is the Reset control's tooltip: what pressing it will actually
+// do, since the word "Reset" covers both a line pulse and a force-off and
+// repower. No apostrophes — templ would escape them into the attribute.
+func resetTitle(line bool) string {
+	if line {
+		return "Pulses the reset line; the host stays powered."
 	}
-	return templ.Attributes{"title": resetUnavailableTitle}
+	return "Forces the host off and back on: power.reset is cycle, or the board wires no reset line."
 }
 
 // destructiveActionClass is the tone shared by the two forced actions, which
@@ -78,10 +75,11 @@ templ PowerMenu() {
 	// Read once at the top: the pill and the power toggle must agree, and
 	// both are painted from this single answer.
 	{{ pwrOn, pwrKnown := initialPowerState(ctx, deps.FromContext(ctx).Power) }}
-	// Also read once: whether the Reset control is enabled depends on wiring
-	// and the operator's power.reset policy, neither of which changes over
-	// the dropdown's lifetime, so there is no SSE fragment for it (contrast
-	// PowerPill/PowerToggleBtn, which do change on every transition).
+	// Also read once: what the Reset control will do (its title) depends on
+	// wiring and the operator's power.reset policy, neither of which changes
+	// over the dropdown's lifetime, so there is no SSE fragment for it
+	// (contrast PowerPill/PowerToggleBtn, which do change on every
+	// transition).
 	{{ resetLine := resetIsLine(deps.FromContext(ctx).Power, deps.FromContext(ctx).Config.Power.Reset) }}
 	@dropdownmenu.DropdownMenu() {
 		@button.Button(button.Props{
@@ -210,14 +208,14 @@ func powerLabel(on, known bool) string {
 //
 // Reset and Force reset are two buttons because they are two things (the
 // board-agnostic design's §1 table). Reset follows the operator's power.reset
-// policy and pulses the dedicated line — Redfish ForceRestart, IPMI hard
-// reset. Force reset is the unconditional force-off+repower — Redfish
-// PowerCycle, IPMI power cycle — so it is destructive to a running host and
-// confirmed like Force Off. When wiring or policy would make Reset
-// force-off+repower as well, it is disabled with the reason as its title
-// rather than relabelled: a second button that cuts the host's power under a
-// different name is a trap, and a button reading "Reset" must never do that
-// silently.
+// policy — the dedicated line where wired and allowed, else force-off and
+// repower — as Redfish ForceRestart and IPMI hard reset do. Force reset is
+// the unconditional force-off+repower — Redfish PowerCycle, IPMI power cycle
+// — so it is destructive to a running host and confirmed like Force Off.
+// Reset stays live and keeps its word whatever the wiring: an RPi 5 host
+// exposes only a power button, so on that fleet power.reset is cycle and
+// both buttons power-cycle. Its title says which of the two it will do, so
+// the operator can still tell.
 templ powerActionGroup(on bool, resetLine bool) {
 	// hx-ext/sse-connect live on the grid itself, not on PowerMenu: this
 	// whole fragment is portaled to <body> in one piece (see PowerMenu's
@@ -238,10 +236,9 @@ templ powerActionGroup(on bool, resetLine bool) {
 	>
 		@PowerToggleBtn(on)
 		@powerActionBtn(powerActionProps{
-			Action:   "reset",
-			Label:    "Reset",
-			Disabled: !resetLine,
-			Attrs:    resetControlAttrs(resetLine),
+			Action: "reset",
+			Label:  "Reset",
+			Attrs:  templ.Attributes{"title": resetTitle(resetLine)},
 		}) {
 			@icon.RefreshCw()
 		}
@@ -340,18 +337,16 @@ func powerToggleLabel(on bool) string {
 type powerActionProps struct {
 	Action   string // posts to /ui/power/<Action>
 	Label    string
-	Class    string // tone only; the cell's layout classes are fixed
-	Disabled bool
-	Attrs    templ.Attributes // hx-confirm et al. for destructive actions, title for a disabled one
+	Class  string           // tone only; the cell's layout classes are fixed
+	Attrs  templ.Attributes // hx-confirm et al. for destructive actions, title where the word needs one
 }
 
 // powerActionBtn renders one power action cell.
 templ powerActionBtn(p powerActionProps) {
 	@button.Button(button.Props{
-		Variant:  button.VariantOutline,
-		Size:     button.SizeSm,
-		Class:    "w-full gap-2 " + p.Class,
-		Disabled: p.Disabled,
+		Variant: button.VariantOutline,
+		Size:    button.SizeSm,
+		Class:   "w-full gap-2 " + p.Class,
 		Attributes: utils.MergeAttributes(templ.Attributes{
 			"hx-post":         "/ui/power/" + p.Action,
 			"hx-swap":         "none",
