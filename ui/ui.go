@@ -137,6 +137,7 @@ func homeModel(log *slog.Logger) pages.HomeModel {
 	return pages.HomeModel{
 		HDMIPrimary:    cfg.Console.HDMIPrimary(),
 		ICEServersJSON: iceServersJSON(cfg, log),
+		Console:        fragments.CurrentConsole(),
 	}
 }
 

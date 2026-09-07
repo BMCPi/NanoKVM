@@ -34,7 +34,11 @@ templ VideoPanel(iceServersJSON string) {
 		// is what a video mat wants anyway, and it matches the expanded
 		// state's own background (see videoPanelStyles) so entering and
 		// leaving fullscreen no longer changes the colour behind the frame.
-		<div id="video-stage" class="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-background p-2" data-ice-servers={ iceServersJSON }>
+		//
+		// p-4: the mat is where the frame's shadow and ring can be seen at
+		// all, so the frame gets real margin rather than butting against the
+		// pane's edge. The serial pane's stage pads more (ConsolePanel).
+		<div id="video-stage" class="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-background p-4" data-ice-servers={ iceServersJSON }>
 			// The frame IS the picture box: its aspect ratio tracks the
 			// stream's, so everything pinned to it lands on the video rather
 			// than on letterbox. See videoPanelStyles for how it fits.

@@ -48,10 +48,6 @@ templ Home(m HomeModel, log *slog.Logger) {
 	@layouts.Base("NanoKVM BMC", true, false) {
 		<link rel="stylesheet" href="/css/xterm.min.css"/>
 		<style>
-			#console-pane { display: flex; flex-direction: column; height: 100%; padding: 0; gap: 0; }
-			#console-pane.expanded { position: fixed; inset: 0; z-index: 40; background: var(--background); padding: 0; }
-			#terminal-wrap { flex: 1; min-height: 0; position: relative; overflow: hidden; }
-			#terminal { height: 100%; }
 			/* The tab group and its panes carry the pane's height down to the
 			   terminal and the video, both of which measure themselves against
 			   their container. flex-1 rather than height:100% because the group
@@ -108,18 +104,14 @@ templ Home(m HomeModel, log *slog.Logger) {
 							}
 						</div>
 					</div>
-					// Main Console Viewports (Padding-free, edge-to-edge)
+					// Main console viewports. p-2 is the pane's outer gutter;
+					// each viewport adds its own stage padding inside it.
 					<div class="flex-1 min-h-0 p-2">
 						@tabs.Content(tabs.ContentProps{Value: tabHDMI, Class: "h-full min-h-0"}) {
 							@components.VideoPanel(m.ICEServersJSON)
 						}
 						@tabs.Content(tabs.ContentProps{Value: tabSerial, Class: "h-full min-h-0"}) {
-							<div id="console-pane">
-								@components.ConsoleToolbar()
-								<div id="terminal-wrap" class="border border-t-0 border-border bg-background rounded-b-md">
-									<div id="terminal"></div>
-								</div>
-							</div>
+							@components.ConsolePanel(m.Console)
 						}
 					</div>
 				}

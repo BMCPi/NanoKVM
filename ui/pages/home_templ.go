@@ -85,7 +85,7 @@ func Home(m HomeModel, log *slog.Logger) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<link rel=\"stylesheet\" href=\"/css/xterm.min.css\"><style>\n\t\t\t#console-pane { display: flex; flex-direction: column; height: 100%; padding: 0; gap: 0; }\n\t\t\t#console-pane.expanded { position: fixed; inset: 0; z-index: 40; background: var(--background); padding: 0; }\n\t\t\t#terminal-wrap { flex: 1; min-height: 0; position: relative; overflow: hidden; }\n\t\t\t#terminal { height: 100%; }\n\t\t\t/* The tab group and its panes carry the pane's height down to the\n\t\t\t   terminal and the video, both of which measure themselves against\n\t\t\t   their container. flex-1 rather than height:100% because the group\n\t\t\t   is itself a flex item and only its parent has a definite height;\n\t\t\t   min-height:0 is what lets it shrink below its content instead of\n\t\t\t   overflowing the viewport. */\n\t\t\t#console-tabs { flex: 1; min-height: 0; height: 100%; }\n\t\t\t#console-tabs [data-tui-tabs-content] { min-height: 0; }\n\t\t</style>      ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<link rel=\"stylesheet\" href=\"/css/xterm.min.css\"><style>\n\t\t\t/* The tab group and its panes carry the pane's height down to the\n\t\t\t   terminal and the video, both of which measure themselves against\n\t\t\t   their container. flex-1 rather than height:100% because the group\n\t\t\t   is itself a flex item and only its parent has a definite height;\n\t\t\t   min-height:0 is what lets it shrink below its content instead of\n\t\t\t   overflowing the viewport. */\n\t\t\t#console-tabs { flex: 1; min-height: 0; height: 100%; }\n\t\t\t#console-tabs [data-tui-tabs-content] { min-height: 0; }\n\t\t</style>      ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -185,7 +185,7 @@ func Home(m HomeModel, log *slog.Logger) templ.Component {
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</div></div> <div class=\"flex-1 min-h-0 p-2\">")
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</div></div>  <div class=\"flex-1 min-h-0 p-2\">")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
@@ -223,15 +223,7 @@ func Home(m HomeModel, log *slog.Logger) templ.Component {
 								}()
 							}
 							ctx = templ.InitializeContext(ctx)
-							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<div id=\"console-pane\">")
-							if templ_7745c5c3_Err != nil {
-								return templ_7745c5c3_Err
-							}
-							templ_7745c5c3_Err = components.ConsoleToolbar().Render(ctx, templ_7745c5c3_Buffer)
-							if templ_7745c5c3_Err != nil {
-								return templ_7745c5c3_Err
-							}
-							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<div id=\"terminal-wrap\" class=\"border border-t-0 border-border bg-background rounded-b-md\"><div id=\"terminal\"></div></div></div>")
+							templ_7745c5c3_Err = components.ConsolePanel(m.Console).Render(ctx, templ_7745c5c3_Buffer)
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
@@ -241,7 +233,7 @@ func Home(m HomeModel, log *slog.Logger) templ.Component {
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</div>")
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div>")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
@@ -265,7 +257,7 @@ func Home(m HomeModel, log *slog.Logger) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, " ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, " ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -273,7 +265,7 @@ func Home(m HomeModel, log *slog.Logger) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "      ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "      ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -317,7 +309,7 @@ func Home(m HomeModel, log *slog.Logger) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -325,7 +317,7 @@ func Home(m HomeModel, log *slog.Logger) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "   ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "   ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -333,7 +325,7 @@ func Home(m HomeModel, log *slog.Logger) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -341,7 +333,7 @@ func Home(m HomeModel, log *slog.Logger) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -349,7 +341,7 @@ func Home(m HomeModel, log *slog.Logger) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "   ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "   ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -404,7 +396,7 @@ func consoleTabsScript() templ.Component {
 			templ_7745c5c3_Var10 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<script>\n\t\t(function () {\n\t\t\tlet current = null;\n\n\t\t\tfunction activeTab() {\n\t\t\t\tconst t = document.querySelector('[data-tui-tabs-trigger][data-tui-tabs-id=\"console-tabs\"][data-active]');\n\t\t\t\treturn t ? t.getAttribute('data-tui-tabs-value') : null;\n\t\t\t}\n\n\t\t\tfunction sync() {\n\t\t\t\tconst next = activeTab();\n\t\t\t\tif (!next || next === current) return;\n\t\t\t\tconst prev = current;\n\t\t\t\tcurrent = next;\n\n\t\t\t\tif (prev === 'hdmi') window.onVideoTabHidden?.();\n\n\t\t\t\tif (next === 'hdmi') {\n\t\t\t\t\twindow.onVideoTabShown?.();\n\t\t\t\t} else if (next === 'serial') {\n\t\t\t\t\t// The terminal was laid out against a zero-height box while\n\t\t\t\t\t// hidden; refit now that it has real dimensions.\n\t\t\t\t\twindow.fitTerminal?.();\n\t\t\t\t}\n\t\t\t}\n\n\t\t\t// tabs.js handles the click and flips the attributes; this runs\n\t\t\t// after it on the same event, reading the state it just set.\n\t\t\tdocument.addEventListener('click', (e) => {\n\t\t\t\tif (!e.target.closest('[data-tui-tabs-trigger][data-tui-tabs-id=\"console-tabs\"]')) return;\n\t\t\t\tsetTimeout(sync, 0);\n\t\t\t});\n\n\t\t\tdocument.addEventListener('DOMContentLoaded', () => setTimeout(sync, 0));\n\t\t})();\n\t</script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<script>\n\t\t(function () {\n\t\t\tlet current = null;\n\n\t\t\tfunction activeTab() {\n\t\t\t\tconst t = document.querySelector('[data-tui-tabs-trigger][data-tui-tabs-id=\"console-tabs\"][data-active]');\n\t\t\t\treturn t ? t.getAttribute('data-tui-tabs-value') : null;\n\t\t\t}\n\n\t\t\tfunction sync() {\n\t\t\t\tconst next = activeTab();\n\t\t\t\tif (!next || next === current) return;\n\t\t\t\tconst prev = current;\n\t\t\t\tcurrent = next;\n\n\t\t\t\tif (prev === 'hdmi') window.onVideoTabHidden?.();\n\n\t\t\t\tif (next === 'hdmi') {\n\t\t\t\t\twindow.onVideoTabShown?.();\n\t\t\t\t} else if (next === 'serial') {\n\t\t\t\t\t// The terminal was laid out against a zero-height box while\n\t\t\t\t\t// hidden; refit now that it has real dimensions.\n\t\t\t\t\twindow.fitTerminal?.();\n\t\t\t\t}\n\t\t\t}\n\n\t\t\t// tabs.js handles the click and flips the attributes; this runs\n\t\t\t// after it on the same event, reading the state it just set.\n\t\t\tdocument.addEventListener('click', (e) => {\n\t\t\t\tif (!e.target.closest('[data-tui-tabs-trigger][data-tui-tabs-id=\"console-tabs\"]')) return;\n\t\t\t\tsetTimeout(sync, 0);\n\t\t\t});\n\n\t\t\tdocument.addEventListener('DOMContentLoaded', () => setTimeout(sync, 0));\n\t\t})();\n\t</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -435,7 +427,7 @@ func xtermScripts() templ.Component {
 			templ_7745c5c3_Var11 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<script src=\"/js/xterm.min.js\"></script><script src=\"/js/xterm-addon-fit.min.js\"></script><script src=\"/js/xterm-addon-attach.min.js\"></script><script src=\"/js/xterm-addon-search.min.js\"></script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<script src=\"/js/xterm.min.js\"></script><script src=\"/js/xterm-addon-fit.min.js\"></script><script src=\"/js/xterm-addon-attach.min.js\"></script><script src=\"/js/xterm-addon-search.min.js\"></script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -516,7 +508,7 @@ func consoleViewSwitch() templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, " <span>HDMI</span>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, " <span>HDMI</span>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -529,7 +521,7 @@ func consoleViewSwitch() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, " ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, " ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -561,7 +553,7 @@ func consoleViewSwitch() templ.Component {
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, " <span>Serial Console</span>")
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, " <span>Serial Console</span>")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
@@ -574,7 +566,7 @@ func consoleViewSwitch() templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "    ")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "    ")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -582,7 +574,7 @@ func consoleViewSwitch() templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, " ")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, " ")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -631,7 +623,7 @@ func consoleViewSwitch() templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -647,7 +639,7 @@ func consoleViewSwitch() templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "  ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "  ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -667,7 +659,7 @@ func consoleViewSwitch() templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, " BMC Terminal")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, " BMC Terminal")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}

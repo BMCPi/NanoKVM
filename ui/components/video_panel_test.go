@@ -197,3 +197,13 @@ func TestOnlyTheDisconnectedStatusStartsVisible(t *testing.T) {
 		}
 	}
 }
+
+// The mat around the picture is where the frame's shadow and ring can be
+// seen at all; the stage keeps real padding rather than butting the frame
+// against the pane's edge.
+func TestVideoStageHasBreathingRoom(t *testing.T) {
+	stage := regexp.MustCompile(`<div[^>]*id="video-stage"[^>]*>`).FindString(renderVideoPanel(t))
+	if !strings.Contains(stage, "p-4") {
+		t.Errorf("video stage lacks p-4\ngot: %s", stage)
+	}
+}

@@ -47,6 +47,7 @@ func Routes(r *gin.RouterGroup, d *deps.Deps) {
 
 	overviewFragmentRoutes(frag, h)
 	powerFragmentRoutes(frag, h)
+	consoleFragmentRoutes(frag)
 	settingsFragmentRoutes(frag, h)
 	mediaFragmentRoutes(frag, h)
 	metricsFragmentRoutes(frag, d)

@@ -1,0 +1,60 @@
+package components
+
+// ConsolePanel is the serial view, built to the same plan as VideoPanel: a
+// stage that owns the tab's space and centers a framed box in it, with the
+// chrome inside the frame. The frame is the console — the header strip on
+// top, the terminal on a black mat below — rather than a bar floating over a
+// bare terminal, so expand, fullscreen and the resizable split all move one
+// box, and the shadow and ring read the same way they do around the video.
+//
+// The ids are load-bearing: console_script.templ toggles `expanded` on
+// #console-pane, fits xterm inside #terminal and swaps the status badges and
+// connect buttons by id; the tab strip refits the terminal when this pane
+// comes to the front.
+templ ConsolePanel(m ConsoleModel) {
+	@consolePanelStyles()
+	<div id="console-pane" class="flex h-full min-h-0 flex-col">
+		// The stage mirrors #video-stage: the pane's mat, bg-background like
+		// every other surface, centering whatever it holds. More padding than
+		// the video's because a terminal has no picture edge of its own — the
+		// margin is what separates the console from the pane's chrome.
+		<div id="console-stage" class="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-background p-4 sm:p-6">
+			// The frame mirrors #video-frame's chrome. Unlike the video's it
+			// has no aspect to keep, so it fills the stage's height and is
+			// capped in width instead: on a wide split a terminal hundreds of
+			// columns across is not more useful, and the cap is what lets the
+			// stage's centering show.
+			<div id="console-frame" class="flex h-full w-full max-w-7xl min-h-0 flex-col overflow-hidden rounded-lg bg-black shadow-2xl ring-1 ring-white/10">
+				@ConsoleToolbar(m)
+				// The mat: padding around the terminal so its first column and
+				// row are not welded to the frame's edge. It is on this wrapper
+				// and not on #terminal-box because xterm's fit addon measures
+				// the terminal's PARENT and subtracts only the terminal's own
+				// padding — padding on the parent is counted as room for rows
+				// that the box then clips (see TestTerminalParentCarriesNoPadding).
+				<div id="terminal-wrap" class="relative min-h-0 flex-1 overflow-hidden bg-black p-3">
+					<div id="terminal-box" class="relative h-full min-h-0 overflow-hidden">
+						<div id="terminal"></div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+}
+
+templ consolePanelStyles() {
+	<style>
+		#terminal { height: 100%; }
+
+		/* Expanded takes the whole viewport, matching #video-pane.expanded so
+		   the two tabs behave the same way. The stage inside keeps centering
+		   the frame, so the console grows into the space the way the video
+		   does rather than snapping to the viewport's corners. */
+		#console-pane.expanded {
+			position: fixed;
+			inset: 0;
+			z-index: 40;
+			background: var(--background);
+		}
+	</style>
+}

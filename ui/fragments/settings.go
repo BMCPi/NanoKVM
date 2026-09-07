@@ -293,6 +293,9 @@ func (h *handlers) patchSerial(c *gin.Context) {
 		slog.String("device", s.Device), slog.Int("baudRate", s.BaudRate),
 		slog.Int("dataBits", s.DataBits), slog.String("parity", s.Parity), slog.Int("stopBits", s.StopBits))
 	hxToast(c, "success", "Serial settings saved", "The port was re-opened; reconnect the console.")
+	// The dashboard's console header names this port and its framing; tell
+	// it to re-fetch (see consoleFragmentRoutes).
+	appendTrigger(c, map[string]any{"console-changed": nil})
 	renderFragment(c, components.SettingsSerialBody(serialModel()))
 }
 
@@ -487,6 +490,9 @@ func (h *handlers) postHardware(c *gin.Context) {
 			slog.Bool("on", wantConsole), slog.String("device", serial.ConsoleDevice()))
 		hxToast(c, "success", "USB Serial Console updated",
 			"The USB device re-enumerated and the console was re-opened on "+serial.ConsoleDevice()+".")
+		// The dashboard's console header names the port; tell it to re-fetch
+		// (see consoleFragmentRoutes).
+		appendTrigger(c, map[string]any{"console-changed": nil})
 	}
 
 	renderFragment(c, components.SettingsHardwareBody(hardwareModel(h.d)))
