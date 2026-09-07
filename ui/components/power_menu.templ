@@ -335,8 +335,8 @@ func powerToggleLabel(on bool) string {
 
 // powerActionProps is one cell of the power grid.
 type powerActionProps struct {
-	Action   string // posts to /ui/power/<Action>
-	Label    string
+	Action string // posts to /ui/power/<Action>
+	Label  string
 	Class  string           // tone only; the cell's layout classes are fixed
 	Attrs  templ.Attributes // hx-confirm et al. for destructive actions, title where the word needs one
 }
