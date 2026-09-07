@@ -7,6 +7,7 @@ package fragments
 // client over the SSE stream, not this response.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -18,13 +19,28 @@ import (
 	"github.com/pi-bmc/nanokvm-app/ui/components"
 )
 
-// powerActionLabels turns an action into the past-tense label used in the
-// success toast, e.g. "on" -> "Power on".
-var powerActionLabels = map[string]string{
-	"on":       "Power on",
-	"off":      "Power off",
-	"reset":    "Reset",
-	"forceoff": "Force off",
+// powerAction is one /ui/power/:action — the past-tense label for its toast,
+// e.g. "Power on", and the controller method that services it. One table
+// rather than a label map beside a switch, so an action cannot be known to
+// one and not the other, which would toast success for a request that did
+// nothing.
+type powerAction struct {
+	label string
+	run   func(*power.Controller, context.Context) error
+}
+
+// powerActions maps the menu's buttons to the controller. reset and
+// forcereset are the two resets of the board-agnostic design's §1 table:
+// reset follows the operator's power.reset policy (Restart — the dedicated
+// line where wired, as Redfish ForceRestart and IPMI hard reset do), while
+// forcereset is the unconditional force-off+repower (Reset — Redfish
+// PowerCycle, IPMI power cycle).
+var powerActions = map[string]powerAction{
+	"on":         {label: "Power on", run: (*power.Controller).PowerOn},
+	"off":        {label: "Power off", run: (*power.Controller).PowerOff},
+	"reset":      {label: "Reset", run: (*power.Controller).Restart},
+	"forceoff":   {label: "Force off", run: (*power.Controller).ForceOff},
+	"forcereset": {label: "Force reset", run: (*power.Controller).Reset},
 }
 
 func powerFragmentRoutes(g *gin.RouterGroup, h *handlers) {
@@ -53,14 +69,12 @@ func (h *handlers) getPowerBootOverride(c *gin.Context) {
 
 func (h *handlers) postPowerAction(c *gin.Context) {
 	action := c.Param("action")
-	label, ok := powerActionLabels[action]
+	a, ok := powerActions[action]
 	if !ok {
 		hxToast(c, "error", "Power action failed", fmt.Sprintf("unknown action %q", action))
 		c.Status(http.StatusBadRequest)
 		return
 	}
-
-	ctrl := h.d.Power
 
 	// Detached from the request: htmx aborts the in-flight fetch when the
 	// user navigates away, and that must not abandon a reset between its
@@ -68,33 +82,23 @@ func (h *handlers) postPowerAction(c *gin.Context) {
 	ctx, cancel := h.d.ActionContext(power.ActionTimeout)
 	defer cancel()
 
-	var err error
-	switch action {
-	case "on":
-		err = ctrl.PowerOn(ctx)
-	case "off":
-		err = ctrl.PowerOff(ctx)
-	case "forceoff":
-		err = ctrl.ForceOff(ctx)
-	case "reset":
-		err = ctrl.Restart(ctx)
-	}
-
-	if err != nil {
+	if err := a.run(h.d.Power, ctx); err != nil {
 		h.log.ErrorContext(c.Request.Context(), "ui: power action failed", slog.String("action", action), slog.Any("err", err))
 		msg := err.Error()
 		if errors.Is(err, power.ErrNoResetLine) {
-			// The reset control offered "Reset" (see resetActionLabel in
-			// power_menu.templ) because power.reset is "line", but the board
-			// wires no reset pin — an actionable message, not the raw sentinel
-			// text, and no silent power cycle substituted.
-			msg = "reset line not wired; use Power cycle, or set power.reset to auto or cycle"
+			// power.reset is "line" but the board wires no reset pin. The
+			// menu disables its Reset control for exactly this case (see
+			// powerActionGroup in power_menu.templ), so this is a stale page
+			// or a hand-made request — still an actionable message rather
+			// than the raw sentinel text, and no silent power cycle
+			// substituted.
+			msg = "reset line not wired; use Force reset, or set power.reset to auto or cycle"
 		}
-		hxToast(c, "error", label+" failed", msg)
+		hxToast(c, "error", a.label+" failed", msg)
 		c.Status(http.StatusConflict)
 		return
 	}
 
-	hxToast(c, "success", label, "")
+	hxToast(c, "success", a.label, "")
 	c.Status(http.StatusOK)
 }

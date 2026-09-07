@@ -34,26 +34,33 @@ func initialPowerState(ctx context.Context, ctrl *power.Controller) (on bool, kn
 	return s, err == nil
 }
 
-// resetIsLine reports whether the reset control's action will pulse the
+// resetIsLine reports whether the Reset control's action will pulse the
 // dedicated GPIO reset line rather than force-off+repower — i.e. whether
 // (*power.Controller).Restart will dispatch to the reset line for the
 // board's wiring and the operator's power.reset policy. Mirrors Restart's
 // own dispatch (see its doc comment): "line" and "auto" use the line when
-// wired, "cycle" never does.
+// wired, "cycle" never does. When false the control is disabled (see
+// powerActionGroup): Force reset is the grid's force-off+repower.
 func resetIsLine(ctrl *power.Controller, policy string) bool {
 	return ctrl.CanResetLine() && policy != config.PowerResetCycle
 }
 
-// resetActionLabel is the reset control's word choice: "Reset" when pressing
-// it will pulse the dedicated line, "Power cycle" when it will force-off and
-// repower instead — so the button always says what it will actually do
-// rather than a fixed word that is sometimes destructive to a running host.
-func resetActionLabel(line bool) string {
-	if line {
-		return "Reset"
+// resetUnavailableTitle is the disabled Reset control's tooltip: why it
+// cannot pulse the line, and which cell does the job instead.
+const resetUnavailableTitle = "The reset line is not wired, or power.reset is set to cycle. Use Force reset to power-cycle the host."
+
+// resetControlAttrs is the Reset cell's extra attributes: the reason it is
+// disabled when it is, nothing when it is live.
+func resetControlAttrs(resetLine bool) templ.Attributes {
+	if resetLine {
+		return nil
 	}
-	return "Power cycle"
+	return templ.Attributes{"title": resetUnavailableTitle}
 }
+
+// destructiveActionClass is the tone shared by the two forced actions, which
+// both cut a possibly running host's power.
+const destructiveActionClass = "text-destructive hover:text-destructive"
 
 // PowerMenu is the navbar power-state pill and the dropdown holding power
 // actions + boot-device override. Actions are htmx posts to /ui/power/…;
@@ -71,9 +78,9 @@ templ PowerMenu() {
 	// Read once at the top: the pill and the power toggle must agree, and
 	// both are painted from this single answer.
 	{{ pwrOn, pwrKnown := initialPowerState(ctx, deps.FromContext(ctx).Power) }}
-	// Also read once: the reset control's label depends on wiring and the
-	// operator's power.reset policy, neither of which changes over the
-	// dropdown's lifetime, so there is no SSE fragment for it (contrast
+	// Also read once: whether the Reset control is enabled depends on wiring
+	// and the operator's power.reset policy, neither of which changes over
+	// the dropdown's lifetime, so there is no SSE fragment for it (contrast
 	// PowerPill/PowerToggleBtn, which do change on every transition).
 	{{ resetLine := resetIsLine(deps.FromContext(ctx).Power, deps.FromContext(ctx).Config.Power.Reset) }}
 	@dropdownmenu.DropdownMenu() {
@@ -97,10 +104,10 @@ templ PowerMenu() {
 			</span>
 			@icon.ChevronDown()
 		}
-		// Wide enough for the power group's intrinsic width: three labelled
-		// buttons welded in a row do not compress, and a narrower panel
-		// clipped "Force Off" off its right edge. Labels stay rather than
-		// collapsing to icons because the destructive one has to be
+		// Wide enough for two labelled power cells side by side (the grid's
+		// widest row is "Force Off" beside "Force reset", icons included)
+		// and for the boot-override row's welded group. Labels stay rather
+		// than collapsing to icons because the destructive ones have to be
 		// unambiguous. panel-fit caps the height only, so the viewport cap
 		// here is what keeps the panel on screen on a phone.
 		@dropdownmenu.Content(dropdownmenu.ContentProps{Class: "w-[26rem] max-w-[calc(100vw-1.5rem)] panel-fit"}) {
@@ -188,56 +195,83 @@ func powerLabel(on, known bool) string {
 	}
 }
 
-// powerActionGroup is the three power controls, welded into one group.
+// powerActionGroup is the four power controls in a two-column grid — power
+// on the left, reset on the right; the plain action on top, the forced one
+// beneath it, so Force reset is the last cell:
+//
+//	[ Power On/Off ]  [ Reset       ]
+//	[ Force Off    ]  [ Force reset ]
 //
 // Power on and power off are one button rather than two, because they are not
 // two things an operator chooses between: exactly one of them is meaningful
 // at any moment, and the other would either be a no-op or a mistake. Which
 // one it is comes from the same source as the navbar pill — the GPIO power
 // LED — so the button and the pill can never disagree.
+//
+// Reset and Force reset are two buttons because they are two things (the
+// board-agnostic design's §1 table). Reset follows the operator's power.reset
+// policy and pulses the dedicated line — Redfish ForceRestart, IPMI hard
+// reset. Force reset is the unconditional force-off+repower — Redfish
+// PowerCycle, IPMI power cycle — so it is destructive to a running host and
+// confirmed like Force Off. When wiring or policy would make Reset
+// force-off+repower as well, it is disabled with the reason as its title
+// rather than relabelled: a second button that cuts the host's power under a
+// different name is a trap, and a button reading "Reset" must never do that
+// silently.
 templ powerActionGroup(on bool, resetLine bool) {
-	// hx-ext/sse-connect live on the group itself, not on PowerMenu: this
+	// hx-ext/sse-connect live on the grid itself, not on PowerMenu: this
 	// whole fragment is portaled to <body> in one piece (see PowerMenu's
 	// doc comment), so the connection has to originate from inside the
 	// portaled subtree to still be reachable afterward.
 	//
 	// sse-swap/hx-target/hx-swap redirect the update at #power-toggle
-	// instead of letting it land on the group: sse-swap defaults to
-	// innerHTML, which would swap the toggle's own rendered <button> inside
-	// itself. hx-swap=outerHTML replaces the toggle wholesale instead, which
-	// also keeps it a direct child of this group — required for
-	// orientationClasses' sibling-selector welding (buttongroup.templ) to
-	// keep treating it as a welded member instead of an unwelded stray.
-	@buttongroup.ButtonGroup(buttongroup.Props{
-		Class: "w-full",
-		Attributes: templ.Attributes{
-			"hx-ext":      "sse",
-			"sse-connect": "/ui/power/events",
-			"sse-swap":    "powertoggle",
-			"hx-target":   "#" + powerToggleID,
-			"hx-swap":     "outerHTML",
-		},
-	}) {
+	// instead of letting it land on the grid: sse-swap defaults to
+	// innerHTML, which would replace all four cells with the toggle alone.
+	// hx-swap=outerHTML replaces the toggle wholesale, in its own cell.
+	<div
+		class="grid grid-cols-2 gap-2"
+		hx-ext="sse"
+		sse-connect="/ui/power/events"
+		sse-swap="powertoggle"
+		hx-target={ "#" + powerToggleID }
+		hx-swap="outerHTML"
+	>
 		@PowerToggleBtn(on)
-		// Welding drops the left border of every button after the first, so
-		// without these three destructive-adjacent targets share one unbroken
-		// outline. On this row that is worth more than tidiness: Force Off
-		// sits next to the reset control (labelled "Reset" or "Power cycle" —
-		// see resetActionLabel — depending on wiring and policy).
-		@buttongroup.Separator()
-		@powerActionBtn("reset", resetActionLabel(resetLine), "", nil) {
+		@powerActionBtn(powerActionProps{
+			Action:   "reset",
+			Label:    "Reset",
+			Disabled: !resetLine,
+			Attrs:    resetControlAttrs(resetLine),
+		}) {
 			@icon.RefreshCw()
 		}
-		@buttongroup.Separator()
-		@powerActionBtn("forceoff", "Force Off", "text-destructive hover:text-destructive", templ.Attributes{
-			"hx-confirm":               "The host loses power immediately without a clean shutdown.",
-			"data-confirm-title":       "Force power off?",
-			"data-confirm-label":       "Force Off",
-			"data-confirm-destructive": true,
+		@powerActionBtn(powerActionProps{
+			Action: "forceoff",
+			Label:  "Force Off",
+			Class:  destructiveActionClass,
+			Attrs: templ.Attributes{
+				"hx-confirm":               "The host loses power immediately without a clean shutdown.",
+				"data-confirm-title":       "Force power off?",
+				"data-confirm-label":       "Force Off",
+				"data-confirm-destructive": true,
+			},
 		}) {
 			@icon.CircleX()
 		}
-	}
+		@powerActionBtn(powerActionProps{
+			Action: "forcereset",
+			Label:  "Force reset",
+			Class:  destructiveActionClass,
+			Attrs: templ.Attributes{
+				"hx-confirm":               "The host loses power immediately without a clean shutdown, then powers back on.",
+				"data-confirm-title":       "Force reset?",
+				"data-confirm-label":       "Force reset",
+				"data-confirm-destructive": true,
+			},
+		}) {
+			@icon.RotateCcw()
+		}
+	</div>
 }
 
 // PowerToggleBtn is the on/off half of the group. Exported so the SSE stream
@@ -257,7 +291,7 @@ templ PowerToggleBtn(on bool) {
 		ID:      powerToggleID,
 		Variant: button.VariantOutline,
 		Size:    button.SizeSm,
-		Class:   "flex-1 gap-2",
+		Class:   "w-full gap-2",
 		Attributes: templ.Attributes{
 			"hx-post":         powerTogglePath(on),
 			"hx-swap":         "none",
@@ -302,21 +336,30 @@ func powerToggleLabel(on bool) string {
 	return "Power On"
 }
 
-// powerActionBtn renders one power action in the group; extra carries the
-// hx-confirm attributes for destructive actions.
-templ powerActionBtn(action, label, class string, extra templ.Attributes) {
+// powerActionProps is one cell of the power grid.
+type powerActionProps struct {
+	Action   string // posts to /ui/power/<Action>
+	Label    string
+	Class    string // tone only; the cell's layout classes are fixed
+	Disabled bool
+	Attrs    templ.Attributes // hx-confirm et al. for destructive actions, title for a disabled one
+}
+
+// powerActionBtn renders one power action cell.
+templ powerActionBtn(p powerActionProps) {
 	@button.Button(button.Props{
-		Variant: button.VariantOutline,
-		Size:    button.SizeSm,
-		Class:   "flex-1 gap-2 " + class,
+		Variant:  button.VariantOutline,
+		Size:     button.SizeSm,
+		Class:    "w-full gap-2 " + p.Class,
+		Disabled: p.Disabled,
 		Attributes: utils.MergeAttributes(templ.Attributes{
-			"hx-post":         "/ui/power/" + action,
+			"hx-post":         "/ui/power/" + p.Action,
 			"hx-swap":         "none",
 			"hx-disabled-elt": "this",
-		}, extra),
+		}, p.Attrs),
 	}) {
 		{ children... }
-		<span>{ label }</span>
+		<span>{ p.Label }</span>
 	}
 }
 

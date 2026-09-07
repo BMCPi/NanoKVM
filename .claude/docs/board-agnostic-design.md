@@ -62,12 +62,15 @@ Dispatch — all three tables change consistently:
 | Redfish `PowerCycle` | force-off + repower (always) | same |
 | IPMI chassis control `power cycle` | force-off + repower | same |
 | IPMI chassis control `hard reset` | reset-line pulse | force-off + repower |
-| UI reset control | follows ForceRestart | same |
+| UI `Reset` control | reset-line pulse (follows ForceRestart) | disabled |
+| UI `Force reset` control | force-off + repower (always) | same |
 
 `ResetType@Redfish.AllowableValues` always lists both `ForceRestart` and
 `PowerCycle`; the table above defines what each does on the given wiring.
-The UI labels the reset control "Reset" vs "Power cycle" according to what
-it will actually do.
+The UI's power grid carries both resets: `Reset` always reads "Reset" and is
+disabled, with the reason as its title, whenever pressing it would
+force-off+repower — `Force reset` is the one control that does that, on every
+board and under every policy.
 
 ## 2. Host-authoritative BIOS vocabulary
 
